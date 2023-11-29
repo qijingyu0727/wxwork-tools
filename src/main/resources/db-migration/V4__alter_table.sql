@@ -1,0 +1,1 @@
+alter table archive_msg_info add `from` varchar(50);

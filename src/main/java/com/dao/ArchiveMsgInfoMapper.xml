@@ -1,32 +1,33 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
-<mapper namespace="com.dao.ArchiveMsgInfoMapper" >
-  <resultMap id="BaseResultMap" type="com.model.ArchiveMsgInfo" >
-    <id column="seq" property="seq" jdbcType="INTEGER" />
-    <result column="publickey_ver" property="publickeyVer" jdbcType="INTEGER" />
-    <result column="room_id" property="roomId" jdbcType="VARCHAR" />
-    <result column="msg_time" property="msgTime" jdbcType="BIGINT" />
-    <result column="context" property="context" jdbcType="VARCHAR" />
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dao.ArchiveMsgInfoMapper">
+  <resultMap id="BaseResultMap" type="com.model.ArchiveMsgInfo">
+    <id column="seq" jdbcType="INTEGER" property="seq" />
+    <result column="publickey_ver" jdbcType="INTEGER" property="publickeyVer" />
+    <result column="room_id" jdbcType="VARCHAR" property="roomId" />
+    <result column="msg_time" jdbcType="BIGINT" property="msgTime" />
+    <result column="context" jdbcType="VARCHAR" property="context" />
+    <result column="from" jdbcType="VARCHAR" property="from" />
   </resultMap>
-  <sql id="Example_Where_Clause" >
-    <where >
-      <foreach collection="oredCriteria" item="criteria" separator="or" >
-        <if test="criteria.valid" >
-          <trim prefix="(" suffix=")" prefixOverrides="and" >
-            <foreach collection="criteria.criteria" item="criterion" >
-              <choose >
-                <when test="criterion.noValue" >
+  <sql id="Example_Where_Clause">
+    <where>
+      <foreach collection="oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
                   and ${criterion.condition}
                 </when>
-                <when test="criterion.singleValue" >
+                <when test="criterion.singleValue">
                   and ${criterion.condition} #{criterion.value}
                 </when>
-                <when test="criterion.betweenValue" >
+                <when test="criterion.betweenValue">
                   and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
                 </when>
-                <when test="criterion.listValue" >
+                <when test="criterion.listValue">
                   and ${criterion.condition}
-                  <foreach collection="criterion.value" item="listItem" open="(" close=")" separator="," >
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
                     #{listItem}
                   </foreach>
                 </when>
@@ -37,25 +38,25 @@
       </foreach>
     </where>
   </sql>
-  <sql id="Update_By_Example_Where_Clause" >
-    <where >
-      <foreach collection="example.oredCriteria" item="criteria" separator="or" >
-        <if test="criteria.valid" >
-          <trim prefix="(" suffix=")" prefixOverrides="and" >
-            <foreach collection="criteria.criteria" item="criterion" >
-              <choose >
-                <when test="criterion.noValue" >
+  <sql id="Update_By_Example_Where_Clause">
+    <where>
+      <foreach collection="example.oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
                   and ${criterion.condition}
                 </when>
-                <when test="criterion.singleValue" >
+                <when test="criterion.singleValue">
                   and ${criterion.condition} #{criterion.value}
                 </when>
-                <when test="criterion.betweenValue" >
+                <when test="criterion.betweenValue">
                   and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
                 </when>
-                <when test="criterion.listValue" >
+                <when test="criterion.listValue">
                   and ${criterion.condition}
-                  <foreach collection="criterion.value" item="listItem" open="(" close=")" separator="," >
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
                     #{listItem}
                   </foreach>
                 </when>
@@ -66,141 +67,364 @@
       </foreach>
     </where>
   </sql>
-  <sql id="Base_Column_List" >
-    seq, publickey_ver, room_id, msg_time, context
+  <sql id="Base_Column_List">
+    seq, publickey_ver, room_id, msg_time, context, from
   </sql>
-  <select id="selectByExample" resultMap="BaseResultMap" parameterType="com.model.ArchiveMsgInfoExample" >
+  <select id="selectByExample" parameterType="com.model.ArchiveMsgInfoExample" resultMap="BaseResultMap">
     select
-    <if test="distinct" >
+    <if test="distinct">
       distinct
     </if>
     <include refid="Base_Column_List" />
     from archive_msg_info
-    <if test="_parameter != null" >
+    <if test="_parameter != null">
       <include refid="Example_Where_Clause" />
     </if>
-    <if test="orderByClause != null" >
+    <if test="orderByClause != null">
       order by ${orderByClause}
     </if>
   </select>
-  <select id="selectByPrimaryKey" resultMap="BaseResultMap" parameterType="java.lang.Integer" >
+  <select id="selectByPrimaryKey" parameterType="java.lang.Integer" resultMap="BaseResultMap">
     select 
     <include refid="Base_Column_List" />
     from archive_msg_info
     where seq = #{seq,jdbcType=INTEGER}
   </select>
-  <delete id="deleteByPrimaryKey" parameterType="java.lang.Integer" >
+  <delete id="deleteByPrimaryKey" parameterType="java.lang.Integer">
     delete from archive_msg_info
     where seq = #{seq,jdbcType=INTEGER}
   </delete>
-  <delete id="deleteByExample" parameterType="com.model.ArchiveMsgInfoExample" >
+  <delete id="deleteByExample" parameterType="com.model.ArchiveMsgInfoExample">
     delete from archive_msg_info
-    <if test="_parameter != null" >
+    <if test="_parameter != null">
       <include refid="Example_Where_Clause" />
     </if>
   </delete>
-  <insert id="insert" parameterType="com.model.ArchiveMsgInfo" >
+  <insert id="insert" parameterType="com.model.ArchiveMsgInfo">
+    insert into archive_msg_info (seq, publickey_ver, room_id, 
+      msg_time, context, from
+      )
+    values (#{seq,jdbcType=INTEGER}, #{publickeyVer,jdbcType=INTEGER}, #{roomId,jdbcType=VARCHAR}, 
+      #{msgTime,jdbcType=BIGINT}, #{context,jdbcType=VARCHAR}, #{from,jdbcType=VARCHAR}
+      )
+  </insert>
+  <insert id="insertSelective" parameterType="com.model.ArchiveMsgInfo">
+    insert into archive_msg_info
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      <if test="seq != null">
+        seq,
+      </if>
+      <if test="publickeyVer != null">
+        publickey_ver,
+      </if>
+      <if test="roomId != null">
+        room_id,
+      </if>
+      <if test="msgTime != null">
+        msg_time,
+      </if>
+      <if test="context != null">
+        context,
+      </if>
+      <if test="from != null">
+        from,
+      </if>
+    </trim>
+    <trim prefix="values (" suffix=")" suffixOverrides=",">
+      <if test="seq != null">
+        #{seq,jdbcType=INTEGER},
+      </if>
+      <if test="publickeyVer != null">
+        #{publickeyVer,jdbcType=INTEGER},
+      </if>
+      <if test="roomId != null">
+        #{roomId,jdbcType=VARCHAR},
+      </if>
+      <if test="msgTime != null">
+        #{msgTime,jdbcType=BIGINT},
+      </if>
+      <if test="context != null">
+        #{context,jdbcType=VARCHAR},
+      </if>
+      <if test="from != null">
+        #{from,jdbcType=VARCHAR},
+      </if>
+    </trim>
+  </insert>
+  <select id="countByExample" parameterType="com.model.ArchiveMsgInfoExample" resultType="java.lang.Integer">
+    select count(*) from archive_msg_info
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+  </select>
+  <update id="updateByExampleSelective" parameterType="map">
+    update archive_msg_info
+    <set>
+      <if test="record.seq != null">
+        seq = #{record.seq,jdbcType=INTEGER},
+      </if>
+      <if test="record.publickeyVer != null">
+        publickey_ver = #{record.publickeyVer,jdbcType=INTEGER},
+      </if>
+      <if test="record.roomId != null">
+        room_id = #{record.roomId,jdbcType=VARCHAR},
+      </if>
+      <if test="record.msgTime != null">
+        msg_time = #{record.msgTime,jdbcType=BIGINT},
+      </if>
+      <if test="record.context != null">
+        context = #{record.context,jdbcType=VARCHAR},
+      </if>
+      <if test="record.from != null">
+        from = #{record.from,jdbcType=VARCHAR},
+      </if>
+    </set>
+    <if test="_parameter != null">
+      <include refid="Update_By_Example_Where_Clause" />
+    </if>
+  </update>
+  <update id="updateByExample" parameterType="map">
+    update archive_msg_info
+    set seq = #{record.seq,jdbcType=INTEGER},
+      publickey_ver = #{record.publickeyVer,jdbcType=INTEGER},
+      room_id = #{record.roomId,jdbcType=VARCHAR},
+      msg_time = #{record.msgTime,jdbcType=BIGINT},
+      context = #{record.context,jdbcType=VARCHAR},
+      from = #{record.from,jdbcType=VARCHAR}
+    <if test="_parameter != null">
+      <include refid="Update_By_Example_Where_Clause" />
+    </if>
+  </update>
+  <update id="updateByPrimaryKeySelective" parameterType="com.model.ArchiveMsgInfo">
+    update archive_msg_info
+    <set>
+      <if test="publickeyVer != null">
+        publickey_ver = #{publickeyVer,jdbcType=INTEGER},
+      </if>
+      <if test="roomId != null">
+        room_id = #{roomId,jdbcType=VARCHAR},
+      </if>
+      <if test="msgTime != null">
+        msg_time = #{msgTime,jdbcType=BIGINT},
+      </if>
+      <if test="context != null">
+        context = #{context,jdbcType=VARCHAR},
+      </if>
+      <if test="from != null">
+        from = #{from,jdbcType=VARCHAR},
+      </if>
+    </set>
+    where seq = #{seq,jdbcType=INTEGER}
+  </update>
+  <update id="updateByPrimaryKey" parameterType="com.model.ArchiveMsgInfo">
+    update archive_msg_info
+    set publickey_ver = #{publickeyVer,jdbcType=INTEGER},
+      room_id = #{roomId,jdbcType=VARCHAR},
+      msg_time = #{msgTime,jdbcType=BIGINT},
+      context = #{context,jdbcType=VARCHAR},
+      from = #{from,jdbcType=VARCHAR}
+    where seq = #{seq,jdbcType=INTEGER}
+  </update>
+  <resultMap id="BaseResultMap" type="com.model.ArchiveMsgInfo">
+    <id column="seq" jdbcType="INTEGER" property="seq" />
+    <result column="publickey_ver" jdbcType="INTEGER" property="publickeyVer" />
+    <result column="room_id" jdbcType="VARCHAR" property="roomId" />
+    <result column="msg_time" jdbcType="BIGINT" property="msgTime" />
+    <result column="context" jdbcType="VARCHAR" property="context" />
+  </resultMap>
+  <sql id="Example_Where_Clause">
+    <where>
+      <foreach collection="oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
+                  and ${criterion.condition}
+                </when>
+                <when test="criterion.singleValue">
+                  and ${criterion.condition} #{criterion.value}
+                </when>
+                <when test="criterion.betweenValue">
+                  and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
+                </when>
+                <when test="criterion.listValue">
+                  and ${criterion.condition}
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
+                    #{listItem}
+                  </foreach>
+                </when>
+              </choose>
+            </foreach>
+          </trim>
+        </if>
+      </foreach>
+    </where>
+  </sql>
+  <sql id="Update_By_Example_Where_Clause">
+    <where>
+      <foreach collection="example.oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
+                  and ${criterion.condition}
+                </when>
+                <when test="criterion.singleValue">
+                  and ${criterion.condition} #{criterion.value}
+                </when>
+                <when test="criterion.betweenValue">
+                  and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
+                </when>
+                <when test="criterion.listValue">
+                  and ${criterion.condition}
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
+                    #{listItem}
+                  </foreach>
+                </when>
+              </choose>
+            </foreach>
+          </trim>
+        </if>
+      </foreach>
+    </where>
+  </sql>
+  <sql id="Base_Column_List">
+    seq, publickey_ver, room_id, msg_time, context
+  </sql>
+  <select id="selectByExample" parameterType="com.model.ArchiveMsgInfoExample" resultMap="BaseResultMap">
+    select
+    <if test="distinct">
+      distinct
+    </if>
+    <include refid="Base_Column_List" />
+    from archive_msg_info
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+    <if test="orderByClause != null">
+      order by ${orderByClause}
+    </if>
+  </select>
+  <select id="selectByPrimaryKey" parameterType="java.lang.Integer" resultMap="BaseResultMap">
+    select 
+    <include refid="Base_Column_List" />
+    from archive_msg_info
+    where seq = #{seq,jdbcType=INTEGER}
+  </select>
+  <delete id="deleteByPrimaryKey" parameterType="java.lang.Integer">
+    delete from archive_msg_info
+    where seq = #{seq,jdbcType=INTEGER}
+  </delete>
+  <delete id="deleteByExample" parameterType="com.model.ArchiveMsgInfoExample">
+    delete from archive_msg_info
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+  </delete>
+  <insert id="insert" parameterType="com.model.ArchiveMsgInfo">
     insert into archive_msg_info (seq, publickey_ver, room_id, 
       msg_time, context)
     values (#{seq,jdbcType=INTEGER}, #{publickeyVer,jdbcType=INTEGER}, #{roomId,jdbcType=VARCHAR}, 
       #{msgTime,jdbcType=BIGINT}, #{context,jdbcType=VARCHAR})
   </insert>
-  <insert id="insertSelective" parameterType="com.model.ArchiveMsgInfo" >
+  <insert id="insertSelective" parameterType="com.model.ArchiveMsgInfo">
     insert into archive_msg_info
-    <trim prefix="(" suffix=")" suffixOverrides="," >
-      <if test="seq != null" >
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      <if test="seq != null">
         seq,
       </if>
-      <if test="publickeyVer != null" >
+      <if test="publickeyVer != null">
         publickey_ver,
       </if>
-      <if test="roomId != null" >
+      <if test="roomId != null">
         room_id,
       </if>
-      <if test="msgTime != null" >
+      <if test="msgTime != null">
         msg_time,
       </if>
-      <if test="context != null" >
+      <if test="context != null">
         context,
       </if>
     </trim>
-    <trim prefix="values (" suffix=")" suffixOverrides="," >
-      <if test="seq != null" >
+    <trim prefix="values (" suffix=")" suffixOverrides=",">
+      <if test="seq != null">
         #{seq,jdbcType=INTEGER},
       </if>
-      <if test="publickeyVer != null" >
+      <if test="publickeyVer != null">
         #{publickeyVer,jdbcType=INTEGER},
       </if>
-      <if test="roomId != null" >
+      <if test="roomId != null">
         #{roomId,jdbcType=VARCHAR},
       </if>
-      <if test="msgTime != null" >
+      <if test="msgTime != null">
         #{msgTime,jdbcType=BIGINT},
       </if>
-      <if test="context != null" >
+      <if test="context != null">
         #{context,jdbcType=VARCHAR},
       </if>
     </trim>
   </insert>
-  <select id="countByExample" parameterType="com.model.ArchiveMsgInfoExample" resultType="java.lang.Integer" >
+  <select id="countByExample" parameterType="com.model.ArchiveMsgInfoExample" resultType="java.lang.Integer">
     select count(*) from archive_msg_info
-    <if test="_parameter != null" >
+    <if test="_parameter != null">
       <include refid="Example_Where_Clause" />
     </if>
   </select>
-  <update id="updateByExampleSelective" parameterType="map" >
+  <update id="updateByExampleSelective" parameterType="map">
     update archive_msg_info
-    <set >
-      <if test="record.seq != null" >
+    <set>
+      <if test="record.seq != null">
         seq = #{record.seq,jdbcType=INTEGER},
       </if>
-      <if test="record.publickeyVer != null" >
+      <if test="record.publickeyVer != null">
         publickey_ver = #{record.publickeyVer,jdbcType=INTEGER},
       </if>
-      <if test="record.roomId != null" >
+      <if test="record.roomId != null">
         room_id = #{record.roomId,jdbcType=VARCHAR},
       </if>
-      <if test="record.msgTime != null" >
+      <if test="record.msgTime != null">
         msg_time = #{record.msgTime,jdbcType=BIGINT},
       </if>
-      <if test="record.context != null" >
+      <if test="record.context != null">
         context = #{record.context,jdbcType=VARCHAR},
       </if>
     </set>
-    <if test="_parameter != null" >
+    <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />
     </if>
   </update>
-  <update id="updateByExample" parameterType="map" >
+  <update id="updateByExample" parameterType="map">
     update archive_msg_info
     set seq = #{record.seq,jdbcType=INTEGER},
       publickey_ver = #{record.publickeyVer,jdbcType=INTEGER},
       room_id = #{record.roomId,jdbcType=VARCHAR},
       msg_time = #{record.msgTime,jdbcType=BIGINT},
       context = #{record.context,jdbcType=VARCHAR}
-    <if test="_parameter != null" >
+    <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />
     </if>
   </update>
-  <update id="updateByPrimaryKeySelective" parameterType="com.model.ArchiveMsgInfo" >
+  <update id="updateByPrimaryKeySelective" parameterType="com.model.ArchiveMsgInfo">
     update archive_msg_info
-    <set >
-      <if test="publickeyVer != null" >
+    <set>
+      <if test="publickeyVer != null">
         publickey_ver = #{publickeyVer,jdbcType=INTEGER},
       </if>
-      <if test="roomId != null" >
+      <if test="roomId != null">
         room_id = #{roomId,jdbcType=VARCHAR},
       </if>
-      <if test="msgTime != null" >
+      <if test="msgTime != null">
         msg_time = #{msgTime,jdbcType=BIGINT},
       </if>
-      <if test="context != null" >
+      <if test="context != null">
         context = #{context,jdbcType=VARCHAR},
       </if>
     </set>
     where seq = #{seq,jdbcType=INTEGER}
   </update>
-  <update id="updateByPrimaryKey" parameterType="com.model.ArchiveMsgInfo" >
+  <update id="updateByPrimaryKey" parameterType="com.model.ArchiveMsgInfo">
     update archive_msg_info
     set publickey_ver = #{publickeyVer,jdbcType=INTEGER},
       room_id = #{roomId,jdbcType=VARCHAR},

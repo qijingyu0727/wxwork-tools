@@ -11,6 +11,8 @@ public class ArchiveMsgInfo {
 
     private String context;
 
+    private String from;
+
     public Integer getSeq() {
         return seq;
     }
@@ -49,5 +51,13 @@ public class ArchiveMsgInfo {
 
     public void setContext(String context) {
         this.context = context == null ? null : context.trim();
+    }
+
+    public String getFrom() {
+        return from;
+    }
+
+    public void setFrom(String from) {
+        this.from = from == null ? null : from.trim();
     }
 }
