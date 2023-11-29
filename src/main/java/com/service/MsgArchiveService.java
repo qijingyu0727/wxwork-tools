@@ -117,7 +117,7 @@ public class MsgArchiveService {
         CustomerGroupInfo customerGroupInfo = new CustomerGroupInfo();
         customerGroupInfo.setRoomId(roomId);
         CustomerGroupDetailModel customerGroupChat = wxworkService.getCustomerGroupChat(roomId);
-        if (null != customerGroupChat.getGroupChat()) {
+        if (null != customerGroupChat && null != customerGroupChat.getGroupChat()) {
             customerGroupInfo.setRoomName(customerGroupChat.getGroupChat().getName());
         }
         customerGroupInfoService.insert(customerGroupInfo);
