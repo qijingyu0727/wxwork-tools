@@ -1,0 +1,1 @@
+alter table archive_msg_info change column `from` sender varchar(50);

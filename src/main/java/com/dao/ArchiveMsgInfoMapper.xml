@@ -7,7 +7,7 @@
     <result column="room_id" property="roomId" jdbcType="VARCHAR" />
     <result column="msg_time" property="msgTime" jdbcType="BIGINT" />
     <result column="context" property="context" jdbcType="VARCHAR" />
-    <result column="from" property="from" jdbcType="VARCHAR" />
+    <result column="sender" property="sender" jdbcType="VARCHAR" />
   </resultMap>
   <sql id="Example_Where_Clause" >
     <where >
@@ -68,7 +68,7 @@
     </where>
   </sql>
   <sql id="Base_Column_List" >
-    seq, publickey_ver, room_id, msg_time, context, from
+    seq, publickey_ver, room_id, msg_time, context, sender
   </sql>
   <select id="selectByExample" resultMap="BaseResultMap" parameterType="com.model.ArchiveMsgInfoExample" >
     select
@@ -102,10 +102,10 @@
   </delete>
   <insert id="insert" parameterType="com.model.ArchiveMsgInfo" >
     insert into archive_msg_info (seq, publickey_ver, room_id, 
-      msg_time, context, from
+      msg_time, context, sender
       )
     values (#{seq,jdbcType=INTEGER}, #{publickeyVer,jdbcType=INTEGER}, #{roomId,jdbcType=VARCHAR}, 
-      #{msgTime,jdbcType=BIGINT}, #{context,jdbcType=VARCHAR}, #{from,jdbcType=VARCHAR}
+      #{msgTime,jdbcType=BIGINT}, #{context,jdbcType=VARCHAR}, #{sender,jdbcType=VARCHAR}
       )
   </insert>
   <insert id="insertSelective" parameterType="com.model.ArchiveMsgInfo" >
@@ -126,8 +126,8 @@
       <if test="context != null" >
         context,
       </if>
-      <if test="from != null" >
-        from,
+      <if test="sender != null" >
+        sender,
       </if>
     </trim>
     <trim prefix="values (" suffix=")" suffixOverrides="," >
@@ -146,8 +146,8 @@
       <if test="context != null" >
         #{context,jdbcType=VARCHAR},
       </if>
-      <if test="from != null" >
-        #{from,jdbcType=VARCHAR},
+      <if test="sender != null" >
+        #{sender,jdbcType=VARCHAR},
       </if>
     </trim>
   </insert>
@@ -175,8 +175,8 @@
       <if test="record.context != null" >
         context = #{record.context,jdbcType=VARCHAR},
       </if>
-      <if test="record.from != null" >
-        from = #{record.from,jdbcType=VARCHAR},
+      <if test="record.sender != null" >
+        sender = #{record.sender,jdbcType=VARCHAR},
       </if>
     </set>
     <if test="_parameter != null" >
@@ -190,7 +190,7 @@
       room_id = #{record.roomId,jdbcType=VARCHAR},
       msg_time = #{record.msgTime,jdbcType=BIGINT},
       context = #{record.context,jdbcType=VARCHAR},
-      from = #{record.from,jdbcType=VARCHAR}
+      sender = #{record.sender,jdbcType=VARCHAR}
     <if test="_parameter != null" >
       <include refid="Update_By_Example_Where_Clause" />
     </if>
@@ -210,8 +210,8 @@
       <if test="context != null" >
         context = #{context,jdbcType=VARCHAR},
       </if>
-      <if test="from != null" >
-        from = #{from,jdbcType=VARCHAR},
+      <if test="sender != null" >
+        sender = #{sender,jdbcType=VARCHAR},
       </if>
     </set>
     where seq = #{seq,jdbcType=INTEGER}
@@ -222,7 +222,7 @@
       room_id = #{roomId,jdbcType=VARCHAR},
       msg_time = #{msgTime,jdbcType=BIGINT},
       context = #{context,jdbcType=VARCHAR},
-      from = #{from,jdbcType=VARCHAR}
+      sender = #{sender,jdbcType=VARCHAR}
     where seq = #{seq,jdbcType=INTEGER}
   </update>
 </mapper>

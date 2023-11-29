@@ -128,7 +128,7 @@ public class MsgArchiveService {
 
         ArchiveMsgInfo archiveMsgInfo = new ArchiveMsgInfo();
         archiveMsgInfo.setSeq(chatdataDTO.getSeq());
-        archiveMsgInfo.setFrom(archiveMsgDecryptModel.getFrom());
+        archiveMsgInfo.setSender(archiveMsgDecryptModel.getFrom());
         archiveMsgInfo.setPublickeyVer(chatdataDTO.getPublickeyVer());
         archiveMsgInfo.setRoomId(archiveMsgDecryptModel.getRoomid());
         archiveMsgInfo.setContext(archiveMsgDecryptModel.getText()==null?null:archiveMsgDecryptModel.getText().getContent());

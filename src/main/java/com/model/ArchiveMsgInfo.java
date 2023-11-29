@@ -11,7 +11,7 @@ public class ArchiveMsgInfo {
 
     private String context;
 
-    private String from;
+    private String sender;
 
     public Integer getSeq() {
         return seq;
@@ -53,11 +53,11 @@ public class ArchiveMsgInfo {
         this.context = context == null ? null : context.trim();
     }
 
-    public String getFrom() {
-        return from;
+    public String getSender() {
+        return sender;
     }
 
-    public void setFrom(String from) {
-        this.from = from == null ? null : from.trim();
+    public void setSender(String sender) {
+        this.sender = sender == null ? null : sender.trim();
     }
 }
