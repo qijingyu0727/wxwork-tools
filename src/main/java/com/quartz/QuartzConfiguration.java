@@ -75,7 +75,7 @@ public class QuartzConfiguration {
     }
 
     @Bean("WxworkSchedule")
-    public SchedulerFactoryBean schedulerFactoryBean(@Qualifier("archiveMsgTrigger") Trigger archiveMsgTrigger) throws IOException, PropertyVetoException{
+    public SchedulerFactoryBean schedulerFactoryBean(@Qualifier("archiveMsgTrigger") Trigger archiveMsgTrigger, @Qualifier("templateTrigger") Trigger templateTrigger) throws IOException, PropertyVetoException{
         SchedulerFactoryBean factory = new SchedulerFactoryBean();
         factory.setOverwriteExistingJobs(true);
         factory.setStartupDelay(10);
@@ -84,7 +84,7 @@ public class QuartzConfiguration {
         factory.setApplicationContextSchedulerContextKey("applicationContext");
         factory.setDataSource(createDataSource());
         //注册触发器
-        factory.setTriggers(archiveMsgTrigger);
+        factory.setTriggers(archiveMsgTrigger, templateTrigger);
 
         return factory;
     }
@@ -144,6 +144,16 @@ public class QuartzConfiguration {
     @Bean(name = "archiveMsgTrigger")
     public CronTriggerFactoryBean archiveMsgTrigger(@Qualifier("archiveMsgJobDetail") JobDetail jobDetail) {
         return dialogStatusTrigger(jobDetail, "0 */10 * * * ?");
+    }
+
+    @Bean(name = "templateJobDetail")
+    public JobDetailFactoryBean templateJobDetail() {
+        return createJobDetail(InvokingJobDetailDetailFactory.class, null, "templateJob" , "start");
+    }
+
+    @Bean(name = "templateTrigger")
+    public CronTriggerFactoryBean templateTrigger(@Qualifier("templateJobDetail") JobDetail jobDetail) {
+        return dialogStatusTrigger(jobDetail, "0 25 * * * ?");
     }
 }
 

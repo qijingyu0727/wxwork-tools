@@ -1,7 +1,6 @@
 package com.service;
 
 import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.support.odps.udf.CodecCheck;
 import com.model.*;
 import com.tencent.wework.Finance;
 import com.util.FileUtils;
