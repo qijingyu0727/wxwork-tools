@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Date;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -172,18 +171,14 @@ public class TemplateService {
                 template.setType(item.getApplication().getSpec().getTemplateType());
                 template.setVersion(item.getApplication().getSpec().getDeVersion());
 
-                if (item.getLatestRelease() != null && item.getLatestRelease().getStatus() != null && item.getLatestRelease().getStatus().getPublishTimestamp() != null) {
-                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSSS'Z'");
-                    Date date = sdf.parse(item.getLatestRelease().getStatus().getPublishTimestamp());
-                    template.setUpdateTime(date.getTime());
-                }
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSSS'Z'");
+                Date date = sdf.parse(item.getApplication().getMetadata().getCreationTimestamp());
+                template.setUpdateTime(date.getTime());
 
-                if (item.getLatestRelease() != null && item.getLatestRelease().getSpec() != null && item.getLatestRelease().getSpec().getApplicationName() != null) {
-                    String applicationName = item.getLatestRelease().getSpec().getApplicationName();
-                    MarketTemplateV2Info templateInfo = JsonUtil.parseObject(marketGet(String.format(template_market_url_v2 + TEMPLATE_INFO_V2, applicationName), null), MarketTemplateV2Info.class);
-                    template.setView(templateInfo.getViews());
-                    template.setDownload(templateInfo.getDownloads());
-                }
+                String applicationName = item.getApplication().getMetadata().getName();
+                MarketTemplateV2Info templateInfo = JsonUtil.parseObject(marketGet(String.format(template_market_url_v2 + TEMPLATE_INFO_V2, applicationName), null), MarketTemplateV2Info.class);
+                template.setView(templateInfo.getViews());
+                template.setDownload(templateInfo.getDownloads());
                 templateMapper.insertSelective(template);
 
                 // insert label
