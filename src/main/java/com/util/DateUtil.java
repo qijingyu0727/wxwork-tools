@@ -38,6 +38,16 @@ public class DateUtil {
         return res;
     }
 
+    public static Date getYesterday(){
+
+        Date today = new Date();
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(today);
+        calendar.add(Calendar.DATE, -1);
+        return calendar.getTime();
+
+    }
+
     public static Date getOnehundredYearsLater(Date date){
         Calendar c = Calendar.getInstance();
         c.setTime(date);

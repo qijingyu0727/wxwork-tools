@@ -2,6 +2,7 @@ package com.controller;
 
 import com.service.ArchiveMsgInfoService;
 import com.service.MsgArchiveService;
+import com.service.TemplateService;
 import com.service.WxworkService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -25,11 +26,21 @@ public class CallbackController {
     @Resource
     private WxworkService wxworkService;
 
+    @Resource
+    private TemplateService templateService;
+
 
     @RequestMapping(value = "/getArchiveMsg", method = RequestMethod.GET)
     @ResponseBody
     public void getArchiveMsg (){
        msgArchiveService.getArchiveMsg();
+    }
+
+
+    @RequestMapping(value = "/syncTemplate", method = RequestMethod.GET)
+    @ResponseBody
+    public void syncTemplate (){
+        templateService.sync();
     }
 
 

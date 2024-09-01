@@ -1,5 +1,7 @@
 package com.model;
 
+import java.util.Date;
+
 public class Template {
     private Long id;
 
@@ -16,6 +18,16 @@ public class Template {
     private Integer view;
 
     private Integer download;
+
+    private Date syncDate;
+
+    private Integer incrementView;
+
+    private Integer incrementDownload;
+
+    private String domain;
+
+    private Boolean isApp;
 
     public Long getId() {
         return id;
@@ -79,5 +91,45 @@ public class Template {
 
     public void setDownload(Integer download) {
         this.download = download;
+    }
+
+    public Date getSyncDate() {
+        return syncDate;
+    }
+
+    public void setSyncDate(Date syncDate) {
+        this.syncDate = syncDate;
+    }
+
+    public Integer getIncrementView() {
+        return incrementView;
+    }
+
+    public void setIncrementView(Integer incrementView) {
+        this.incrementView = incrementView;
+    }
+
+    public Integer getIncrementDownload() {
+        return incrementDownload;
+    }
+
+    public void setIncrementDownload(Integer incrementDownload) {
+        this.incrementDownload = incrementDownload;
+    }
+
+    public String getDomain() {
+        return domain;
+    }
+
+    public void setDomain(String domain) {
+        this.domain = domain == null ? null : domain.trim();
+    }
+
+    public Boolean getIsApp() {
+        return isApp;
+    }
+
+    public void setIsApp(Boolean isApp) {
+        this.isApp = isApp;
     }
 }

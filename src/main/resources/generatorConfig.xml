@@ -4,7 +4,7 @@
 <generatorConfiguration>
     <!--配置数据库连接的位置-->
 
-    <properties resource="application.properties"/>
+    <properties resource="properties/wxwork.properties"/>
     <!-- 设置mysql驱动路径 -->
     <!-- 此处指定生成针对MyBatis3的DAO -->
     <context id="mysql" targetRuntime="MyBatis3">
@@ -38,8 +38,8 @@
 
 
         <!-- 要生成的数据库表 -->
-        <table tableName="customer_group_info"/>
-        <table tableName="archive_msg_info" />
+<!--        <table tableName="customer_group_info"/>-->
+        <table tableName="template" />
         <!--<table tableName="cloud_entity_price"/>-->
         <!--<table tableName="sf_dictionary" modelType="hierarchical"/>-->
         <!--<table tableName="sf_security_group">

@@ -10,6 +10,7 @@ import lombok.Data;
 @Data
 public class MarketApplicationSpecVO {
     private String displayName;
+    private String templateClassification;
     private String deVersion;
     private String templateType;
     private String label;

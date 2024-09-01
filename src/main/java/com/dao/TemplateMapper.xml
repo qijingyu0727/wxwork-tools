@@ -10,6 +10,11 @@
     <result column="update_time" jdbcType="BIGINT" property="updateTime" />
     <result column="view" jdbcType="INTEGER" property="view" />
     <result column="download" jdbcType="INTEGER" property="download" />
+    <result column="sync_date" jdbcType="DATE" property="syncDate" />
+    <result column="increment_view" jdbcType="INTEGER" property="incrementView" />
+    <result column="increment_download" jdbcType="INTEGER" property="incrementDownload" />
+    <result column="domain" jdbcType="VARCHAR" property="domain" />
+    <result column="is_app" jdbcType="BIT" property="isApp" />
   </resultMap>
   <sql id="Example_Where_Clause">
     <where>
@@ -70,7 +75,8 @@
     </where>
   </sql>
   <sql id="Base_Column_List">
-    id, name, description, type, version, update_time, view, download
+    id, name, description, type, version, update_time, view, download, sync_date, increment_view, 
+    increment_download, domain, is_app
   </sql>
   <select id="selectByExample" parameterType="com.model.TemplateExample" resultMap="BaseResultMap">
     select
@@ -105,10 +111,14 @@
   <insert id="insert" parameterType="com.model.Template">
     insert into template (id, name, description, 
       type, version, update_time, 
-      view, download)
+      view, download, sync_date, 
+      increment_view, increment_download, domain, 
+      is_app)
     values (#{id,jdbcType=BIGINT}, #{name,jdbcType=VARCHAR}, #{description,jdbcType=VARCHAR}, 
       #{type,jdbcType=VARCHAR}, #{version,jdbcType=VARCHAR}, #{updateTime,jdbcType=BIGINT}, 
-      #{view,jdbcType=INTEGER}, #{download,jdbcType=INTEGER})
+      #{view,jdbcType=INTEGER}, #{download,jdbcType=INTEGER}, #{syncDate,jdbcType=DATE}, 
+      #{incrementView,jdbcType=INTEGER}, #{incrementDownload,jdbcType=INTEGER}, #{domain,jdbcType=VARCHAR}, 
+      #{isApp,jdbcType=BIT})
   </insert>
   <insert id="insertSelective" parameterType="com.model.Template">
     insert into template
@@ -137,6 +147,21 @@
       <if test="download != null">
         download,
       </if>
+      <if test="syncDate != null">
+        sync_date,
+      </if>
+      <if test="incrementView != null">
+        increment_view,
+      </if>
+      <if test="incrementDownload != null">
+        increment_download,
+      </if>
+      <if test="domain != null">
+        domain,
+      </if>
+      <if test="isApp != null">
+        is_app,
+      </if>
     </trim>
     <trim prefix="values (" suffix=")" suffixOverrides=",">
       <if test="id != null">
@@ -162,6 +187,21 @@
       </if>
       <if test="download != null">
         #{download,jdbcType=INTEGER},
+      </if>
+      <if test="syncDate != null">
+        #{syncDate,jdbcType=DATE},
+      </if>
+      <if test="incrementView != null">
+        #{incrementView,jdbcType=INTEGER},
+      </if>
+      <if test="incrementDownload != null">
+        #{incrementDownload,jdbcType=INTEGER},
+      </if>
+      <if test="domain != null">
+        #{domain,jdbcType=VARCHAR},
+      </if>
+      <if test="isApp != null">
+        #{isApp,jdbcType=BIT},
       </if>
     </trim>
   </insert>
@@ -198,6 +238,21 @@
       <if test="record.download != null">
         download = #{record.download,jdbcType=INTEGER},
       </if>
+      <if test="record.syncDate != null">
+        sync_date = #{record.syncDate,jdbcType=DATE},
+      </if>
+      <if test="record.incrementView != null">
+        increment_view = #{record.incrementView,jdbcType=INTEGER},
+      </if>
+      <if test="record.incrementDownload != null">
+        increment_download = #{record.incrementDownload,jdbcType=INTEGER},
+      </if>
+      <if test="record.domain != null">
+        domain = #{record.domain,jdbcType=VARCHAR},
+      </if>
+      <if test="record.isApp != null">
+        is_app = #{record.isApp,jdbcType=BIT},
+      </if>
     </set>
     <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />
@@ -212,7 +267,12 @@
       version = #{record.version,jdbcType=VARCHAR},
       update_time = #{record.updateTime,jdbcType=BIGINT},
       view = #{record.view,jdbcType=INTEGER},
-      download = #{record.download,jdbcType=INTEGER}
+      download = #{record.download,jdbcType=INTEGER},
+      sync_date = #{record.syncDate,jdbcType=DATE},
+      increment_view = #{record.incrementView,jdbcType=INTEGER},
+      increment_download = #{record.incrementDownload,jdbcType=INTEGER},
+      domain = #{record.domain,jdbcType=VARCHAR},
+      is_app = #{record.isApp,jdbcType=BIT}
     <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />
     </if>
@@ -241,6 +301,21 @@
       <if test="download != null">
         download = #{download,jdbcType=INTEGER},
       </if>
+      <if test="syncDate != null">
+        sync_date = #{syncDate,jdbcType=DATE},
+      </if>
+      <if test="incrementView != null">
+        increment_view = #{incrementView,jdbcType=INTEGER},
+      </if>
+      <if test="incrementDownload != null">
+        increment_download = #{incrementDownload,jdbcType=INTEGER},
+      </if>
+      <if test="domain != null">
+        domain = #{domain,jdbcType=VARCHAR},
+      </if>
+      <if test="isApp != null">
+        is_app = #{isApp,jdbcType=BIT},
+      </if>
     </set>
     where id = #{id,jdbcType=BIGINT}
   </update>
@@ -252,7 +327,12 @@
       version = #{version,jdbcType=VARCHAR},
       update_time = #{updateTime,jdbcType=BIGINT},
       view = #{view,jdbcType=INTEGER},
-      download = #{download,jdbcType=INTEGER}
+      download = #{download,jdbcType=INTEGER},
+      sync_date = #{syncDate,jdbcType=DATE},
+      increment_view = #{incrementView,jdbcType=INTEGER},
+      increment_download = #{incrementDownload,jdbcType=INTEGER},
+      domain = #{domain,jdbcType=VARCHAR},
+      is_app = #{isApp,jdbcType=BIT}
     where id = #{id,jdbcType=BIGINT}
   </update>
 </mapper>

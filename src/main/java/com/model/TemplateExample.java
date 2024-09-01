@@ -1,6 +1,8 @@
 package com.model;
 
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 
 public class TemplateExample {
@@ -102,6 +104,32 @@ public class TemplateExample {
                 throw new RuntimeException("Between values for " + property + " cannot be null");
             }
             criteria.add(new Criterion(condition, value1, value2));
+        }
+
+        protected void addCriterionForJDBCDate(String condition, Date value, String property) {
+            if (value == null) {
+                throw new RuntimeException("Value for " + property + " cannot be null");
+            }
+            addCriterion(condition, new java.sql.Date(value.getTime()), property);
+        }
+
+        protected void addCriterionForJDBCDate(String condition, List<Date> values, String property) {
+            if (values == null || values.size() == 0) {
+                throw new RuntimeException("Value list for " + property + " cannot be null or empty");
+            }
+            List<java.sql.Date> dateList = new ArrayList<java.sql.Date>();
+            Iterator<Date> iter = values.iterator();
+            while (iter.hasNext()) {
+                dateList.add(new java.sql.Date(iter.next().getTime()));
+            }
+            addCriterion(condition, dateList, property);
+        }
+
+        protected void addCriterionForJDBCDate(String condition, Date value1, Date value2, String property) {
+            if (value1 == null || value2 == null) {
+                throw new RuntimeException("Between values for " + property + " cannot be null");
+            }
+            addCriterion(condition, new java.sql.Date(value1.getTime()), new java.sql.Date(value2.getTime()), property);
         }
 
         public Criteria andIdIsNull() {
@@ -621,6 +649,316 @@ public class TemplateExample {
 
         public Criteria andDownloadNotBetween(Integer value1, Integer value2) {
             addCriterion("download not between", value1, value2, "download");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateIsNull() {
+            addCriterion("sync_date is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateIsNotNull() {
+            addCriterion("sync_date is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateEqualTo(Date value) {
+            addCriterionForJDBCDate("sync_date =", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateNotEqualTo(Date value) {
+            addCriterionForJDBCDate("sync_date <>", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateGreaterThan(Date value) {
+            addCriterionForJDBCDate("sync_date >", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateGreaterThanOrEqualTo(Date value) {
+            addCriterionForJDBCDate("sync_date >=", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateLessThan(Date value) {
+            addCriterionForJDBCDate("sync_date <", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateLessThanOrEqualTo(Date value) {
+            addCriterionForJDBCDate("sync_date <=", value, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateIn(List<Date> values) {
+            addCriterionForJDBCDate("sync_date in", values, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateNotIn(List<Date> values) {
+            addCriterionForJDBCDate("sync_date not in", values, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateBetween(Date value1, Date value2) {
+            addCriterionForJDBCDate("sync_date between", value1, value2, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andSyncDateNotBetween(Date value1, Date value2) {
+            addCriterionForJDBCDate("sync_date not between", value1, value2, "syncDate");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewIsNull() {
+            addCriterion("increment_view is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewIsNotNull() {
+            addCriterion("increment_view is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewEqualTo(Integer value) {
+            addCriterion("increment_view =", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewNotEqualTo(Integer value) {
+            addCriterion("increment_view <>", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewGreaterThan(Integer value) {
+            addCriterion("increment_view >", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewGreaterThanOrEqualTo(Integer value) {
+            addCriterion("increment_view >=", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewLessThan(Integer value) {
+            addCriterion("increment_view <", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewLessThanOrEqualTo(Integer value) {
+            addCriterion("increment_view <=", value, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewIn(List<Integer> values) {
+            addCriterion("increment_view in", values, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewNotIn(List<Integer> values) {
+            addCriterion("increment_view not in", values, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewBetween(Integer value1, Integer value2) {
+            addCriterion("increment_view between", value1, value2, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementViewNotBetween(Integer value1, Integer value2) {
+            addCriterion("increment_view not between", value1, value2, "incrementView");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadIsNull() {
+            addCriterion("increment_download is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadIsNotNull() {
+            addCriterion("increment_download is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadEqualTo(Integer value) {
+            addCriterion("increment_download =", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadNotEqualTo(Integer value) {
+            addCriterion("increment_download <>", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadGreaterThan(Integer value) {
+            addCriterion("increment_download >", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadGreaterThanOrEqualTo(Integer value) {
+            addCriterion("increment_download >=", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadLessThan(Integer value) {
+            addCriterion("increment_download <", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadLessThanOrEqualTo(Integer value) {
+            addCriterion("increment_download <=", value, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadIn(List<Integer> values) {
+            addCriterion("increment_download in", values, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadNotIn(List<Integer> values) {
+            addCriterion("increment_download not in", values, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadBetween(Integer value1, Integer value2) {
+            addCriterion("increment_download between", value1, value2, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andIncrementDownloadNotBetween(Integer value1, Integer value2) {
+            addCriterion("increment_download not between", value1, value2, "incrementDownload");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainIsNull() {
+            addCriterion("domain is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainIsNotNull() {
+            addCriterion("domain is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainEqualTo(String value) {
+            addCriterion("domain =", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainNotEqualTo(String value) {
+            addCriterion("domain <>", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainGreaterThan(String value) {
+            addCriterion("domain >", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainGreaterThanOrEqualTo(String value) {
+            addCriterion("domain >=", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainLessThan(String value) {
+            addCriterion("domain <", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainLessThanOrEqualTo(String value) {
+            addCriterion("domain <=", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainLike(String value) {
+            addCriterion("domain like", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainNotLike(String value) {
+            addCriterion("domain not like", value, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainIn(List<String> values) {
+            addCriterion("domain in", values, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainNotIn(List<String> values) {
+            addCriterion("domain not in", values, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainBetween(String value1, String value2) {
+            addCriterion("domain between", value1, value2, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andDomainNotBetween(String value1, String value2) {
+            addCriterion("domain not between", value1, value2, "domain");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppIsNull() {
+            addCriterion("is_app is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppIsNotNull() {
+            addCriterion("is_app is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppEqualTo(Boolean value) {
+            addCriterion("is_app =", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppNotEqualTo(Boolean value) {
+            addCriterion("is_app <>", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppGreaterThan(Boolean value) {
+            addCriterion("is_app >", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppGreaterThanOrEqualTo(Boolean value) {
+            addCriterion("is_app >=", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppLessThan(Boolean value) {
+            addCriterion("is_app <", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppLessThanOrEqualTo(Boolean value) {
+            addCriterion("is_app <=", value, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppIn(List<Boolean> values) {
+            addCriterion("is_app in", values, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppNotIn(List<Boolean> values) {
+            addCriterion("is_app not in", values, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppBetween(Boolean value1, Boolean value2) {
+            addCriterion("is_app between", value1, value2, "isApp");
+            return (Criteria) this;
+        }
+
+        public Criteria andIsAppNotBetween(Boolean value1, Boolean value2) {
+            addCriterion("is_app not between", value1, value2, "isApp");
             return (Criteria) this;
         }
     }
