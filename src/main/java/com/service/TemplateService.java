@@ -106,13 +106,13 @@ public class TemplateService {
 
             if (!tags.contains("应用系列")) {
                 //获取今日以及昨日的模板
-                Template todaySyncTemplate = getTodaySyncTemplate(markDTO.getTitle() , template_market_url_v1 , "PANEL" , "V1" , Boolean.FALSE );
-                Template yestodaySyncTemplate = getYestodaySyncTemplate(markDTO.getTitle() , template_market_url_v1 ,"PANEL" , "V1" ,Boolean.FALSE);
+                Template todaySyncTemplate = getTodaySyncTemplate(markDTO.getTitle().trim() , template_market_url_v1 , "PANEL" , "V1" , Boolean.FALSE );
+                Template yestodaySyncTemplate = getYestodaySyncTemplate(markDTO.getTitle().trim() , template_market_url_v1 ,"PANEL" , "V1" ,Boolean.FALSE);
                 storageDataEaseV1(markDTO , todaySyncTemplate , yestodaySyncTemplate , tags , Boolean.FALSE);
             } else {
                 //获取今日以及昨日的模板
-                Template todaySyncTemplate = getTodaySyncTemplate(markDTO.getTitle() , template_market_url_v1 , "PANEL" , "V1" ,Boolean.TRUE  );
-                Template yestodaySyncTemplate = getYestodaySyncTemplate(markDTO.getTitle() , template_market_url_v1 , "PANEL" , "V1" , Boolean.TRUE );
+                Template todaySyncTemplate = getTodaySyncTemplate(markDTO.getTitle().trim() , template_market_url_v1 , "PANEL" , "V1" ,Boolean.TRUE  );
+                Template yestodaySyncTemplate = getYestodaySyncTemplate(markDTO.getTitle().trim() , template_market_url_v1 , "PANEL" , "V1" , Boolean.TRUE );
                 tags.remove("应用系列");
                 storageDataEaseV1(markDTO , todaySyncTemplate , yestodaySyncTemplate , tags , Boolean.TRUE );
             }
@@ -125,7 +125,7 @@ public class TemplateService {
         Long uuid = IDUtils.snowID();
 
         Template template = new Template();
-        template.setName(markDTO.getTitle());
+        template.setName(markDTO.getTitle().trim());
         template.setDescription(markDTO.getSummary());
         template.setType("PANEL");
         template.setVersion("v1");
@@ -136,6 +136,9 @@ public class TemplateService {
         template.setIncrementView(null == yestodaySyncTemplate? 0 : markDTO.getVisits() - yestodaySyncTemplate.getView() );
 
         if (null != todaySyncTemplate) {
+
+            System.out.println(markDTO.getTitle().trim() + "存在重复");
+
             // insert template
             template.setId(template.getId());
             templateMapper.updateByPrimaryKeySelective(template);
@@ -183,6 +186,11 @@ public class TemplateService {
         return null;
     }
 
+    private Integer getValueOrZero (Integer value) {
+        return value == null ? 0 : value;
+    }
+
+
     public List<MarketMetaDataVO> getCategoriesV2() {
         try {
             String resultStr = marketGet(template_market_url_v2 + LABEL_LIST_V2, null);
@@ -214,12 +222,15 @@ public class TemplateService {
                 System.out.println("正在处理 V2 第 " + i + " 个");
                 i++;
 
+                if (item.getApplication().getSpec().getDisplayName().trim().equals("DataEase 基础数据分析大屏") ) {
+                    System.out.println(1111);
+                }
 
                 //获取今日以及昨日的模板
-                Template todaySyncTemplate = getTodaySyncTemplate(item.getApplication().getSpec().getDisplayName() ,
+                Template todaySyncTemplate = getTodaySyncTemplate(item.getApplication().getSpec().getDisplayName().trim() ,
                         template_market_url_v2 ,item.getApplication().getSpec().getTemplateType()
                         ,item.getApplication().getSpec().getDeVersion(), StringUtils.isNotEmpty(item.getApplication().getSpec().getTemplateClassification()) && item.getApplication().getSpec().getTemplateClassification().equals("DATA") );
-                Template yestodaySyncTemplate = getYestodaySyncTemplate(item.getApplication().getSpec().getDisplayName(),
+                Template yestodaySyncTemplate = getYestodaySyncTemplate(item.getApplication().getSpec().getDisplayName().trim(),
                         template_market_url_v2 ,item.getApplication().getSpec().getTemplateType() ,
                         item.getApplication().getSpec().getDeVersion(), StringUtils.isNotEmpty(item.getApplication().getSpec().getTemplateClassification()) && item.getApplication().getSpec().getTemplateClassification().equals("DATA"));
 
@@ -228,7 +239,7 @@ public class TemplateService {
                 // insert template
                 Template template = new Template();
                 template.setId(uuid);
-                template.setName(item.getApplication().getSpec().getDisplayName());
+                template.setName(item.getApplication().getSpec().getDisplayName().trim());
                 template.setDescription(item.getApplication().getSpec().getDescription());
                 template.setType(item.getApplication().getSpec().getTemplateType());
                 template.setVersion(item.getApplication().getSpec().getDeVersion());
@@ -244,11 +255,11 @@ public class TemplateService {
                 template.setView(templateInfo.getViews());
                 template.setDownload(templateInfo.getDownloads());
                 template.setIncrementView(null == yestodaySyncTemplate? 0 : templateInfo.getViews() - yestodaySyncTemplate.getView() );
-                template.setIncrementDownload(null == yestodaySyncTemplate? 0 : templateInfo.getDownloads() - yestodaySyncTemplate.getDownload() );
+                template.setIncrementDownload(null == yestodaySyncTemplate? 0 : getValueOrZero(templateInfo.getDownloads()) - getValueOrZero(yestodaySyncTemplate.getDownload()));
 
                 if (null != todaySyncTemplate) {
 
-                    System.out.println(item.getApplication().getSpec().getDisplayName() + "存在重复");
+                    System.out.println(item.getApplication().getSpec().getDisplayName().trim() + "存在重复");
 
                     // insert template
                     template.setId(template.getId());
