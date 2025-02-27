@@ -56,11 +56,9 @@ public class MsgArchiveService {
         //存档消息序号
         Integer seq = archiveMsgInfoService.getMaxSeq();
         //一次取数条数
-        Integer limit = 50;
+        Integer limit = 100;
         //超时时间
         Integer timeout = 5;
-
-        System.out.println(1);
 
         AtomicLong ret = new AtomicLong();
         long sdk = Finance.NewSdk();
@@ -71,9 +69,6 @@ public class MsgArchiveService {
             System.out.println("init sdk err ret " + ret);
         }
 
-        System.out.println(2);
-
-
         long slice = Finance.NewSlice();
 
         ret.set(Finance.GetChatData(sdk, seq, limit, null, null, timeout, slice));
@@ -83,15 +78,11 @@ public class MsgArchiveService {
             Finance.FreeSlice(slice);
         }
 
-        System.out.println(3);
-
 
         String archiveMsg = Finance.GetContentFromSlice(slice);
 
         ArchiveMsgModel archiveMsgModel = JSONObject.parseObject(archiveMsg, ArchiveMsgModel.class);
         Finance.FreeSlice(slice);
-
-        System.out.println(4);
 
 
         archiveMsgModel.getChatdata().forEach(chatdataDTO -> {
