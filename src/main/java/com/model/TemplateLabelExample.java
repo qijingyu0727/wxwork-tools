@@ -104,63 +104,73 @@ public class TemplateLabelExample {
             criteria.add(new Criterion(condition, value1, value2));
         }
 
-        public Criteria andTemplateIdIsNull() {
-            addCriterion("template_id is null");
+        public Criteria andTemplateInfoIsNull() {
+            addCriterion("template_info is null");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdIsNotNull() {
-            addCriterion("template_id is not null");
+        public Criteria andTemplateInfoIsNotNull() {
+            addCriterion("template_info is not null");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdEqualTo(Long value) {
-            addCriterion("template_id =", value, "templateId");
+        public Criteria andTemplateInfoEqualTo(String value) {
+            addCriterion("template_info =", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdNotEqualTo(Long value) {
-            addCriterion("template_id <>", value, "templateId");
+        public Criteria andTemplateInfoNotEqualTo(String value) {
+            addCriterion("template_info <>", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdGreaterThan(Long value) {
-            addCriterion("template_id >", value, "templateId");
+        public Criteria andTemplateInfoGreaterThan(String value) {
+            addCriterion("template_info >", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdGreaterThanOrEqualTo(Long value) {
-            addCriterion("template_id >=", value, "templateId");
+        public Criteria andTemplateInfoGreaterThanOrEqualTo(String value) {
+            addCriterion("template_info >=", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdLessThan(Long value) {
-            addCriterion("template_id <", value, "templateId");
+        public Criteria andTemplateInfoLessThan(String value) {
+            addCriterion("template_info <", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdLessThanOrEqualTo(Long value) {
-            addCriterion("template_id <=", value, "templateId");
+        public Criteria andTemplateInfoLessThanOrEqualTo(String value) {
+            addCriterion("template_info <=", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdIn(List<Long> values) {
-            addCriterion("template_id in", values, "templateId");
+        public Criteria andTemplateInfoLike(String value) {
+            addCriterion("template_info like", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdNotIn(List<Long> values) {
-            addCriterion("template_id not in", values, "templateId");
+        public Criteria andTemplateInfoNotLike(String value) {
+            addCriterion("template_info not like", value, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdBetween(Long value1, Long value2) {
-            addCriterion("template_id between", value1, value2, "templateId");
+        public Criteria andTemplateInfoIn(List<String> values) {
+            addCriterion("template_info in", values, "templateInfo");
             return (Criteria) this;
         }
 
-        public Criteria andTemplateIdNotBetween(Long value1, Long value2) {
-            addCriterion("template_id not between", value1, value2, "templateId");
+        public Criteria andTemplateInfoNotIn(List<String> values) {
+            addCriterion("template_info not in", values, "templateInfo");
+            return (Criteria) this;
+        }
+
+        public Criteria andTemplateInfoBetween(String value1, String value2) {
+            addCriterion("template_info between", value1, value2, "templateInfo");
+            return (Criteria) this;
+        }
+
+        public Criteria andTemplateInfoNotBetween(String value1, String value2) {
+            addCriterion("template_info not between", value1, value2, "templateInfo");
             return (Criteria) this;
         }
 

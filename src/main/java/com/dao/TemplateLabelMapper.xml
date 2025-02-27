@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.dao.TemplateLabelMapper">
   <resultMap id="BaseResultMap" type="com.model.TemplateLabel">
-    <result column="template_id" jdbcType="BIGINT" property="templateId" />
+    <result column="template_info" jdbcType="VARCHAR" property="templateInfo" />
     <result column="label" jdbcType="VARCHAR" property="label" />
   </resultMap>
   <sql id="Example_Where_Clause">
@@ -64,7 +64,7 @@
     </where>
   </sql>
   <sql id="Base_Column_List">
-    template_id, label
+    template_info, label
   </sql>
   <select id="selectByExample" parameterType="com.model.TemplateLabelExample" resultMap="BaseResultMap">
     select
@@ -87,22 +87,22 @@
     </if>
   </delete>
   <insert id="insert" parameterType="com.model.TemplateLabel">
-    insert into template_label (template_id, label)
-    values (#{templateId,jdbcType=BIGINT}, #{label,jdbcType=VARCHAR})
+    insert into template_label (template_info, label)
+    values (#{templateInfo,jdbcType=VARCHAR}, #{label,jdbcType=VARCHAR})
   </insert>
   <insert id="insertSelective" parameterType="com.model.TemplateLabel">
     insert into template_label
     <trim prefix="(" suffix=")" suffixOverrides=",">
-      <if test="templateId != null">
-        template_id,
+      <if test="templateInfo != null">
+        template_info,
       </if>
       <if test="label != null">
         label,
       </if>
     </trim>
     <trim prefix="values (" suffix=")" suffixOverrides=",">
-      <if test="templateId != null">
-        #{templateId,jdbcType=BIGINT},
+      <if test="templateInfo != null">
+        #{templateInfo,jdbcType=VARCHAR},
       </if>
       <if test="label != null">
         #{label,jdbcType=VARCHAR},
@@ -118,8 +118,8 @@
   <update id="updateByExampleSelective" parameterType="map">
     update template_label
     <set>
-      <if test="record.templateId != null">
-        template_id = #{record.templateId,jdbcType=BIGINT},
+      <if test="record.templateInfo != null">
+        template_info = #{record.templateInfo,jdbcType=VARCHAR},
       </if>
       <if test="record.label != null">
         label = #{record.label,jdbcType=VARCHAR},
@@ -131,7 +131,7 @@
   </update>
   <update id="updateByExample" parameterType="map">
     update template_label
-    set template_id = #{record.templateId,jdbcType=BIGINT},
+    set template_info = #{record.templateInfo,jdbcType=VARCHAR},
       label = #{record.label,jdbcType=VARCHAR}
     <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />

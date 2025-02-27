@@ -128,7 +128,7 @@ public class QuartzConfiguration {
      ****************************************************************************************************/
 
     /**
-     * 解析巡检日志 jobDetail
+     * 获取企业微信归档信息 detail
      * @return
      */
     @Bean("archiveMsgJobDetail")
@@ -137,13 +137,13 @@ public class QuartzConfiguration {
     }
 
     /**
-     * 解析巡检日志 trigger
+     * 获取企业微信归档信息 trigger
      * @param jobDetail
      * @return
      */
     @Bean(name = "archiveMsgTrigger")
     public CronTriggerFactoryBean archiveMsgTrigger(@Qualifier("archiveMsgJobDetail") JobDetail jobDetail) {
-        return dialogStatusTrigger(jobDetail, "0 */10 * * * ?");
+        return dialogStatusTrigger(jobDetail, "0 */5 * * * ?");
     }
 
     @Bean(name = "templateJobDetail")

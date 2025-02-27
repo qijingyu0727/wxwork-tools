@@ -1,15 +1,16 @@
 package com.controller;
 
-import com.service.ArchiveMsgInfoService;
-import com.service.MsgArchiveService;
-import com.service.TemplateService;
-import com.service.WxworkService;
+import com.model.ArchiveMsgInfo;
+import com.model.CustomerGroupInfo;
+import com.service.*;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * E应用回调信息处理
@@ -28,6 +29,9 @@ public class CallbackController {
 
     @Resource
     private TemplateService templateService;
+
+    @Resource
+    private CustomerGroupInfoService customerGroupInfoService;
 
 
     @RequestMapping(value = "/getArchiveMsg", method = RequestMethod.GET)

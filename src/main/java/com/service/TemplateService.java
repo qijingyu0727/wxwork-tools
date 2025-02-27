@@ -153,7 +153,7 @@ public class TemplateService {
         // insert label
         tags.forEach(tag -> {
             TemplateLabel templateLabel = new TemplateLabel();
-            templateLabel.setTemplateId(uuid);
+            templateLabel.setTemplateInfo(getTemplateInfo(template));
             templateLabel.setLabel(tag);
             templateLabelMapper.insertSelective(templateLabel);
         });
@@ -274,11 +274,16 @@ public class TemplateService {
 
                 // insert label
                 TemplateLabel label = new TemplateLabel();
-                label.setTemplateId(uuid);
+                label.setTemplateInfo(getTemplateInfo(template));
                 label.setLabel(categoryVO.get(item.getApplication().getSpec().getLabel()));
                 templateLabelMapper.insertSelective(label);
             }
         }
+    }
+
+
+    public String getTemplateInfo (Template template) {
+        return template.getDomain() + "-" + template.getType() + "-" + template.getVersion() + "-" + template.getIsApp() + "-" + template.getName();
     }
 
 }

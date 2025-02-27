@@ -1,6 +1,7 @@
 package com.service;
 
 import com.dao.ArchiveMsgInfoMapper;
+import com.dao.ext.ArchiveMsgInfoExtMapper;
 import com.model.ArchiveMsgInfo;
 import com.model.ArchiveMsgInfoExample;
 import org.apache.commons.collections4.CollectionUtils;
@@ -20,6 +21,9 @@ public class ArchiveMsgInfoService {
 
     @Resource
     private ArchiveMsgInfoMapper archiveMsgInfoMapper;
+
+    @Resource
+    private ArchiveMsgInfoExtMapper archiveMsgInfoExtMapper;
 
     /**
      * 取出最大的 seq
@@ -41,6 +45,12 @@ public class ArchiveMsgInfoService {
 
         if (null == archiveMsgInfoMapper.selectByPrimaryKey(archiveMsgInfo.getSeq())) {
             archiveMsgInfoMapper.insertSelective(archiveMsgInfo);
+        }
+    }
+
+    public void batchInsert(List<ArchiveMsgInfo> archiveMsgInfos) {
+        if (!CollectionUtils.isEmpty(archiveMsgInfos)) {
+            archiveMsgInfoExtMapper.batchInsert(archiveMsgInfos);
         }
     }
 

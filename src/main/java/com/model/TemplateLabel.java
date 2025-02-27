@@ -1,16 +1,16 @@
 package com.model;
 
 public class TemplateLabel {
-    private Long templateId;
+    private String templateInfo;
 
     private String label;
 
-    public Long getTemplateId() {
-        return templateId;
+    public String getTemplateInfo() {
+        return templateInfo;
     }
 
-    public void setTemplateId(Long templateId) {
-        this.templateId = templateId;
+    public void setTemplateInfo(String templateInfo) {
+        this.templateInfo = templateInfo == null ? null : templateInfo.trim();
     }
 
     public String getLabel() {
