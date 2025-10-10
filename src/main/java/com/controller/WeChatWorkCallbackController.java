@@ -1,3 +1,7 @@
+package com.controller;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -5,6 +9,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.util.Arrays;
 import java.util.Base64;
 
@@ -12,13 +17,19 @@ import java.util.Base64;
 @RequestMapping("/wechat/work/callback") // 回调URL路径，需与企业微信后台配置一致
 public class WeChatWorkCallbackController {
 
-    // -------------------------- 核心配置（需替换为企业微信后台实际配置） --------------------------
-    /** 企业微信后台配置的Token（用于URL验证和消息签名） */
-    private static final String TOKEN = "your_enterprise_wechat_token";
-    /** 企业微信后台配置的EncodingAESKey（用于消息加解密，需与Token对应） */
-    private static final String ENCODING_AES_KEY = "your_enterprise_wechat_encoding_aes_key";
-    /** 企业ID（Corpid，用于消息解密时验证来源） */
-    private static final String CORP_ID = "your_enterprise_corp_id";
+    @Value("${crop_id}")
+    private String cropId;
+
+    @Value("${app_token}")
+    private String token;
+
+    @Value("${app_encodingAESKey}")
+    private String encodingAESKey;
+
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+
 
 
     // -------------------------- 1. URL有效性验证接口（GET请求） --------------------------
@@ -93,7 +104,7 @@ public class WeChatWorkCallbackController {
      */
     private boolean verifySignature(String msgSignature, String timestamp, String nonce, String encryptedData) throws NoSuchAlgorithmException {
         // 1. 拼接参数：token + timestamp + nonce + 加密数据（echostr或消息体）
-        String[] arr = new String[]{TOKEN, timestamp, nonce, encryptedData};
+        String[] arr = new String[]{token, timestamp, nonce, encryptedData};
         // 2. 字典序排序
         Arrays.sort(arr);
         // 3. 拼接为字符串
@@ -111,22 +122,25 @@ public class WeChatWorkCallbackController {
      * 解密echostr（文档3.1.2节）：EncodingAESKey解码后作为AES密钥，解密echostr获取原始字符串
      */
     private String decryptEchostr(String echostr) throws Exception {
-        // 1. 将EncodingAESKey Base64解码为32字节密钥（EncodingAESKey为43位Base64字符串）
-        byte[] aesKey = Base64.getDecoder().decode(ENCODING_AES_KEY + "="); // 补全Base64后缀
-        // 2. 初始化AES解密器（CBC模式，PKCS7Padding填充）
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS7Padding");
+        // 1. 处理EncodingAESKey（企业微信提供的43位字符串，需补全Base64后缀）
+        byte[] aesKey = Base64.getDecoder().decode(encodingAESKey + "=");
+
+        // 2. 初始化AES解密器（指定BouncyCastle提供者，使用PKCS7Padding）
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS7Padding", "BC"); // 关键：添加"BC"提供者
         SecretKeySpec keySpec = new SecretKeySpec(aesKey, "AES");
         IvParameterSpec ivSpec = new IvParameterSpec(aesKey, 0, 16); // IV为密钥前16字节
         cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
-        // 3. 解密echostr（Base64解码后解密）
+
+        // 3. 解密并处理结果
         byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(echostr));
-        // 4. 提取原始字符串（解密结果前16字节为随机值，中间为原始数据，最后为CorpID，需截取）
         String decryptedStr = new String(decryptedBytes, StandardCharsets.UTF_8);
-        int corpIdIndex = decryptedStr.indexOf(CORP_ID);
+
+        // 4. 验证并提取有效内容（去除16位随机数和CorpID后缀）
+        int corpIdIndex = decryptedStr.indexOf(cropId);
         if (corpIdIndex == -1) {
-            throw new Exception("Decrypt Echostr Failed: CorpID Mismatch");
+            throw new Exception("解密失败：CorpID不匹配");
         }
-        return decryptedStr.substring(16, corpIdIndex); // 截取16字节后到CorpID前的内容
+        return decryptedStr.substring(20, corpIdIndex);
     }
 
     /**
