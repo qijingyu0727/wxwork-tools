@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dao.SmartFormRecordMapper">
+  <resultMap id="BaseResultMap" type="com.model.SmartFormRecord">
+    <id column="id" jdbcType="INTEGER" property="id" />
+    <result column="doc_name" jdbcType="VARCHAR" property="docName" />
+    <result column="doc_id" jdbcType="VARCHAR" property="docId" />
+    <result column="admin_phone_numbers" jdbcType="VARCHAR" property="adminPhoneNumbers" />
+    <result column="admin_user_ids" jdbcType="VARCHAR" property="adminUserIds" />
+  </resultMap>
+  <sql id="Example_Where_Clause">
+    <where>
+      <foreach collection="oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
+                  and ${criterion.condition}
+                </when>
+                <when test="criterion.singleValue">
+                  and ${criterion.condition} #{criterion.value}
+                </when>
+                <when test="criterion.betweenValue">
+                  and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
+                </when>
+                <when test="criterion.listValue">
+                  and ${criterion.condition}
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
+                    #{listItem}
+                  </foreach>
+                </when>
+              </choose>
+            </foreach>
+          </trim>
+        </if>
+      </foreach>
+    </where>
+  </sql>
+  <sql id="Update_By_Example_Where_Clause">
+    <where>
+      <foreach collection="example.oredCriteria" item="criteria" separator="or">
+        <if test="criteria.valid">
+          <trim prefix="(" prefixOverrides="and" suffix=")">
+            <foreach collection="criteria.criteria" item="criterion">
+              <choose>
+                <when test="criterion.noValue">
+                  and ${criterion.condition}
+                </when>
+                <when test="criterion.singleValue">
+                  and ${criterion.condition} #{criterion.value}
+                </when>
+                <when test="criterion.betweenValue">
+                  and ${criterion.condition} #{criterion.value} and #{criterion.secondValue}
+                </when>
+                <when test="criterion.listValue">
+                  and ${criterion.condition}
+                  <foreach close=")" collection="criterion.value" item="listItem" open="(" separator=",">
+                    #{listItem}
+                  </foreach>
+                </when>
+              </choose>
+            </foreach>
+          </trim>
+        </if>
+      </foreach>
+    </where>
+  </sql>
+  <sql id="Base_Column_List">
+    id, doc_name, doc_id, admin_phone_numbers, admin_user_ids
+  </sql>
+  <select id="selectByExample" parameterType="com.model.SmartFormRecordExample" resultMap="BaseResultMap">
+    select
+    <if test="distinct">
+      distinct
+    </if>
+    <include refid="Base_Column_List" />
+    from smart_form_record
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+    <if test="orderByClause != null">
+      order by ${orderByClause}
+    </if>
+  </select>
+  <select id="selectByPrimaryKey" parameterType="java.lang.Integer" resultMap="BaseResultMap">
+    select 
+    <include refid="Base_Column_List" />
+    from smart_form_record
+    where id = #{id,jdbcType=INTEGER}
+  </select>
+  <delete id="deleteByPrimaryKey" parameterType="java.lang.Integer">
+    delete from smart_form_record
+    where id = #{id,jdbcType=INTEGER}
+  </delete>
+  <delete id="deleteByExample" parameterType="com.model.SmartFormRecordExample">
+    delete from smart_form_record
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+  </delete>
+  <insert id="insert" parameterType="com.model.SmartFormRecord">
+    insert into smart_form_record (id, doc_name, doc_id, 
+      admin_phone_numbers, admin_user_ids)
+    values (#{id,jdbcType=INTEGER}, #{docName,jdbcType=VARCHAR}, #{docId,jdbcType=VARCHAR}, 
+      #{adminPhoneNumbers,jdbcType=VARCHAR}, #{adminUserIds,jdbcType=VARCHAR})
+  </insert>
+  <insert id="insertSelective" parameterType="com.model.SmartFormRecord">
+    insert into smart_form_record
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      <if test="id != null">
+        id,
+      </if>
+      <if test="docName != null">
+        doc_name,
+      </if>
+      <if test="docId != null">
+        doc_id,
+      </if>
+      <if test="adminPhoneNumbers != null">
+        admin_phone_numbers,
+      </if>
+      <if test="adminUserIds != null">
+        admin_user_ids,
+      </if>
+    </trim>
+    <trim prefix="values (" suffix=")" suffixOverrides=",">
+      <if test="id != null">
+        #{id,jdbcType=INTEGER},
+      </if>
+      <if test="docName != null">
+        #{docName,jdbcType=VARCHAR},
+      </if>
+      <if test="docId != null">
+        #{docId,jdbcType=VARCHAR},
+      </if>
+      <if test="adminPhoneNumbers != null">
+        #{adminPhoneNumbers,jdbcType=VARCHAR},
+      </if>
+      <if test="adminUserIds != null">
+        #{adminUserIds,jdbcType=VARCHAR},
+      </if>
+    </trim>
+  </insert>
+  <select id="countByExample" parameterType="com.model.SmartFormRecordExample" resultType="java.lang.Long">
+    select count(*) from smart_form_record
+    <if test="_parameter != null">
+      <include refid="Example_Where_Clause" />
+    </if>
+  </select>
+  <update id="updateByExampleSelective" parameterType="map">
+    update smart_form_record
+    <set>
+      <if test="record.id != null">
+        id = #{record.id,jdbcType=INTEGER},
+      </if>
+      <if test="record.docName != null">
+        doc_name = #{record.docName,jdbcType=VARCHAR},
+      </if>
+      <if test="record.docId != null">
+        doc_id = #{record.docId,jdbcType=VARCHAR},
+      </if>
+      <if test="record.adminPhoneNumbers != null">
+        admin_phone_numbers = #{record.adminPhoneNumbers,jdbcType=VARCHAR},
+      </if>
+      <if test="record.adminUserIds != null">
+        admin_user_ids = #{record.adminUserIds,jdbcType=VARCHAR},
+      </if>
+    </set>
+    <if test="_parameter != null">
+      <include refid="Update_By_Example_Where_Clause" />
+    </if>
+  </update>
+  <update id="updateByExample" parameterType="map">
+    update smart_form_record
+    set id = #{record.id,jdbcType=INTEGER},
+      doc_name = #{record.docName,jdbcType=VARCHAR},
+      doc_id = #{record.docId,jdbcType=VARCHAR},
+      admin_phone_numbers = #{record.adminPhoneNumbers,jdbcType=VARCHAR},
+      admin_user_ids = #{record.adminUserIds,jdbcType=VARCHAR}
+    <if test="_parameter != null">
+      <include refid="Update_By_Example_Where_Clause" />
+    </if>
+  </update>
+  <update id="updateByPrimaryKeySelective" parameterType="com.model.SmartFormRecord">
+    update smart_form_record
+    <set>
+      <if test="docName != null">
+        doc_name = #{docName,jdbcType=VARCHAR},
+      </if>
+      <if test="docId != null">
+        doc_id = #{docId,jdbcType=VARCHAR},
+      </if>
+      <if test="adminPhoneNumbers != null">
+        admin_phone_numbers = #{adminPhoneNumbers,jdbcType=VARCHAR},
+      </if>
+      <if test="adminUserIds != null">
+        admin_user_ids = #{adminUserIds,jdbcType=VARCHAR},
+      </if>
+    </set>
+    where id = #{id,jdbcType=INTEGER}
+  </update>
+  <update id="updateByPrimaryKey" parameterType="com.model.SmartFormRecord">
+    update smart_form_record
+    set doc_name = #{docName,jdbcType=VARCHAR},
+      doc_id = #{docId,jdbcType=VARCHAR},
+      admin_phone_numbers = #{adminPhoneNumbers,jdbcType=VARCHAR},
+      admin_user_ids = #{adminUserIds,jdbcType=VARCHAR}
+    where id = #{id,jdbcType=INTEGER}
+  </update>
+</mapper>

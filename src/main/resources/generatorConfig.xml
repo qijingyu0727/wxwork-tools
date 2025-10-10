@@ -39,7 +39,7 @@
 
         <!-- 要生成的数据库表 -->
 <!--        <table tableName="customer_group_info"/>-->
-        <table tableName="template_label" />
+        <table tableName="smart_form_record" />
         <!--<table tableName="cloud_entity_price"/>-->
         <!--<table tableName="sf_dictionary" modelType="hierarchical"/>-->
         <!--<table tableName="sf_security_group">

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>企业微信智能表格管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        secondary: '#4f46e5',
+                        neutral: {
+                            50: '#f8fafc',
+                            100: '#f1f5f9',
+                            200: '#e2e8f0',
+                            300: '#cbd5e1',
+                            400: '#94a3b8',
+                            500: '#64748b',
+                            600: '#475569',
+                            700: '#334155',
+                            800: '#1e293b',
+                            900: '#0f172a',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'card': '0 4px 20px rgba(0, 0, 0, 0.05)',
+                        'card-hover': '0 8px 30px rgba(0, 0, 0, 0.08)',
+                        'modal': '0 15px 35px rgba(0, 0, 0, 0.1)',
+                    }
+                },
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .text-balance {
+                text-wrap: balance;
+            }
+            .input-focus {
+                @apply focus:ring-2 focus:ring-primary/30 focus:border-primary focus:outline-none;
+            }
+            .btn-transition {
+                @apply transition-all duration-300 ease-in-out;
+            }
+            .card-transition {
+                @apply transition-all duration-300 hover:shadow-card-hover;
+            }
+            .table-row-hover {
+                @apply transition-all duration-200 hover:bg-neutral-50 hover:shadow-sm;
+            }
+            .ellipsis-hover:hover::after {
+                content: '点击跳转';
+                position: absolute;
+                bottom: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                white-space: nowrap;
+                background-color: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                margin-bottom: 5px;
+            }
+            .toast {
+                position: fixed;
+                top: 4px;
+                right: 4px;
+                left: 4px;
+                padding: 12px 16px;
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                z-index: 51;
+                display: flex;
+                align-items: center;
+                opacity: 0;
+                transform: translateY(-20px);
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                max-width: none;
+            }
+            .toast.show {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            .toast-success {
+                background-color: #f0f9f4;
+                color: #039855;
+                border: 1px solid #d1fadf;
+            }
+            .toast-error {
+                background-color: #fef3f2;
+                color: #d92d20;
+                border: 1px solid #fee2e2;
+            }
+            /* 移动端卡片式布局 */
+            .mobile-card {
+                @apply block rounded-lg border border-neutral-100 overflow-hidden mb-4;
+            }
+            .mobile-card-row {
+                @apply px-4 py-2.5 border-b border-neutral-100 flex items-start;
+            }
+            .mobile-card-row:last-child {
+                @apply border-b-0;
+            }
+            .mobile-card-label {
+                @apply w-24 text-sm text-neutral-500 font-medium shrink-0;
+            }
+            .mobile-card-value {
+                @apply text-sm text-neutral-800 flex-grow;
+            }
+            /* 移动端触摸优化 */
+            .touch-target {
+                @apply min-h-[44px] min-w-[44px];
+            }
+        }
+    </style>
+</head>
+<body class="font-sans bg-neutral-50 text-neutral-800 min-h-screen flex flex-col antialiased">
+<!-- 提示消息组件 -->
+<div id="toast" class="toast">
+    <i id="toast-icon" class="mr-3 text-lg"></i>
+    <span id="toast-message" class="text-sm"></span>
+</div>
+
+<!-- 主要内容区 -->
+<main class="flex-grow container mx-auto px-4 py-8">
+    <!-- 标题区域 -->
+    <div class="mb-5 text-center">
+        <h2 class="text-[clamp(1.5rem,3vw,2rem)] font-bold text-neutral-800 tracking-tight">
+            企业微信智能表格管理
+        </h2>
+    </div>
+
+    <!-- 操作按钮区域 - 居右显示 -->
+    <div class="mb-4 flex flex-col sm:flex-row justify-end items-center gap-3">
+        <div id="user-info" class="hidden flex items-center gap-2 text-sm text-neutral-600">
+            <img id="user-avatar" src="" alt="用户头像" class="w-8 h-8 rounded-full object-cover">
+            <span id="user-name"></span>
+            <button id="logout-btn" class="text-neutral-500 hover:text-primary transition-colors touch-target">
+                <i class="fa fa-sign-out"></i>
+            </button>
+        </div>
+        <button id="login-btn" class="bg-primary text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium btn-transition hover:bg-primary/90 hover:translate-y-[-2px] active:translate-y-0 shadow-md hover:shadow-lg touch-target">
+            <i class="fa fa-wechat"></i>
+            企业微信登录
+        </button>
+        <button id="create-btn" class="bg-primary text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium btn-transition hover:bg-primary/90 hover:translate-y-[-2px] active:translate-y-0 shadow-md hover:shadow-lg hidden touch-target">
+            <i class="fa fa-plus-circle"></i>
+            新建智能表格
+        </button>
+    </div>
+
+    <!-- 合并查询与列表区域 -->
+    <div class="bg-white rounded-xl shadow-card overflow-hidden card-transition mb-6">
+        <!-- 查询条件区域 -->
+        <div class="p-4 border-b border-neutral-100">
+            <form id="search-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                <div class="flex items-center gap-2">
+                    <label for="table-name" class="text-sm font-medium text-neutral-700 w-24">智能表格名称</label>
+                    <div class="relative flex-1">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-neutral-400 transition-colors">
+                                <i class="fa fa-table"></i>
+                            </span>
+                        <input type="text" id="table-name" name="tableName"
+                               class="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg input-focus transition-all placeholder:text-neutral-400 text-sm touch-target"
+                               placeholder="请输入表格名称关键词">
+                    </div>
+                </div>
+                <div class="flex items-center gap-2" id="admin-name-container">
+                    <label for="admin-name" class="text-sm font-medium text-neutral-700 w-24">管理员</label>
+                    <div class="relative flex-1">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-neutral-400 transition-colors">
+                                <i class="fa fa-user-circle"></i>
+                            </span>
+                        <input type="text" id="admin-name" name="adminName"
+                               class="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg input-focus transition-all placeholder:text-neutral-400 text-sm touch-target"
+                               placeholder="请输入管理员ID">
+                    </div>
+                </div>
+                <div class="md:col-span-3 flex justify-end gap-2 sm:gap-4 pt-1">
+                    <button type="reset" class="px-4 py-2 border border-neutral-200 rounded-lg text-neutral-700 font-medium btn-transition hover:bg-neutral-50 hover:border-neutral-300 text-sm touch-target">
+                        <i class="fa fa-refresh mr-1"></i> 重置
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg font-medium btn-transition hover:bg-primary/90 hover:shadow-md text-sm touch-target">
+                        <i class="fa fa-search mr-1"></i> 查询
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- 表格列表区域 - 每页显示10条数据 -->
+        <div class="overflow-x-auto">
+            <!-- 桌面端表格视图 -->
+            <table id="desktop-table" class="w-full hidden md:table">
+                <thead>
+                <tr class="bg-neutral-50 border-b border-neutral-200">
+                    <th class="px-6 py-3 text-left text-sm font-semibold text-neutral-700 tracking-wide">智能表格名称</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold text-neutral-700 tracking-wide">智能表格ID</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold text-neutral-700 tracking-wide">管理员</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-neutral-100">
+                <!-- 数据行会通过JavaScript动态生成 -->
+                </tbody>
+            </table>
+            
+            <!-- 移动端卡片视图 -->
+            <div id="mobile-cards" class="md:hidden space-y-4"></div>
+        </div>
+
+        <!-- 分页控制区域 -->
+        <div class="px-6 py-4 bg-white border-t border-neutral-100 flex items-center justify-between">
+            <div class="text-sm text-neutral-500">
+                显示 <span id="current-range">1-10</span> 条，共 <span id="total-count">0</span> 条
+            </div>
+            <div class="flex items-center">
+                <button id="first-page" class="hidden sm:flex w-8 h-8 flex items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 btn-transition hover:bg-neutral-50 hover:border-neutral-300 touch-target" title="首页">
+                    <i class="fa fa-angle-double-left"></i>
+                </button>
+                <button id="prev-page" class="w-8 h-8 flex items-center justify-center rounded-lg border border-neutral-200 text-neutral-400 cursor-not-allowed btn-transition touch-target" title="上一页">
+                    <i class="fa fa-angle-left"></i>
+                </button>
+                <!-- 页码会通过JavaScript动态生成 -->
+                <div id="page-numbers" class="flex items-center space-x-1"></div>
+                <button id="next-page" class="w-8 h-8 flex items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 btn-transition hover:bg-neutral-50 hover:border-neutral-300 touch-target" title="下一页">
+                    <i class="fa fa-angle-right"></i>
+                </button>
+                <button id="last-page" class="hidden sm:flex w-8 h-8 flex items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 btn-transition hover:bg-neutral-50 hover:border-neutral-300 touch-target" title="末页">
+                    <i class="fa fa-angle-double-right"></i>
+                </button>
+
+                <!-- 页码跳转输入框 -->
+                <div class="flex items-center ml-2 border border-neutral-200 rounded-lg overflow-hidden">
+                    <input type="number" id="jump-to-page" min="1" max="26" value="1"
+                           class="w-16 h-8 px-2 text-center text-sm border-0 input-focus touch-target" title="输入页码回车跳转">
+                    <span class="px-2 text-neutral-500">/</span>
+                    <span id="total-pages" class="w-8 h-8 flex items-center justify-center text-sm text-neutral-500">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- 创建智能表格的模态框 -->
+<div id="create-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center">
+    <div class="bg-white rounded-xl shadow-modal w-full max-w-md mx-4 transform transition-all duration-300 scale-95 opacity-0 max-h-[90vh] overflow-y-auto" id="modal-content">
+        <div class="p-5 border-b border-neutral-100 flex justify-between items-center">
+            <h3 class="text-lg font-semibold text-neutral-800">新建智能表格</h3>
+            <button id="close-modal" class="text-neutral-400 hover:text-neutral-600 transition-colors touch-target">
+                <i class="fa fa-times"></i>
+            </button>
+        </div>
+        <form id="create-form" class="p-5 space-y-4">
+            <div class="space-y-1.5">
+                <label for="doc-name" class="block text-sm font-medium text-neutral-700">智能表格名称 <span class="text-red-500">*</span></label>
+                <input type="text" id="doc-name" name="docName" required
+                       class="w-full px-3 py-2 border border-neutral-200 rounded-lg input-focus transition-all placeholder:text-neutral-400 text-sm touch-target"
+                       placeholder="请输入智能表格名称">
+            </div>
+        </form>
+        <div class="p-4 border-t border-neutral-100 flex justify-end gap-3">
+            <button id="cancel-create" class="px-4 py-2 border border-neutral-200 rounded-lg text-neutral-700 font-medium btn-transition hover:bg-neutral-50 hover:border-neutral-300 text-sm touch-target">
+                取消
+            </button>
+            <button id="confirm-create" class="px-4 py-2 bg-primary text-white rounded-lg font-medium btn-transition hover:bg-primary/90 hover:shadow-md text-sm touch-target">
+                确认创建
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 页面加载完成后执行
+    document.addEventListener('DOMContentLoaded', function() {
+        // 获取DOM元素
+        const createBtn = document.getElementById('create-btn');
+        const createModal = document.getElementById('create-modal');
+        const modalContent = document.getElementById('modal-content');
+        const closeModal = document.getElementById('close-modal');
+        const cancelCreate = document.getElementById('cancel-create');
+        const confirmCreate = document.getElementById('confirm-create');
+        const createForm = document.getElementById('create-form');
+        const searchForm = document.getElementById('search-form');
+        const firstPageBtn = document.getElementById('first-page');
+        const prevPageBtn = document.getElementById('prev-page');
+        const nextPageBtn = document.getElementById('next-page');
+        const lastPageBtn = document.getElementById('last-page');
+        const pageNumbersContainer = document.getElementById('page-numbers');
+        const jumpToPageInput = document.getElementById('jump-to-page');
+        const totalPagesElement = document.getElementById('total-pages');
+        const totalCountElement = document.getElementById('total-count');
+        const currentRangeElement = document.getElementById('current-range');
+        const toast = document.getElementById('toast');
+        const toastIcon = document.getElementById('toast-icon');
+        const toastMessage = document.getElementById('toast-message');
+
+        // 分页相关变量
+        let currentPage = 1;
+        let pageSize = 10;
+        let totalPages = 0;
+        let totalRecords = 0;
+        const visibleRange = 2; // 页码显示范围
+
+        // 初始化页面 - 加载第一页数据
+        loadTableData();
+
+        // 打开创建模态框
+        createBtn.addEventListener('click', () => {
+            createModal.classList.remove('hidden');
+            createModal.classList.add('flex');
+            setTimeout(() => {
+                modalContent.classList.remove('scale-95', 'opacity-0');
+                modalContent.classList.add('scale-100', 'opacity-100');
+            }, 10);
+            document.getElementById('doc-name').focus();
+        });
+
+        // 关闭模态框函数
+        function closeModalFunc() {
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            modalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                createModal.classList.remove('flex');
+                createModal.classList.add('hidden');
+                createForm.reset();
+            }, 300);
+        }
+
+        // 关闭模态框事件
+        closeModal.addEventListener('click', closeModalFunc);
+        cancelCreate.addEventListener('click', closeModalFunc);
+
+        // 点击模态框外部关闭
+        createModal.addEventListener('click', (e) => {
+            if (e.target === createModal) {
+                closeModalFunc();
+            }
+        });
+
+        // 创建智能表格
+            confirmCreate.addEventListener('click', async () => {
+                const tableName = document.getElementById('doc-name').value.trim();
+
+                // 表单验证
+                if (!tableName) {
+                    showToast('请输入智能表格名称', false);
+                    return;
+                }
+
+                try {
+                    // 禁用按钮防止重复提交
+                    confirmCreate.disabled = true;
+                    confirmCreate.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i> 创建中...';
+
+                    // 调用后端API
+                    const response = await fetch('/api/doc/create', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            docType: 10, // 10表示表格类型
+                            docName: tableName
+                        })
+                    });
+
+                const result = await response.json();
+
+                if (response.ok && result && result.success) {
+                    // 创建成功
+                    showToast('智能表格创建成功！', true);
+
+                    // 重新加载数据
+                    loadTableData();
+
+                    // 添加新行到表格顶部（视觉反馈）
+                        const tableBody = document.querySelector('tbody');
+                        const newRow = document.createElement('tr');
+                        newRow.className = 'table-row-hover bg-blue-50';
+                        newRow.innerHTML = `
+                        <td class="px-6 py-3.5 text-sm text-neutral-800 font-medium">${tableName}</td>
+                        <td class="px-6 py-3.5 text-sm text-neutral-600 font-mono bg-neutral-50 px-2.5 py-1 rounded">${result.docId || ''}</td>
+                        <td class="px-6 py-3.5 text-sm text-neutral-800">${result.adminUserIds || ''}</td>
+                    `;
+
+                    // 插入到表格顶部
+                    if (tableBody.firstChild) {
+                        tableBody.insertBefore(newRow, tableBody.firstChild);
+                    } else {
+                        tableBody.appendChild(newRow);
+                    }
+
+                    // 2秒后移除高亮
+                    setTimeout(() => newRow.classList.remove('bg-blue-50'), 2000);
+
+                    closeModalFunc();
+                } else {
+                    // 创建失败
+                    showToast(`创建失败: ${result.errmsg || '未知错误'}`, false);
+                }
+            } catch (error) {
+                console.error('创建表格失败:', error);
+                showToast('网络异常，创建失败', false);
+            } finally {
+                // 恢复按钮状态
+                confirmCreate.disabled = false;
+                confirmCreate.innerHTML = '确认创建';
+            }
+        });
+
+        // 查询表单处理
+        searchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            // 重置到第一页
+            currentPage = 1;
+            loadTableData();
+        });
+
+        // 重置按钮处理
+        searchForm.addEventListener('reset', () => {
+            // 重置到第一页
+            currentPage = 1;
+            // 延迟执行，确保表单已重置
+            setTimeout(loadTableData, 100);
+        });
+
+        // 加载表格数据
+                async function loadTableData() {
+                    // 先检查登录状态
+                    const loginStatus = await checkLoginStatus();
+                    
+                    // 如果未登录，不加载数据
+                    if (!loginStatus) {
+                        return;
+                    }
+                    
+                    const tableName = document.getElementById('table-name').value.trim();
+                    const adminName = document.getElementById('admin-name').value.trim();
+
+                    console.log('查询条件：', { tableName, adminName, currentPage, pageSize });
+                    showToast('查询已执行，正在加载数据...');
+
+                    try {
+                        // 构建查询URL
+                        const url = new URL('/api/doc/search', window.location.origin);
+                        if (tableName) url.searchParams.append('tableName', tableName);
+                        if (adminName) url.searchParams.append('adminName', adminName);
+                        url.searchParams.append('pageNum', currentPage);
+                        url.searchParams.append('pageSize', pageSize);
+
+                // 发送查询请求
+                const response = await fetch(url.toString());
+                const result = await response.json();
+
+                if (result.success) {
+                    // 更新分页信息
+                    totalRecords = result.pagination.total;
+                    totalPages = result.pagination.totalPages;
+                    currentPage = result.pagination.pageNum;
+                    pageSize = result.pagination.pageSize;
+
+                    // 更新UI显示
+                    updatePaginationUI();
+                    showToast(`查询成功，找到 ${totalRecords} 条记录`);
+                    // 更新表格数据
+                    updateTableData(result.data);
+                } else {
+                    showToast(`查询失败: ${result.message}`, false);
+                }
+            } catch (error) {
+                console.error('查询出错:', error);
+                showToast('网络异常，查询失败', false);
+            }
+        }
+
+        // 添加表格数据更新函数
+            function updateTableData(records) {
+                const tableBody = document.querySelector('tbody');
+                const mobileCardsContainer = document.getElementById('mobile-cards');
+                
+                // 清空现有数据
+                tableBody.innerHTML = '';
+                mobileCardsContainer.innerHTML = '';
+
+                if (records.length === 0) {
+                    // 显示无数据提示 - 桌面端
+                    const emptyRow = document.createElement('tr');
+                    emptyRow.innerHTML = `
+                    <td colspan="3" class="px-6 py-8 text-center text-neutral-500">
+                        <i class="fa fa-inbox mr-2"></i>没有找到匹配的记录
+                    </td>
+                `;
+                    tableBody.appendChild(emptyRow);
+                    
+                    // 显示无数据提示 - 移动端
+                    const emptyCard = document.createElement('div');
+                    emptyCard.className = 'mobile-card p-6 text-center text-neutral-500';
+                    emptyCard.innerHTML = `
+                        <i class="fa fa-inbox text-2xl mb-2"></i>
+                        <p>没有找到匹配的记录</p>
+                    `;
+                    mobileCardsContainer.appendChild(emptyCard);
+                    
+                    return;
+                }
+
+                // 填充新数据 - 桌面端
+                records.forEach(record => {
+                    const row = document.createElement('tr');
+                    row.className = 'table-row-hover';
+
+                    row.innerHTML = `
+                    <td class="px-6 py-3.5 text-sm text-neutral-800 font-medium">${record.docName || ''}</td>
+                    <td class="px-6 py-3.5 text-sm text-neutral-600 font-mono bg-neutral-50 px-2.5 py-1 rounded">${record.docId || ''}</td>
+                    <td class="px-6 py-3.5 text-sm text-neutral-800">${record.adminUserIds || ''}</td>
+                `;
+                    tableBody.appendChild(row);
+                });
+                
+                // 填充新数据 - 移动端卡片式
+                records.forEach(record => {
+                    const card = document.createElement('div');
+                    card.className = 'mobile-card bg-white shadow-sm';
+                    
+                    card.innerHTML = `
+                        <div class="mobile-card-row">
+                            <div class="mobile-card-label">智能表格名称</div>
+                            <div class="mobile-card-value font-medium">${record.docName || ''}</div>
+                        </div>
+                        <div class="mobile-card-row">
+                            <div class="mobile-card-label">智能表格ID</div>
+                            <div class="mobile-card-value font-mono bg-neutral-50 px-2 py-1 rounded">${record.docId || ''}</div>
+                        </div>
+                        <div class="mobile-card-row">
+                            <div class="mobile-card-label">管理员</div>
+                            <div class="mobile-card-value">${record.adminUserIds || ''}</div>
+                        </div>
+                    `;
+                    
+                    mobileCardsContainer.appendChild(card);
+                });
+            }
+
+        // 更新分页UI
+        function updatePaginationUI() {
+            // 更新总页数和总记录数
+            totalPagesElement.textContent = totalPages;
+            totalCountElement.textContent = totalRecords;
+
+            // 更新当前显示范围
+            const start = (currentPage - 1) * pageSize + 1;
+            const end = Math.min(currentPage * pageSize, totalRecords);
+            currentRangeElement.textContent = `${start}-${end}`;
+
+            // 更新跳转输入框
+            jumpToPageInput.value = currentPage;
+            jumpToPageInput.max = totalPages;
+
+            // 更新分页按钮状态
+            firstPageBtn.disabled = currentPage === 1;
+            prevPageBtn.disabled = currentPage === 1;
+            nextPageBtn.disabled = currentPage === totalPages || totalPages === 0;
+            lastPageBtn.disabled = currentPage === totalPages || totalPages === 0;
+
+            // 更新按钮样式
+            if (currentPage === 1) {
+                firstPageBtn.classList.add('text-neutral-400', 'cursor-not-allowed');
+                firstPageBtn.classList.remove('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+                prevPageBtn.classList.add('text-neutral-400', 'cursor-not-allowed');
+                prevPageBtn.classList.remove('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+            } else {
+                firstPageBtn.classList.remove('text-neutral-400', 'cursor-not-allowed');
+                firstPageBtn.classList.add('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+                prevPageBtn.classList.remove('text-neutral-400', 'cursor-not-allowed');
+                prevPageBtn.classList.add('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+            }
+
+            if (currentPage === totalPages || totalPages === 0) {
+                nextPageBtn.classList.add('text-neutral-400', 'cursor-not-allowed');
+                nextPageBtn.classList.remove('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+                lastPageBtn.classList.add('text-neutral-400', 'cursor-not-allowed');
+                lastPageBtn.classList.remove('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+            } else {
+                nextPageBtn.classList.remove('text-neutral-400', 'cursor-not-allowed');
+                nextPageBtn.classList.add('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+                lastPageBtn.classList.remove('text-neutral-400', 'cursor-not-allowed');
+                lastPageBtn.classList.add('text-neutral-700', 'hover:bg-neutral-50', 'hover:border-neutral-300');
+            }
+
+            // 重新渲染页码
+            renderPageNumbers();
+        }
+
+        // 渲染页码
+        function renderPageNumbers() {
+            // 清空现有页码
+            pageNumbersContainer.innerHTML = '';
+
+            if (totalPages <= 1) {
+                return; // 只有一页或无数据时不显示页码
+            }
+
+            let startPage, endPage;
+
+            // 计算显示的页码范围
+            if (totalPages <= visibleRange * 2 + 1) {
+                startPage = 1;
+                endPage = totalPages;
+            } else {
+                // 处理开头部分
+                if (currentPage <= visibleRange + 1) {
+                    startPage = 1;
+                    endPage = visibleRange * 2 + 1;
+                }
+                // 处理结尾部分
+                else if (currentPage >= totalPages - visibleRange) {
+                    startPage = totalPages - visibleRange * 2;
+                    endPage = totalPages;
+                }
+                // 处理中间部分
+                else {
+                    startPage = currentPage - visibleRange;
+                    endPage = currentPage + visibleRange;
+                }
+            }
+
+            // 添加开始部分的省略号和页码
+            if (startPage > 1) {
+                // 添加第1页
+                addPageButton(1);
+
+                // 添加省略号（如果不是紧接着第1页）
+                if (startPage > 2) {
+                    addEllipsis();
+                }
+            }
+
+            // 添加中间的页码
+            for (let i = startPage; i <= endPage; i++) {
+                addPageButton(i);
+            }
+
+            // 添加结尾部分的省略号和页码
+            if (endPage < totalPages) {
+                // 添加省略号（如果不是紧接着最后一页）
+                if (endPage < totalPages - 1) {
+                    addEllipsis();
+                }
+
+                // 添加最后一页
+                addPageButton(totalPages);
+            }
+        }
+
+        // 添加页码按钮
+        function addPageButton(pageNum) {
+            const button = document.createElement('button');
+            button.className = `w-8 h-8 flex items-center justify-center rounded-lg text-sm btn-transition ${
+                pageNum === currentPage
+                    ? 'bg-primary text-white border-primary'
+                    : 'border border-neutral-200 text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300'
+            } touch-target`;
+            button.textContent = pageNum;
+            button.addEventListener('click', () => goToPage(pageNum));
+            pageNumbersContainer.appendChild(button);
+        }
+
+        // 添加省略号
+        function addEllipsis() {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'w-8 h-8 flex items-center justify-center text-neutral-400';
+            ellipsis.textContent = '...';
+            pageNumbersContainer.appendChild(ellipsis);
+        }
+
+        // 跳转到指定页
+        function goToPage(page) {
+            // 验证页码有效性
+            if (page < 1 || page > totalPages || page === currentPage) return;
+
+            // 更新当前页并加载数据
+            currentPage = page;
+            loadTableData();
+        }
+
+        // 绑定分页事件
+        firstPageBtn.addEventListener('click', () => goToPage(1));
+        lastPageBtn.addEventListener('click', () => goToPage(totalPages));
+        prevPageBtn.addEventListener('click', () => goToPage(currentPage - 1));
+        nextPageBtn.addEventListener('click', () => goToPage(currentPage + 1));
+
+        // 页码跳转功能
+        jumpToPageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const page = parseInt(jumpToPageInput.value) || 1;
+                goToPage(page);
+            }
+        });
+
+        // 失去焦点时也跳转
+        jumpToPageInput.addEventListener('blur', () => {
+            const page = parseInt(jumpToPageInput.value) || 1;
+            goToPage(page);
+        });
+
+        // 限制输入范围
+        jumpToPageInput.addEventListener('input', () => {
+            let value = parseInt(jumpToPageInput.value) || 1;
+            if (value < 1) value = 1;
+            if (value > totalPages && totalPages > 0) value = totalPages;
+            jumpToPageInput.value = value;
+        });
+
+        // 显示提示消息
+        function showToast(message, isSuccess = true) {
+            // 清除之前的定时器，避免冲突
+            if (window.toastTimer) {
+                clearTimeout(window.toastTimer);
+            }
+
+            // 设置消息内容和图标
+            toastMessage.textContent = message;
+            toastIcon.className = isSuccess
+                ? 'fa fa-check-circle mr-3 text-lg text-green-500'
+                : 'fa fa-exclamation-circle mr-3 text-lg text-red-500';
+
+            // 设置提示类型样式
+            toast.classList.remove('toast-success', 'toast-error');
+            toast.classList.add(isSuccess ? 'toast-success' : 'toast-error');
+
+            // 显示提示
+            toast.classList.add('show');
+
+            // 3秒后隐藏
+            window.toastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 5000);
+        }
+        
+        // 检查登录状态
+        async function checkLoginStatus() {
+            try {
+                const response = await fetch('/wechat/work/login/check-login');
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 已登录，显示用户信息和创建按钮，隐藏登录按钮
+                    document.getElementById('login-btn').classList.add('hidden');
+                    document.getElementById('create-btn').classList.remove('hidden');
+                    document.getElementById('user-info').classList.remove('hidden');
+                    
+                    // 显示用户信息
+                    const userInfo = result.data;
+                    document.getElementById('user-name').textContent = userInfo.name || userInfo.UserId;
+                    // 设置默认头像，如果有真实头像可以替换
+                    document.getElementById('user-avatar').src = userInfo.avatar || 'data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%2021v-2a4%204%200%200%200-4-4H8a4%204%200%200%200-4%204v2%22%3E%3C%2Fpath%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%227%22%20r%3D%224%22%3E%3C%2Fcircle%3E%3C%2Fsvg%3E';
+                    
+                    // 根据用户是否为管理员决定是否显示管理员相关查询条件
+                    const isAdmin = userInfo.isAdmin || false;
+                    if (isAdmin) {
+                        // 管理员用户，显示管理员输入框
+                        document.getElementById('admin-name-container').classList.remove('hidden');
+                    } else {
+                        // 非管理员用户，隐藏管理员输入框
+                        document.getElementById('admin-name-container').classList.add('hidden');
+                        // 清空输入框的值，避免查询条件残留
+                        document.getElementById('admin-name').value = '';
+                    }
+                    
+                    return true;
+                } else {
+                    // 未登录，隐藏用户信息和创建按钮，显示登录按钮
+                    document.getElementById('login-btn').classList.remove('hidden');
+                    document.getElementById('create-btn').classList.add('hidden');
+                    document.getElementById('user-info').classList.add('hidden');
+                    
+                    // 用户未登录时也隐藏管理员相关查询条件
+                    document.getElementById('admin-name-container').classList.add('hidden');
+                    
+                    return false;
+                }
+            } catch (error) {
+                console.error('检查登录状态失败:', error);
+                showToast('检查登录状态失败', false);
+                return false;
+            }
+        }
+        
+        // 绑定登录按钮事件
+        document.getElementById('login-btn').addEventListener('click', () => {
+            window.location.href = '/wechat/work/login/generate-qrcode';
+        });
+        
+        // 绑定退出登录按钮事件
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            // 直接跳转到退出登录页面
+            window.location.href = '/wechat/work/login/logout';
+        });
+        
+        // 页面加载时检查登录状态
+        document.addEventListener('DOMContentLoaded', () => {
+            checkLoginStatus();
+        });
+    });
+</script>
+</body>
+</html>

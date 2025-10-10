@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 /**
  * @program: wxwork-tools
@@ -38,16 +40,43 @@ public class WxworkService {
     private String getUserIdUrl;
 
     /**
+     * 发送HTTP GET请求
+     * @param url 请求URL
+     * @return 请求响应内容
+     * @throws Exception 异常信息
+     */
+    public String getHttpRequest(String url) throws Exception {
+        // 使用现有的HttpClientUtil工具类发送GET请求
+        return HttpClientUtil.getRequest(url);
+    }
+    
+    /**
      * 获取 Access Token
      * @return
      * @throws Exception
      */
     public  String getAccessToken() throws Exception {
+        System.out.println("开始调用企业微信API获取access_token...");
+        long start = System.currentTimeMillis();
+        
         List<NameValuePair> params = new ArrayList<>();
         params.add(new BasicNameValuePair("corpid", cropId));
         params.add(new BasicNameValuePair("corpsecret", customerSecret));
+        
+        System.out.println("请求参数: corpid=" + cropId + ", corpsecret=******");
+        System.out.println("请求URL: " + apiAccessTokenUrl);
+        
+        long requestStart = System.currentTimeMillis();
         String response = HttpClientUtil.getRequest(apiAccessTokenUrl,params);
+        System.out.println("HTTP请求耗时: " + (System.currentTimeMillis() - requestStart) + "ms");
+        
+        System.out.println("响应内容: " + response);
+        
         AccessTokenModel accessTokenModel = JSONObject.parseObject(response, AccessTokenModel.class);
+        
+        long totalTime = System.currentTimeMillis() - start;
+        System.out.println("获取access_token完成，总耗时: " + totalTime + "ms");
+        
         return accessTokenModel.getAccessToken();
     }
 
@@ -57,23 +86,10 @@ public class WxworkService {
     public CreateDocModel createDoc(CreateDocRequest request) throws Exception {
         // 获取access_token
         String accessToken = getAccessToken();
-        List<String> adminUsers = new ArrayList<>();
-        request.getAdminUserPhoneNumbers().forEach(adminUserPhoneNumber -> {
-            GetUserIdRequest getUserIdRequest = new GetUserIdRequest();
-            getUserIdRequest.setMobile(adminUserPhoneNumber);
-            try {
-                GetUserIdModel userIdModel = getUserId(getUserIdRequest, accessToken);
-                if (userIdModel.getErrcode().compareTo(0)==0) {
-                    adminUsers.add(userIdModel.getUserid());
-                } else {
-                    throw new RuntimeException(userIdModel.getErrmsg());
-                }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        });
-        request.setAdminUsers(adminUsers);
-
+        
+        // 现在管理员用户ID已经在Controller层设置好了，不再需要根据手机号查询用户ID
+        // 直接使用request中已设置的adminUsers
+        
         // 构建请求URL
         String url = String.format(apiCreateDocUrl, accessToken);
         // 发送POST请求
