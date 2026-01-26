@@ -3,8 +3,7 @@ STOPSIGNAL SIGTERM
 
 WORKDIR /opt/apps
 
-ADD target/wxwork-tools-1.0.0.jar /opt/apps/app.jar
-
+ADD core/core-backend/target/wxwork-tools-1.0.0.jar /opt/apps/app.jar
 
 ENV JAVA_APP_JAR=/opt/apps/app.jar
 ENV RUNNING_PORT=9999
