@@ -207,3 +207,206 @@
   margin-right: 0.25rem;
 }
 
+/* 指标卡样式 */
+.metrics-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.metric-card {
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  padding: 0.75rem;
+  transition: all 0.3s ease-in-out;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.metric-card h3 {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 0.375rem;
+  word-break: break-word;
+}
+
+.metric-card .metric-value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 0.125rem;
+}
+
+.metric-card.success {
+  border-left: 3px solid #10b981;
+}
+
+.metric-card.warning {
+  border-left: 3px solid #f59e0b;
+}
+
+.metric-card.info {
+  border-left: 3px solid #3b82f6;
+}
+
+.metric-card.error {
+  border-left: 3px solid #ef4444;
+}
+
+/* Tab 页样式 */
+.tab-container {
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.tab-header {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tab-header::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-button {
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  white-space: nowrap;
+  min-height: 44px;
+}
+
+.tab-button:hover {
+  color: #07C160;
+  background-color: rgba(7, 193, 96, 0.05);
+}
+
+.tab-button.active {
+  color: #07C160;
+  border-bottom: 2px solid #07C160;
+  background-color: rgba(7, 193, 96, 0.05);
+}
+
+.tab-content {
+  min-height: 200px;
+}
+
+.tab-pane {
+  display: none;
+  padding: 2rem;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+.tab-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .home-main {
+    padding: 1rem 0.75rem;
+  }
+
+  .home-title h2 {
+    font-size: 1.5rem;
+  }
+
+  .home-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .login-btn,
+  .get-chat-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+  }
+
+  .user-info {
+    justify-content: center;
+    margin-bottom: 0.5rem;
+  }
+
+  .metrics-container {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+
+  .metric-card {
+    padding: 0.625rem;
+  }
+
+  .metric-card h3 {
+    font-size: 0.6875rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .metric-card .metric-value {
+    font-size: 1rem;
+  }
+
+  .card-content {
+    padding: 1rem;
+  }
+
+  .chat-textarea {
+    min-height: 10rem;
+    font-size: 0.875rem;
+  }
+
+  .copy-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .tab-button {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8125rem;
+  }
+
+  .tab-pane {
+    padding: 1.5rem 1rem;
+  }
+
+  .tab-placeholder {
+    min-height: 150px;
+  }
+
+  .toast {
+    padding: 10px 12px;
+  }
+
+  .toast span {
+    font-size: 0.75rem;
+  }
+}
+

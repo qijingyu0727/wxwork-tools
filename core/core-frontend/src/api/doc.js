@@ -7,6 +7,10 @@ export const docApi = {
 
   searchDocs: (params) => {
     return request.get('/api/doc/search', { params })
+  },
+
+  getCustomerData: (extChatId) => {
+    return request.get('/api/chat-group/customer-data', { params: { extChatId } })
   }
 }
 
