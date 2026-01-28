@@ -18,22 +18,11 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 
 public class HttpClientUtil {
-    // 发送GET请求（带参数）
+    // 发送GET请求
     public static String getRequest(String path, List<NameValuePair> parametersBody) throws Exception {
         URIBuilder uriBuilder = new URIBuilder(path);
         uriBuilder.setParameters(parametersBody);
         HttpGet get = new HttpGet(uriBuilder.build());
-        return executeGetRequest(get);
-    }
-    
-    // 发送GET请求（不带参数）
-    public static String getRequest(String path) throws Exception {
-        HttpGet get = new HttpGet(path);
-        return executeGetRequest(get);
-    }
-    
-    // 执行GET请求的通用方法
-    private static String executeGetRequest(HttpGet get) throws Exception {
         HttpClient client = HttpClientBuilder.create().build();
         try {
             HttpResponse response = client.execute(get);

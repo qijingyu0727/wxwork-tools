@@ -10,7 +10,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class DocService {
@@ -20,15 +19,6 @@ public class DocService {
 
     @Resource
     private SmartFormRecordMapper smartFormRecordMapper;
-
-    // 管理员用户ID列表（逗号分隔）
-    @Value("${admin_ids}")
-    private String admin_ids;
-    
-    // 获取管理员用户ID列表
-    public String getAdminIds() {
-        return admin_ids;
-    }
 
 
     public SmartFormRecord createDoc(CreateDocRequest request) throws Exception {
@@ -43,7 +33,7 @@ public class DocService {
         return record;
     }
 
-    public List<SmartFormRecord> searchSmartForms(String tableName, String adminId, String adminPhone ,String currentLoginUserId ) {
+    public List<SmartFormRecord> searchSmartForms(String tableName, String adminId, String adminPhone  ) {
         SmartFormRecordExample example = new SmartFormRecordExample();
         SmartFormRecordExample.Criteria criteria = example.createCriteria();
 
@@ -58,15 +48,6 @@ public class DocService {
         if (adminId != null && !adminId.isEmpty()) {
             criteria.andAdminUserIdsLike("%" + adminId + "%");
         }
-
-        if (!StringUtils.contains(admin_ids, currentLoginUserId)) {
-            // 如果当前登录用户不是管理员，只返回当前登录用户创建的记录
-            if (currentLoginUserId != null && !currentLoginUserId.isEmpty()) {
-                criteria.andAdminUserIdsLike("%" + currentLoginUserId + "%");
-            }
-        } 
-        
-
 
         // 按ID倒序排序（默认排序，可根据需求调整）
         example.setOrderByClause("id desc");

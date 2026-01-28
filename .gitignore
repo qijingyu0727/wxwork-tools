@@ -3,7 +3,5 @@ target/
 *.iml
 .idea
 .idea/*
-.vscode
-.vscode/*
 .DS_Store
-wxwork-tools.tar
+
