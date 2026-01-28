@@ -64,8 +64,8 @@
       <!-- Tab 页区域 -->
       <div class="tab-container">
         <div class="tab-header">
-          <button 
-            v-for="tab in tabs" 
+          <button
+            v-for="tab in tabs"
             :key="tab.id"
             :class="['tab-button', activeTab === tab.id ? 'active' : '']"
             @click="activeTab = tab.id"
@@ -74,7 +74,189 @@
           </button>
         </div>
         <div class="tab-content">
-          <div v-for="tab in tabs" :key="tab.id" :class="['tab-pane', activeTab === tab.id ? 'active' : '']">
+          <!-- 实施 Tab -->
+          <div v-if="activeTab === 'implementation'" class="tab-pane active">
+            <div v-if="maintenanceLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="maintenanceRecords.length === 0" class="tab-placeholder">
+              <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无实施记录</p>
+            </div>
+            <div v-else class="maintenance-list">
+              <div v-for="record in maintenanceRecords" :key="record.id" class="maintenance-card">
+                <div class="maintenance-header">
+                  <span class="maintenance-template">{{ record.template }}</span>
+                  <span :class="['maintenance-status', 'status-' + (record.status || '').toLowerCase()]">{{ translateStatus(record.status) }}</span>
+                </div>
+                <div class="maintenance-info">
+                  <div class="info-row">
+                    <span class="info-label">版本</span>
+                    <span class="info-value">{{ record.version || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">部署方式</span>
+                    <span class="info-value">{{ record.deploymentMethod || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">部署时间</span>
+                    <span class="info-value">{{ record.deploymentTime || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">实施人</span>
+                    <span class="info-value">{{ record.creatorName || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ record.createTime || '-' }}</span>
+                  </div>
+                </div>
+                <div v-if="record.content" class="maintenance-content">
+                  <div class="info-label">实施内容</div>
+                  <pre class="content-text">{{ record.content }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 维护 Tab -->
+          <div v-if="activeTab === 'maintenance'" class="tab-pane active">
+            <div v-if="serviceLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="serviceRecords.length === 0" class="tab-placeholder">
+              <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无维护记录</p>
+            </div>
+            <div v-else class="maintenance-list">
+              <div v-for="record in serviceRecords" :key="record.id" class="maintenance-card">
+                <div class="maintenance-header">
+                  <span class="maintenance-template">{{ record.maintenanceTitle }}</span>
+                </div>
+                <div class="maintenance-info">
+                  <div class="info-row">
+                    <span class="info-label">维护类型</span>
+                    <span class="info-value">{{ record.maintenanceTypes || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">版本</span>
+                    <span class="info-value">{{ record.maintenanceVersion || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">维护时间</span>
+                    <span class="info-value">{{ record.maintenanceTime || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">创建人</span>
+                    <span class="info-value">{{ record.creatorName || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ record.createTime || '-' }}</span>
+                  </div>
+                </div>
+                <div v-if="record.maintenanceContext" class="maintenance-content">
+                  <div class="info-label">维护内容</div>
+                  <pre class="content-text">{{ record.maintenanceContext }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 工单 Tab -->
+          <div v-if="activeTab === 'ticket'" class="tab-pane active">
+            <!-- 筛选栏 -->
+            <div class="ticket-filter-bar">
+              <div class="filter-label">筛选：</div>
+              <button
+                :class="['filter-btn', ticketFilter === 'all' ? 'active' : '']"
+                @click="ticketFilter = 'all'"
+              >
+                全部 ({{ tickets.length }})
+              </button>
+              <button
+                :class="['filter-btn', ticketFilter === 'unresolved' ? 'active' : '']"
+                @click="ticketFilter = 'unresolved'"
+              >
+                未解决 ({{ tickets.filter(t => !t.resolved).length }})
+              </button>
+              <button
+                :class="['filter-btn', ticketFilter === 'resolved' ? 'active' : '']"
+                @click="ticketFilter = 'resolved'"
+              >
+                已解决 ({{ tickets.filter(t => t.resolved).length }})
+              </button>
+            </div>
+
+            <div v-if="ticketsLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="getFilteredTickets().length === 0" class="tab-placeholder">
+              <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无工单</p>
+            </div>
+            <div v-else class="maintenance-list">
+              <div v-for="ticket in getFilteredTickets()" :key="ticket.id" class="maintenance-card">
+                <div class="maintenance-header" @click="toggleTicketExpand(ticket.id)" style="cursor: pointer;">
+                  <span class="maintenance-template">{{ ticket.title }}</span>
+                  <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
+                    {{ ticket.resolved ? '已解决' : '未解决' }}
+                  </span>
+                  <i :class="['fa', expandedTickets.has(ticket.id) ? 'fa-chevron-up' : 'fa-chevron-down', 'ml-2']"></i>
+                </div>
+                <div class="maintenance-info">
+                  <div class="info-row">
+                    <span class="info-label">问题分类</span>
+                    <span class="info-value">{{ ticket.issueCategory || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">负责人</span>
+                    <span class="info-value">{{ ticket.ownerName || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">紧急度</span>
+                    <span class="info-value">{{ ticket.urgent ? '紧急' : '普通' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">客户情绪</span>
+                    <span class="info-value">{{ translateSentiment(ticket.customerSentiment) }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ ticket.createdAt || '-' }}</span>
+                  </div>
+                </div>
+                <div v-if="ticket.description" class="maintenance-content">
+                  <div class="info-label">问题描述</div>
+                  <pre class="content-text">{{ ticket.description }}</pre>
+                </div>
+                <!-- 工单日志 -->
+                <div v-if="expandedTickets.has(ticket.id)" class="ticket-logs">
+                  <div class="info-label" style="margin-top: 12px;">工单流转记录</div>
+                  <div v-if="!ticketLogs[ticket.id] || ticketLogs[ticket.id].length === 0" class="text-gray-400 text-sm mt-2">
+                    暂无流转记录
+                  </div>
+                  <div v-else class="logs-timeline">
+                    <div v-for="log in ticketLogs[ticket.id]" :key="log.id" class="log-item">
+                      <div class="log-time">{{ log.createdAt }}</div>
+                      <div class="log-content">
+                        <span class="log-action">{{ log.action }}</span>
+                        <span v-if="log.value" class="log-value"> - {{ log.value }}</span>
+                        <span v-if="log.modifiedByName" class="log-operator"> ({{ log.modifiedByName }})</span>
+                      </div>
+                      <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 需求和缺陷 Tab 占位符 -->
+          <div v-for="tab in tabs.filter(t => t.id !== 'implementation' && t.id !== 'maintenance' && t.id !== 'ticket')" :key="tab.id" :class="['tab-pane', activeTab === tab.id ? 'active' : '']">
             <div class="tab-placeholder">
               <i class="fa fa-hourglass-half text-3xl text-gray-400 mb-4"></i>
               <p class="text-gray-500">敬请期待</p>
@@ -100,6 +282,15 @@ const agentId = ref('')
 const chatId = ref('')
 const loading = ref(false)
 const customerData = ref(null)
+const maintenanceRecords = ref([])
+const maintenanceLoading = ref(false)
+const serviceRecords = ref([])
+const serviceLoading = ref(false)
+const tickets = ref([])
+const ticketsLoading = ref(false)
+const ticketFilter = ref('all') // 'all', 'resolved', 'unresolved'
+const expandedTickets = ref(new Set())
+const ticketLogs = ref({})
 const activeTab = ref('implementation')
 const tabs = ref([
   { id: 'implementation', name: '实施' },
@@ -200,7 +391,6 @@ const getCustomerData = async (extChatId) => {
     const res = await docApi.getCustomerData(extChatId)
     if (res.success) {
       customerData.value = res.data
-      console.log('客户数据:', res.data)
     } else {
       showToast('获取客户数据失败：' + res.message, false)
       customerData.value = null
@@ -211,12 +401,121 @@ const getCustomerData = async (extChatId) => {
   }
 }
 
+const getMaintenanceRecords = async (extChatId) => {
+  maintenanceLoading.value = true
+  try {
+    const res = await docApi.getMaintenanceRecords(extChatId)
+    if (res.success) {
+      maintenanceRecords.value = res.data || []
+    } else {
+      maintenanceRecords.value = []
+    }
+  } catch (err) {
+    maintenanceRecords.value = []
+  } finally {
+    maintenanceLoading.value = false
+  }
+}
+
+const getServiceRecords = async (extChatId) => {
+  serviceLoading.value = true
+  try {
+    const res = await docApi.getServiceRecords(extChatId)
+    if (res.success) {
+      serviceRecords.value = res.data || []
+    } else {
+      serviceRecords.value = []
+    }
+  } catch (err) {
+    serviceRecords.value = []
+  } finally {
+    serviceLoading.value = false
+  }
+}
+
+const getTickets = async (extChatId) => {
+  ticketsLoading.value = true
+  try {
+    const res = await docApi.getTickets(extChatId)
+    if (res.success) {
+      tickets.value = res.data || []
+    } else {
+      tickets.value = []
+    }
+  } catch (err) {
+    tickets.value = []
+  } finally {
+    ticketsLoading.value = false
+  }
+}
+
+const getTicketLogs = async (ticketId) => {
+  try {
+    const res = await docApi.getTicketLogs(ticketId)
+    if (res.success) {
+      ticketLogs.value[ticketId] = res.data || []
+    }
+  } catch (err) {
+    ticketLogs.value[ticketId] = []
+  }
+}
+
+const toggleTicketExpand = (ticketId) => {
+  if (expandedTickets.value.has(ticketId)) {
+    expandedTickets.value.delete(ticketId)
+  } else {
+    expandedTickets.value.add(ticketId)
+    if (!ticketLogs.value[ticketId]) {
+      getTicketLogs(ticketId)
+    }
+  }
+}
+
+const getFilteredTickets = () => {
+  if (ticketFilter.value === 'all') {
+    return tickets.value
+  } else if (ticketFilter.value === 'resolved') {
+    return tickets.value.filter(t => t.resolved)
+  } else if (ticketFilter.value === 'unresolved') {
+    return tickets.value.filter(t => !t.resolved)
+  }
+  return tickets.value
+}
+
+const translateStatus = (status) => {
+  if (!status) return '-'
+  const statusMap = {
+    'deployed': '已部署',
+    'pending': '待处理',
+    'in_progress': '进行中',
+    'completed': '已完成',
+    'cancelled': '已取消',
+    'failed': '失败'
+  }
+  return statusMap[status.toLowerCase()] || status
+}
+
+const translateSentiment = (sentiment) => {
+  if (!sentiment) return '-'
+  const sentimentMap = {
+    'positive': '积极',
+    'negative': '消极',
+    'neutral': '中性',
+    'angry': '愤怒',
+    'satisfied': '满意',
+    'dissatisfied': '不满',
+    'anxious': '焦虑',
+    'calm': '平静'
+  }
+  return sentimentMap[sentiment.toLowerCase()] || sentiment
+}
+
 const getCurExternalChat = () => {
   loading.value = true
   try {
       // ww.getCurExternalChat({
       //   success(result) {
-      //     // 成功回调，result.errMsg 固定格式为“方法名:ok”
+      //     // 成功回调，result.errMsg 固定格式为"方法名:ok"
       //     chatId.value = result.chatId
       //     showToast('获取群聊 chatID 成功！', true)
       //     console.log('当前群聊ID:', result.chatId)
@@ -234,6 +533,12 @@ const getCurExternalChat = () => {
     console.log('当前群聊ID:', chatId.value)
     // 获取客户数据
     getCustomerData(chatId.value)
+    // 获取实施记录
+    getMaintenanceRecords(chatId.value)
+    // 获取维护记录
+    getServiceRecords(chatId.value)
+    // 获取工单
+    getTickets(chatId.value)
   } catch (err) {
     showToast('异常：'+(err.message || err), false)
     console.error('异常:', err)
