@@ -3,5 +3,15 @@ target/
 *.iml
 .idea
 .idea/*
+.vscode
+.vscode/*
 .DS_Store
+wxwork-tools.tar
 
+# Frontend build artifacts
+node_modules/
+node/
+dist/
+
+# Sensitive configuration
+wxwork-tools.properties
