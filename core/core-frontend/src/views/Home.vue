@@ -205,10 +205,12 @@
               <div v-for="ticket in getFilteredTickets()" :key="ticket.id" class="maintenance-card">
                 <div class="maintenance-header" @click="toggleTicketExpand(ticket.id)" style="cursor: pointer;">
                   <span class="maintenance-template">{{ ticket.title }}</span>
-                  <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
-                    {{ ticket.resolved ? '已解决' : '未解决' }}
-                  </span>
-                  <i :class="['fa', expandedTickets.has(ticket.id) ? 'fa-chevron-up' : 'fa-chevron-down', 'ml-2']"></i>
+                  <div class="maintenance-header-right">
+                    <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
+                      {{ ticket.resolved ? '已解决' : '未解决' }}
+                    </span>
+                    <i :class="['fa', expandedTickets.has(ticket.id) ? 'fa-chevron-up' : 'fa-chevron-down', 'ml-2']"></i>
+                  </div>
                 </div>
                 <div class="maintenance-info">
                   <div class="info-row">
@@ -244,12 +246,15 @@
                   </div>
                   <div v-else class="logs-timeline">
                     <div v-for="log in getFilteredLogs(ticketLogs[ticket.id])" :key="log.id" class="log-item">
-                      <div class="log-time">{{ log.createdAt }}</div>
-                      <div class="log-content">
-                        <span class="log-action">{{ formatLogEntry(log) }}</span>
-                        <span v-if="log.modifiedByName" class="log-operator"> ({{ log.modifiedByName }})</span>
+                      <div class="log-row log-row-top">
+                        <span class="log-time">{{ log.createdAt }}</span>
+                        <span :class="['log-action', getLogActionClass(log.action)]">{{ formatLogEntry(log) }}</span>
                       </div>
-                      <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
+                      <div v-if="log.comment || log.modifiedByName" class="log-row log-row-bottom">
+                        <span v-if="log.comment" class="log-comment-inline">{{ log.comment }}</span>
+                        <span v-else></span>
+                        <span v-if="log.modifiedByName" class="log-operator">{{ log.modifiedByName }}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -610,7 +615,11 @@ const translateLogValue = (action, value) => {
 
 const getFilteredLogs = (logs) => {
   if (!logs || logs.length === 0) return []
-  return logs.filter(log => {
+  // 倒序排列，最近的在前
+  const sorted = [...logs].sort((a, b) => {
+    return new Date(b.createdAt) - new Date(a.createdAt)
+  })
+  return sorted.filter(log => {
     const name = log.modifiedByName?.toLowerCase() || ''
     if (name.includes('系统') || name.includes('system') || name.includes('自动')) {
       return false
@@ -629,6 +638,10 @@ const formatLogEntry = (log) => {
 
   try {
     const valueObj = JSON.parse(log.value)
+    // 过滤空对象 {}
+    if (Object.keys(valueObj).length === 0) {
+      return actionText
+    }
     if (valueObj.old !== undefined && valueObj.new !== undefined) {
       const oldVal = String(valueObj.old)
       const newVal = String(valueObj.new)
@@ -649,6 +662,10 @@ const formatLogEntry = (log) => {
     }
     return `${actionText}（${log.value}）`
   } catch (e) {
+    // 过滤 "{}" 字符串
+    if (log.value === '{}') {
+      return actionText
+    }
     if (ticketStatusMap[log.value] !== undefined) {
       return `${actionText}（${ticketStatusMap[log.value]}）`
     }
@@ -657,6 +674,17 @@ const formatLogEntry = (log) => {
     }
     return `${actionText}（${log.value}）`
   }
+}
+
+const getLogActionClass = (action) => {
+  const a = action?.toLowerCase()
+  if (a?.includes('sentiment')) return 'action-sentiment'
+  if (a?.includes('status') || a === 'follow_up' || a === 'follow') return 'action-status'
+  if (a === 'create' || a === 'created') return 'action-create'
+  if (a === 'resolve' || a === 'resolved' || a === 'close' || a === 'closed' || a === 'archive' || a === 'archived') return 'action-resolve'
+  if (a === 'assign' || a === 'assigned' || a === 'reassign' || a === 'reassigned' || a === 'owner_change' || a === 'owner_changed') return 'action-assign'
+  if (a === 'urgent_change' || a === 'urgent_changed' || a === 'priority_change' || a === 'priority_changed') return 'action-urgent'
+  return ''
 }
 
 const getCurExternalChat = () => {
