@@ -35,7 +35,10 @@
       <div v-if="chatId && customerData" class="metrics-container">
         <!-- 第一行：客户名称、订阅到期、是否验收 -->
         <div class="metric-card info">
-          <h3>客户名称</h3>
+          <div class="metric-header">
+            <h3>客户名称</h3>
+            <span v-if="latestVersion" class="version-badge">{{ latestVersion }}</span>
+          </div>
           <div class="metric-value">{{ customerData.name }}</div>
         </div>
         <div class="metric-card success">
@@ -240,11 +243,10 @@
                     暂无流转记录
                   </div>
                   <div v-else class="logs-timeline">
-                    <div v-for="log in ticketLogs[ticket.id]" :key="log.id" class="log-item">
+                    <div v-for="log in getFilteredLogs(ticketLogs[ticket.id])" :key="log.id" class="log-item">
                       <div class="log-time">{{ log.createdAt }}</div>
                       <div class="log-content">
-                        <span class="log-action">{{ log.action }}</span>
-                        <span v-if="log.value" class="log-value"> - {{ log.value }}</span>
+                        <span class="log-action">{{ formatLogEntry(log) }}</span>
                         <span v-if="log.modifiedByName" class="log-operator"> ({{ log.modifiedByName }})</span>
                       </div>
                       <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
@@ -270,7 +272,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { jsapiApi, docApi } from '@/api/doc'
 import CryptoJS from 'crypto-js'
@@ -288,7 +290,7 @@ const serviceRecords = ref([])
 const serviceLoading = ref(false)
 const tickets = ref([])
 const ticketsLoading = ref(false)
-const ticketFilter = ref('all') // 'all', 'resolved', 'unresolved'
+const ticketFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
 const expandedTickets = ref(new Set())
 const ticketLogs = ref({})
 const activeTab = ref('implementation')
@@ -512,6 +514,149 @@ const translateDeploymentMethod = (method) => {
     'hybrid': '混合部署'
   }
   return methodMap[method?.toLowerCase()] || method || '-'
+}
+
+const latestVersion = computed(() => {
+  if (maintenanceRecords.value.length === 0) return ''
+  const latest = maintenanceRecords.value[0]
+  return latest?.version || ''
+})
+
+const ticketStatusMap = {
+  '0': '无效工单',
+  '1': '待确认',
+  '2': '跟进中',
+  '3': '跨团队跟进中',
+  '4': '已归档'
+}
+
+const logActionMap = {
+  'status_change': '状态变更',
+  'status_changed': '状态变更',
+  'assign': '分配',
+  'assigned': '分配',
+  'reassign': '重新分配',
+  'reassigned': '重新分配',
+  'comment': '评论',
+  'commented': '评论',
+  'resolve': '解决',
+  'resolved': '已解决',
+  'create': '创建',
+  'created': '创建',
+  'close': '关闭',
+  'closed': '已关闭',
+  'reopen': '重新打开',
+  'reopened': '重新打开',
+  'update': '更新',
+  'updated': '更新',
+  'follow_up': '跟进中',
+  'follow': '跟进',
+  'pending': '待处理',
+  'archive': '归档',
+  'archived': '已归档',
+  'transfer': '转交',
+  'transferred': '转交',
+  'escalate': '升级',
+  'escalated': '已升级',
+  'invalid': '无效',
+  'confirm': '确认',
+  'confirmed': '已确认',
+  'reject': '拒绝',
+  'rejected': '已拒绝',
+  'reply': '回复',
+  'replied': '已回复',
+  'merge': '合并',
+  'merged': '已合并',
+  'split': '拆分',
+  'owner_change': '负责人变更',
+  'owner_changed': '负责人变更',
+  'priority_change': '优先级变更',
+  'priority_changed': '优先级变更',
+  'tag_add': '添加标签',
+  'tag_remove': '移除标签',
+  'customer_sentiment_change': '客户情绪变化',
+  'customer_sentiment_changed': '客户情绪变化',
+  'urgent_change': '紧急度变更',
+  'urgent_changed': '紧急度变更',
+  'category_change': '分类变更',
+  'category_changed': '分类变更',
+  'title_change': '标题变更',
+  'title_changed': '标题变更',
+  'description_change': '描述变更',
+  'description_changed': '描述变更'
+}
+
+const sentimentMap = {
+  'negative': '负面',
+  'neutral': '中性',
+  'positive': '正面',
+  'angry': '愤怒',
+  'satisfied': '满意',
+  'frustrated': '沮丧',
+  'happy': '开心',
+  'confused': '困惑'
+}
+
+const translateLogAction = (action) => {
+  return logActionMap[action?.toLowerCase()] || action || '-'
+}
+
+const translateLogValue = (action, value) => {
+  if (ticketStatusMap[value] !== undefined) {
+    return ticketStatusMap[value]
+  }
+  return value
+}
+
+const getFilteredLogs = (logs) => {
+  if (!logs || logs.length === 0) return []
+  return logs.filter(log => {
+    const name = log.modifiedByName?.toLowerCase() || ''
+    if (name.includes('系统') || name.includes('system') || name.includes('自动')) {
+      return false
+    }
+    return true
+  })
+}
+
+const formatLogEntry = (log) => {
+  const action = log.action?.toLowerCase()
+  const actionText = logActionMap[action] || log.action || '-'
+
+  if (!log.value) {
+    return actionText
+  }
+
+  try {
+    const valueObj = JSON.parse(log.value)
+    if (valueObj.old !== undefined && valueObj.new !== undefined) {
+      const oldVal = String(valueObj.old)
+      const newVal = String(valueObj.new)
+
+      // 判断是状态变更还是情绪变更
+      const isSentiment = action?.includes('sentiment')
+
+      let oldText, newText
+      if (isSentiment) {
+        oldText = sentimentMap[oldVal.toLowerCase()] || oldVal
+        newText = sentimentMap[newVal.toLowerCase()] || newVal
+      } else {
+        oldText = ticketStatusMap[oldVal] || sentimentMap[oldVal.toLowerCase()] || oldVal
+        newText = ticketStatusMap[newVal] || sentimentMap[newVal.toLowerCase()] || newVal
+      }
+
+      return `${actionText}（${oldText} -> ${newText}）`
+    }
+    return `${actionText}（${log.value}）`
+  } catch (e) {
+    if (ticketStatusMap[log.value] !== undefined) {
+      return `${actionText}（${ticketStatusMap[log.value]}）`
+    }
+    if (sentimentMap[log.value?.toLowerCase()] !== undefined) {
+      return `${actionText}（${sentimentMap[log.value.toLowerCase()]}）`
+    }
+    return `${actionText}（${log.value}）`
+  }
 }
 
 const getCurExternalChat = () => {
