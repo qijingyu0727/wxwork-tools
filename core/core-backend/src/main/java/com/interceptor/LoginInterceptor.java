@@ -38,28 +38,28 @@ public class LoginInterceptor implements HandlerInterceptor {
             }
         }
 
-        // 检查登录状态
-        // Boolean isLogin = (Boolean) request.getSession().getAttribute("is_login");
+        //检查登录状态
+        Boolean isLogin = (Boolean) request.getSession().getAttribute("is_login");
         
-        // if (isLogin == null || !isLogin) {
-        //     // 未登录
-        //     if (requestUri.startsWith("/api")) {
-        //         // 对于API请求，返回未授权的错误信息
-        //         response.setContentType("application/json;charset=UTF-8");
-        //         PrintWriter writer = response.getWriter();
-        //         JSONObject result = new JSONObject();
-        //         result.put("success", false);
-        //         result.put("errmsg", "请先登录");
-        //         writer.write(result.toJSONString());
-        //         writer.flush();
-        //         writer.close();
-        //         return false;
-        //     } else {
-        //         // 对于非API请求（如首页），重定向到企业微信登录页面
-        //         response.sendRedirect("/wechat/work/login/generate-qrcode");
-        //         return false;
-        //     }
-        // }
+        if (isLogin == null || !isLogin) {
+            // 未登录
+            if (requestUri.startsWith("/api")) {
+                // 对于API请求，返回未授权的错误信息
+                response.setContentType("application/json;charset=UTF-8");
+                PrintWriter writer = response.getWriter();
+                JSONObject result = new JSONObject();
+                result.put("success", false);
+                result.put("errmsg", "请先登录");
+                writer.write(result.toJSONString());
+                writer.flush();
+                writer.close();
+                return false;
+            } else {
+                // 对于非API请求（如首页），重定向到企业微信登录页面
+                response.sendRedirect("/wechat/work/login/generate-qrcode");
+                return false;
+            }
+        }
 
         // 已登录的请求，继续处理
         return true;

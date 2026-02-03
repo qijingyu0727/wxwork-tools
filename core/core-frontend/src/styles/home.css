@@ -19,7 +19,9 @@
 
 .home-title {
   margin-bottom: 1.25rem;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .home-title h2 {
@@ -27,6 +29,11 @@
   font-weight: 700;
   color: #1f2937;
   letter-spacing: -0.025em;
+}
+
+.title-avatar {
+  display: flex;
+  align-items: center;
 }
 
 .home-actions {

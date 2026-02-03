@@ -8,26 +8,20 @@
     <main class="home-main">
       <div class="home-title">
         <h2>
-          企业微信群聊 chatID 获取
+          企业微信群聊侧边栏工具
         </h2>
+        <div v-if="userStore.isLoggedIn" class="title-avatar">
+          <img :src="userStore.userInfo?.avatar || defaultAvatar" alt="用户头像" class="user-avatar">
+        </div>
       </div>
 
       <div class="home-actions">
         <div v-if="userStore.isLoggedIn" class="user-info">
-          <img :src="userStore.userInfo?.avatar || defaultAvatar" alt="用户头像" class="user-avatar">
           <span>{{ userStore.userInfo?.name || userStore.userInfo?.UserId }}</span>
-          <button @click="handleLogout" class="logout-btn">
-            <i class="fa fa-sign-out"></i>
-          </button>
         </div>
         <button v-if="!userStore.isLoggedIn" @click="handleLogin" class="login-btn">
           <i class="fa fa-wechat"></i>
           企业微信登录
-        </button>
-        <button v-if="userStore.isLoggedIn" @click="getCurExternalChat" :disabled="loading" :class="['get-chat-btn', loading ? 'opacity-50 cursor-not-allowed' : '']">
-          <i v-if="loading" class="fa fa-spinner fa-spin"></i>
-          <i v-else class="fa fa-comments"></i>
-          {{ loading ? '获取中...' : '获取当前群聊 chatID' }}
         </button>
       </div>
 
@@ -690,32 +684,29 @@ const getLogActionClass = (action) => {
 const getCurExternalChat = () => {
   loading.value = true
   try {
-      // ww.getCurExternalChat({
-      //   success(result) {
-      //     // 成功回调，result.errMsg 固定格式为"方法名:ok"
-      //     chatId.value = result.chatId
-      //     showToast('获取群聊 chatID 成功！', true)
-      //     console.log('当前群聊ID:', result.chatId)
-      //     loading.value = false
-      //   },
-      //   fail(result) {
-      //     // 失败回调，通过 result.errMsg 查看失败详情
-      //     showToast('获取群聊 chatID 失败！'+result.errMsg, false)
-      //     console.error('调用失败:', result)
-      //     loading.value = false
-      //   }
-      // })
-    chatId.value = 'wrVkCUDAAAD4yxwdCwcUTogAWeBxwo1A'
-    showToast('获取群聊 chatID 成功！', true)
-    console.log('当前群聊ID:', chatId.value)
-    // 获取客户数据
-    getCustomerData(chatId.value)
-    // 获取实施记录
-    getMaintenanceRecords(chatId.value)
-    // 获取维护记录
-    getServiceRecords(chatId.value)
-    // 获取工单
-    getTickets(chatId.value)
+      ww.getCurExternalChat({
+         success(result) {
+           // 成功回调，result.errMsg 固定格式为"方法名:ok"
+           chatId.value = result.chatId
+           // 获取客户数据
+           getCustomerData(chatId.value)
+           // 获取实施记录
+           getMaintenanceRecords(chatId.value)
+           // 获取维护记录
+           getServiceRecords(chatId.value)
+           // 获取工单
+           getTickets(chatId.value)
+
+           loading.value = false
+         },
+         fail(result) {
+           // 失败回调，通过 result.errMsg 查看失败详情
+           showToast('获取群聊 chatID 失败！'+result.errMsg, false)
+           console.error('调用失败:', result)
+           loading.value = false
+         }
+       })
+    
   } catch (err) {
     showToast('异常：'+(err.message || err), false)
     console.error('异常:', err)
@@ -739,7 +730,6 @@ const copyChatId = () => {
 const userStore = useUserStore()
 
 const defaultAvatar = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%2021v-2a4%204%200%200%200-4-4H8a4%204%200%200%200-4%204v2%22%3E%3C%2Fpath%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%227%22%20r%3D%224%22%3E%3C%2Fcircle%3E%3C%2Fsvg%3E'
-
 
 
 const handleLogin = () => {
