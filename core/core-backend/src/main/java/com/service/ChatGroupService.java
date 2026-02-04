@@ -38,8 +38,8 @@ public class ChatGroupService {
                 "        0 all_bug_count, " +
                 "        0 not_resolved_bug_count " +
                 " from group_chat " +
-                " inner join subscription_info on group_chat.name = subscription_info.group_chat_name " +
-                " inner join support_client on subscription_info.client_id = support_client.id " +
+                " left join subscription_info on group_chat.name = subscription_info.group_chat_name " +
+                " left join support_client on subscription_info.client_id = support_client.id " +
                 " left  join ticket_count on ticket_count.room_id = group_chat.ext_chat_id " +
                 " where ext_chat_id = ?";
 

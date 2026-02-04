@@ -384,6 +384,8 @@ const registerWxWork = async () => {
       getConfigSignature,
       getAgentConfigSignature
     })
+
+    getCurExternalChat()
   }
 }
 
@@ -715,7 +717,6 @@ const getCurExternalChat = () => {
   }
 }
 
-getCurExternalChat();
 
 const copyChatId = () => {
   if (chatId.value) {
@@ -743,5 +744,6 @@ const handleLogout = () => {
 onMounted(() => {
   userStore.checkLogin()
   registerWxWork()
+
 })
 </script>

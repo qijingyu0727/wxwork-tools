@@ -16,23 +16,20 @@ public class JdbcUtils {
 
     static {
         Properties props = new Properties();
-        try (InputStream input = JdbcUtils.class.getClassLoader().getResourceAsStream("wxwork-tools.properties")) {
-            if (input == null) {
-                throw new RuntimeException("找不到配置文件 wxwork-tools.properties");
-            }
+        try (InputStream input = new java.io.FileInputStream("/opt/wxwork-tools/wxwork-tools.properties")) {
             props.load(input);
             DRIVER_CLASS_NAME = props.getProperty("cscrm.datasource.driver-class-name");
             URL = props.getProperty("cscrm.datasource.url");
             USERNAME = props.getProperty("cscrm.datasource.username");
             PASSWORD = props.getProperty("cscrm.datasource.password");
-
+            
             try {
                 Class.forName(DRIVER_CLASS_NAME);
             } catch (ClassNotFoundException e) {
                 throw new RuntimeException("数据库驱动加载失败", e);
             }
         } catch (IOException e) {
-            throw new RuntimeException("加载配置文件失败", e);
+            throw new RuntimeException("加载配置文件失败，请确保 /opt/wxwork-tools/wxwork-tools.properties 文件存在", e);
         }
     }
 
