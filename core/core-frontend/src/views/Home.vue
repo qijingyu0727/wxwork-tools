@@ -36,15 +36,19 @@
           </div>
         </div>
 
-        <!-- 订阅信息 -->
-        <div class="subscription-info">
-          <i class="fa fa-calendar"></i>
-          <span class="info-label">订阅到期</span>
-          <span class="info-value">{{ customerData.subscriptionEndDate }}</span>
-        </div>
-
         <!-- 统计数据 -->
         <div class="stats-section">
+          <div class="stat-item stat-info">
+            <div class="stat-icon">
+              <i class="fa fa-calendar"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">订阅到期</div>
+              <div class="stat-value">
+                <span class="stat-primary">{{ customerData.subscriptionEndDate }}</span>
+              </div>
+            </div>
+          </div>
           <div class="stat-item stat-error">
             <div class="stat-icon">
               <i class="fa fa-ticket"></i>
