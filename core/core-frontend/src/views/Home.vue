@@ -25,36 +25,73 @@
         </button>
       </div>
 
-      <!-- 指标卡区域 -->
-      <div v-if="chatId && customerData" class="metrics-container">
-        <!-- 第一行：客户名称、订阅到期、是否验收 -->
-        <div class="metric-card info">
-          <div class="metric-header">
-            <h3>客户名称</h3>
-            <span v-if="latestVersion" class="version-badge">{{ latestVersion }}</span>
+      <!-- 客户信息区域 -->
+      <div v-if="chatId && customerData" class="customer-info-section">
+        <!-- 客户名称和标签 -->
+        <div class="customer-header">
+          <h2 class="customer-name">{{ customerData.name }}</h2>
+          <div class="customer-badges">
+            <span v-if="customerData.isAccepted" class="badge badge-success">{{ customerData.isAccepted }}</span>
+            <span v-if="latestVersion" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ latestVersion }}</span>
           </div>
-          <div class="metric-value">{{ customerData.name }}</div>
         </div>
-        <div class="metric-card success">
-          <h3>订阅到期</h3>
-          <div class="metric-value">{{ customerData.subscriptionEndDate }}</div>
+
+        <!-- 订阅信息 -->
+        <div class="subscription-info">
+          <i class="fa fa-calendar"></i>
+          <span class="info-label">订阅到期</span>
+          <span class="info-value">{{ customerData.subscriptionEndDate }}</span>
         </div>
-        <div class="metric-card warning">
-          <h3>是否验收</h3>
-          <div class="metric-value">{{ customerData.isAccepted || '否' }}</div>
-        </div>
-        <!-- 第二行：工单、需求、缺陷 -->
-        <div class="metric-card error">
-          <h3>工单</h3>
-          <div class="metric-value">{{ (customerData.notResolvedTicketCount || 0) }}/{{ (customerData.allTicketCount || 0) }}</div>
-        </div>
-        <div class="metric-card info">
-          <h3>需求</h3>
-          <div class="metric-value">{{ (customerData.notResolvedIssueCount || 0) }}/{{ (customerData.allIssueCount || 0) }}</div>
-        </div>
-        <div class="metric-card success">
-          <h3>缺陷</h3>
-          <div class="metric-value">{{ (customerData.notResolvedBugCount || 0) }}/{{ (customerData.allBugCount || 0) }}</div>
+
+        <!-- 统计数据 -->
+        <div class="stats-section">
+          <div class="stat-item stat-error">
+            <div class="stat-icon">
+              <i class="fa fa-ticket"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label stat-label-clickable" @click="handleTicketLabelClick">工单</div>
+              <div class="stat-value">
+                <span class="stat-critical clickable" @click="handleCriticalClick">{{ customerData.criticalTicketCount || 0 }}</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-warning clickable" @click="handleUnresolvedClick">{{ customerData.notResolvedTicketCount || 0 }}</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-all clickable" @click="handleAllClick">{{ customerData.allTicketCount || 0 }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-item stat-info">
+            <div class="stat-icon">
+              <i class="fa fa-lightbulb-o"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label stat-label-clickable" @click="handleRequirementLabelClick">需求</div>
+              <div class="stat-value">
+                <span class="stat-critical clickable" @click="handleRequirementLabelClick">0</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-warning clickable" @click="handleRequirementLabelClick">{{ customerData.notResolvedIssueCount || 0 }}</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-all clickable" @click="handleRequirementLabelClick">{{ customerData.allIssueCount || 0 }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-item stat-warning">
+            <div class="stat-icon">
+              <i class="fa fa-bug"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label stat-label-clickable" @click="handleDefectLabelClick">缺陷</div>
+              <div class="stat-value">
+                <span class="stat-critical clickable" @click="handleDefectLabelClick">0</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-warning clickable" @click="handleDefectLabelClick">{{ customerData.notResolvedBugCount || 0 }}</span>
+                <span class="stat-separator">/</span>
+                <span class="stat-all clickable" @click="handleDefectLabelClick">{{ customerData.allBugCount || 0 }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -172,6 +209,12 @@
                 @click="ticketFilter = 'all'"
               >
                 全部 ({{ tickets.length }})
+              </button>
+              <button
+                :class="['filter-btn', ticketFilter === 'critical' ? 'active' : '']"
+                @click="ticketFilter = 'critical'"
+              >
+                重点事件 ({{ tickets.filter(t => t.status === 3).length }})
               </button>
               <button
                 :class="['filter-btn', ticketFilter === 'unresolved' ? 'active' : '']"
@@ -384,7 +427,6 @@ const registerWxWork = async () => {
       getConfigSignature,
       getAgentConfigSignature
     })
-
     getCurExternalChat()
   }
 }
@@ -481,6 +523,8 @@ const getFilteredTickets = () => {
     return tickets.value.filter(t => t.resolved)
   } else if (ticketFilter.value === 'unresolved') {
     return tickets.value.filter(t => !t.resolved)
+  } else if (ticketFilter.value === 'critical') {
+    return tickets.value.filter(t => t.status === 3)
   }
   return tickets.value
 }
@@ -520,7 +564,22 @@ const translateDeploymentMethod = (method) => {
 const latestVersion = computed(() => {
   if (maintenanceRecords.value.length === 0) return ''
   const latest = maintenanceRecords.value[0]
-  return latest?.version || ''
+  const version = latest?.version || ''
+  if (!version) return ''
+
+  // 提取纯版本号 (如 v3.5.7 或 3.5.7)
+  const versionMatch = version.match(/v?(\d+\.\d+\.\d+)/)
+  const versionNum = versionMatch ? `v${versionMatch[1]}` : version
+
+  // 判断架构类型
+  const lowerVersion = version.toLowerCase()
+  if (lowerVersion.includes('arm')) {
+    return `${versionNum}-ARM64`
+  } else if (lowerVersion.includes('x86') || lowerVersion.includes('amd')) {
+    return `${versionNum}-X86`
+  }
+  // 纯版本号，不加架构后缀
+  return versionNum
 })
 
 const ticketStatusMap = {
@@ -739,6 +798,37 @@ const handleLogin = () => {
 
 const handleLogout = () => {
   userStore.logout()
+}
+
+const handleCriticalClick = () => {
+  activeTab.value = 'ticket'
+  ticketFilter.value = 'critical'
+}
+
+const handleUnresolvedClick = () => {
+  activeTab.value = 'ticket'
+  ticketFilter.value = 'unresolved'
+}
+
+const handleAllClick = () => {
+  activeTab.value = 'ticket'
+  ticketFilter.value = 'all'
+}
+
+const handleTicketLabelClick = () => {
+  activeTab.value = 'ticket'
+}
+
+const handleRequirementLabelClick = () => {
+  activeTab.value = 'requirement'
+}
+
+const handleDefectLabelClick = () => {
+  activeTab.value = 'defect'
+}
+
+const handleVersionClick = () => {
+  activeTab.value = 'implementation'
 }
 
 onMounted(() => {

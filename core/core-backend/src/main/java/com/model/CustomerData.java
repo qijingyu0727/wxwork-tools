@@ -6,6 +6,7 @@ public class CustomerData {
     private String isAccepted;
     private Integer notResolvedTicketCount;
     private Integer allTicketCount;
+    private Integer criticalTicketCount;
     private Integer allIssueCount;
     private Integer notResolvedIssueCount;
     private Integer allBugCount;
@@ -49,6 +50,14 @@ public class CustomerData {
 
     public void setAllTicketCount(Integer allTicketCount) {
         this.allTicketCount = allTicketCount;
+    }
+
+    public Integer getCriticalTicketCount() {
+        return criticalTicketCount;
+    }
+
+    public void setCriticalTicketCount(Integer criticalTicketCount) {
+        this.criticalTicketCount = criticalTicketCount;
     }
 
     public Integer getAllIssueCount() {

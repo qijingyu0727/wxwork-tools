@@ -16,7 +16,8 @@ public class ChatGroupService {
         String sql = "with ticket_count as ( " +
                 "     select room_id, " +
                 "            sum(if(resolved, 0, 1)) not_resolved_ticket_count, " +
-                "            count(1) all_ticket_count " +
+                "            count(1) all_ticket_count, " +
+                "            sum(if(status = 3, 1, 0)) critical_ticket_count " +
                 "     from chat_analysis_tickets " +
                 "     group by room_id " +
                 " ), " +
@@ -33,6 +34,7 @@ public class ChatGroupService {
                 "        subscription_info.subscription_end_date, " +
                 "        ticket_count.not_resolved_ticket_count, " +
                 "        ticket_count.all_ticket_count, " +
+                "        ticket_count.critical_ticket_count, " +
                 "        0 all_issue_count, " +
                 "        0 not_resolved_issue_count, " +
                 "        0 all_bug_count, " +
@@ -53,17 +55,30 @@ public class ChatGroupService {
             data.setIsAccepted("无需验收");
             data.setNotResolvedTicketCount(row[2] != null ? Integer.parseInt(row[2].toString()) : 0);
             data.setAllTicketCount(row[3] != null ? Integer.parseInt(row[3].toString()) : 0);
-            data.setAllIssueCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
-            data.setNotResolvedIssueCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
-            data.setAllBugCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
-            data.setNotResolvedBugCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
+            data.setCriticalTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
+            data.setAllIssueCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
+            data.setNotResolvedIssueCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
+            data.setAllBugCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
+            data.setNotResolvedBugCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
         }
 
         return data;
     }
 
     public List<MaintenanceRecord> getMaintenanceRecords(String extChatId) {
-        String sql = "SELECT sm.id, " +
+        String sql = "WITH chat_product AS ( " +
+                "    SELECT gc.name, " +
+                "           CASE " +
+                "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
+                "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
+                "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
+                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBOT' " +
+                "               ELSE NULL " +
+                "           END AS product " +
+                "    FROM group_chat gc " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "SELECT sm.id, " +
                 "       sm.status, " +
                 "       FROM_UNIXTIME(sm.deployment_time/1000, '%Y-%m-%d') as deployment_time, " +
                 "       sm.deployment_method, " +
@@ -74,15 +89,17 @@ public class ChatGroupService {
                 "       FROM_UNIXTIME(sm.create_time/1000, '%Y-%m-%d') as create_time " +
                 "FROM support_maintenance sm " +
                 "INNER JOIN support_subscription ss ON sm.subscription_id = ss.id " +
+                "CROSS JOIN chat_product cp " +
                 "WHERE ss.client_id IN ( " +
                 "    SELECT DISTINCT ss2.client_id " +
                 "    FROM group_chat gc " +
                 "    INNER JOIN support_subscription ss2 ON gc.name = ss2.group_chat_name " +
                 "    WHERE gc.ext_chat_id = ? " +
                 ") " +
+                "AND (cp.product IS NULL OR UPPER(sm.template) LIKE CONCAT('%', UPPER(cp.product), '%')) " +
                 "ORDER BY sm.create_time DESC";
 
-        var result = com.util.JdbcUtils.query(sql, extChatId);
+        var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
         List<MaintenanceRecord> records = new ArrayList<>();
 
         for (Object[] row : result) {
