@@ -120,7 +120,19 @@ public class ChatGroupService {
     }
 
     public List<ServiceRecord> getServiceRecords(String extChatId) {
-        String sql = "SELECT smr.id, " +
+        String sql = "WITH chat_product AS ( " +
+                "    SELECT gc.name, " +
+                "           CASE " +
+                "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
+                "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
+                "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
+                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBOT' " +
+                "               ELSE NULL " +
+                "           END AS product " +
+                "    FROM group_chat gc " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "SELECT smr.id, " +
                 "       smr.maintenance_types, " +
                 "       smr.maintenance_version, " +
                 "       smr.maintenance_title, " +
@@ -129,15 +141,20 @@ public class ChatGroupService {
                 "       smr.creator_name, " +
                 "       FROM_UNIXTIME(smr.create_time/1000, '%Y-%m-%d') as create_time " +
                 "FROM support_maintenance_record smr " +
+                "CROSS JOIN chat_product cp " +
                 "WHERE smr.client_id IN ( " +
                 "    SELECT DISTINCT ss.client_id " +
                 "    FROM group_chat gc " +
                 "    INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
                 "    WHERE gc.ext_chat_id = ? " +
                 ") " +
+                "AND (cp.product IS NULL OR " +
+                "     UPPER(smr.maintenance_title) LIKE CONCAT('%', UPPER(cp.product), '%') OR " +
+                "     UPPER(smr.maintenance_types) LIKE CONCAT('%', UPPER(cp.product), '%') OR " +
+                "     UPPER(smr.maintenance_version) LIKE CONCAT('%', UPPER(cp.product), '%')) " +
                 "ORDER BY smr.maintenance_time DESC";
 
-        var result = com.util.JdbcUtils.query(sql, extChatId);
+        var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
         List<ServiceRecord> records = new ArrayList<>();
 
         for (Object[] row : result) {

@@ -578,9 +578,9 @@ const latestVersion = computed(() => {
   // 判断架构类型
   const lowerVersion = version.toLowerCase()
   if (lowerVersion.includes('arm')) {
-    return `${versionNum}-ARM64`
+    return `${versionNum}-arm64`
   } else if (lowerVersion.includes('x86') || lowerVersion.includes('amd')) {
-    return `${versionNum}-X86`
+    return `${versionNum}-x86`
   }
   // 纯版本号，不加架构后缀
   return versionNum
@@ -753,14 +753,14 @@ const getCurExternalChat = () => {
          success(result) {
            // 成功回调，result.errMsg 固定格式为"方法名:ok"
            chatId.value = result.chatId
-           // 获取客户数据
-           getCustomerData(chatId.value)
-           // 获取实施记录
-           getMaintenanceRecords(chatId.value)
-           // 获取维护记录
-           getServiceRecords(chatId.value)
-           // 获取工单
-           getTickets(chatId.value)
+    // 获取客户数据
+    getCustomerData(chatId.value)
+    // 获取实施记录
+    getMaintenanceRecords(chatId.value)
+    // 获取维护记录
+    getServiceRecords(chatId.value)
+    // 获取工单
+    getTickets(chatId.value)
 
            loading.value = false
          },
