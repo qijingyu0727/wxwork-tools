@@ -126,18 +126,19 @@ public class ChatGroupService {
                 "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
                 "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
                 "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
-                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBOT' " +
+                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBot' " +
                 "               ELSE NULL " +
                 "           END AS product " +
                 "    FROM group_chat gc " +
                 "    WHERE gc.ext_chat_id = ? " +
                 ") " +
-                "SELECT smr.id, " +
+                "SELECT DISTINCT smr.id, " +
                 "       smr.maintenance_types, " +
                 "       smr.maintenance_version, " +
                 "       smr.maintenance_title, " +
                 "       smr.maintenance_context, " +
-                "       FROM_UNIXTIME(smr.maintenance_time/1000, '%Y-%m-%d') as maintenance_time, " +
+                "       smr.maintenance_time, " +
+                "       FROM_UNIXTIME(smr.maintenance_time/1000, '%Y-%m-%d') as maintenance_time_formatted, " +
                 "       smr.creator_name, " +
                 "       FROM_UNIXTIME(smr.create_time/1000, '%Y-%m-%d') as create_time " +
                 "FROM support_maintenance_record smr " +
@@ -148,10 +149,33 @@ public class ChatGroupService {
                 "    INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
                 "    WHERE gc.ext_chat_id = ? " +
                 ") " +
-                "AND (cp.product IS NULL OR " +
-                "     UPPER(smr.maintenance_title) LIKE CONCAT('%', UPPER(cp.product), '%') OR " +
-                "     UPPER(smr.maintenance_types) LIKE CONCAT('%', UPPER(cp.product), '%') OR " +
-                "     UPPER(smr.maintenance_version) LIKE CONCAT('%', UPPER(cp.product), '%')) " +
+                "AND ( " +
+                "    (cp.product = 'MaxKB' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id " +
+                "        FROM support_product_service " +
+                "        WHERE UPPER(name) LIKE '%MAXKB%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'JumpServer' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id " +
+                "        FROM support_product_service " +
+                "        WHERE UPPER(name) LIKE '%JUMPSERVER%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'DataEase' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id " +
+                "        FROM support_product_service " +
+                "        WHERE UPPER(name) LIKE '%DATAEASE%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'SQLBot' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id " +
+                "        FROM support_product_service " +
+                "        WHERE UPPER(name) LIKE '%SQLBOT%' " +
+                "    )) " +
+                "    OR " +
+                "    smr.product_id IS NULL OR smr.product_id = 0 " +
+                ") " +
                 "ORDER BY smr.maintenance_time DESC";
 
         var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
@@ -164,9 +188,9 @@ public class ChatGroupService {
             record.setMaintenanceVersion(row[2] != null ? row[2].toString() : null);
             record.setMaintenanceTitle(row[3] != null ? row[3].toString() : null);
             record.setMaintenanceContext(row[4] != null ? row[4].toString() : null);
-            record.setMaintenanceTime(row[5] != null ? row[5].toString() : null);
-            record.setCreatorName(row[6] != null ? row[6].toString() : null);
-            record.setCreateTime(row[7] != null ? row[7].toString() : null);
+            record.setMaintenanceTime(row[6] != null ? row[6].toString() : null);
+            record.setCreatorName(row[7] != null ? row[7].toString() : null);
+            record.setCreateTime(row[8] != null ? row[8].toString() : null);
             records.add(record);
         }
 
