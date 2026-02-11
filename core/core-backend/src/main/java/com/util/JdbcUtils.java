@@ -6,35 +6,111 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class JdbcUtils {
 
-    private static final String DRIVER_CLASS_NAME;
-    private static final String URL;
-    private static final String USERNAME;
-    private static final String PASSWORD;
+    private static final Properties props;
+    private static final ConcurrentHashMap<String, SshTunnel> sshTunnels = new ConcurrentHashMap<>();
+    private static final ThreadLocal<DatabaseConfig> currentConfig = new ThreadLocal<>();
 
     static {
-        Properties props = new Properties();
+        props = new Properties();
         try (InputStream input = new java.io.FileInputStream("/opt/wxwork-tools/wxwork-tools.properties")) {
             props.load(input);
-            DRIVER_CLASS_NAME = props.getProperty("cscrm.datasource.driver-class-name");
-            URL = props.getProperty("cscrm.datasource.url");
-            USERNAME = props.getProperty("cscrm.datasource.username");
-            PASSWORD = props.getProperty("cscrm.datasource.password");
-            
-            try {
-                Class.forName(DRIVER_CLASS_NAME);
-            } catch (ClassNotFoundException e) {
-                throw new RuntimeException("数据库驱动加载失败", e);
-            }
         } catch (IOException e) {
             throw new RuntimeException("加载配置文件失败，请确保 /opt/wxwork-tools/wxwork-tools.properties 文件存在", e);
         }
     }
 
+    public static void setCscrmConfig() {
+        currentConfig.set(getCscrmDatabaseConfig());
+    }
+
+    public static void setCordyscrmConfig() {
+        currentConfig.set(getCordyscrmDatabaseConfig());
+    }
+
+    public static void setConfig(DatabaseConfig config) {
+        currentConfig.set(config);
+    }
+
+    public static void clearConfig() {
+        currentConfig.remove();
+    }
+
+    private static DatabaseConfig getCurrentConfig() {
+        DatabaseConfig config = currentConfig.get();
+        if (config == null) {
+            config = getCscrmDatabaseConfig();
+        }
+        return config;
+    }
+
+    public static DatabaseConfig getCscrmDatabaseConfig() {
+        DatabaseConfig config = new DatabaseConfig();
+        config.setDriverClassName(props.getProperty("cscrm.datasource.driver-class-name"));
+        config.setUrl(props.getProperty("cscrm.datasource.url"));
+        config.setUsername(props.getProperty("cscrm.datasource.username"));
+        config.setPassword(props.getProperty("cscrm.datasource.password"));
+        config.setUseSshTunnel(false);
+        return config;
+    }
+
+    public static DatabaseConfig getCordyscrmDatabaseConfig() {
+        DatabaseConfig config = new DatabaseConfig();
+        config.setDriverClassName(props.getProperty("cordyscrm.datasource.driver-class-name"));
+        config.setUrl(props.getProperty("cordyscrm.datasource.url"));
+        config.setUsername(props.getProperty("cordyscrm.datasource.username"));
+        config.setPassword(props.getProperty("cordyscrm.datasource.password"));
+        
+        config.setUseSshTunnel(true);
+        config.setSshHost(props.getProperty("cordyscrm.ssh.host"));
+        config.setSshPort(Integer.parseInt(props.getProperty("cordyscrm.ssh.port")));
+        config.setSshUsername(props.getProperty("cordyscrm.ssh.username"));
+        config.setSshPrivateKeyPath(props.getProperty("cordyscrm.ssh.privateKeyPath"));
+        config.setSshLocalHost(props.getProperty("cordyscrm.ssh.local.host"));
+        config.setSshLocalPort(Integer.parseInt(props.getProperty("cordyscrm.ssh.local.port")));
+        config.setSshRemoteHost(props.getProperty("cordyscrm.ssh.remote.host"));
+        config.setSshRemotePort(Integer.parseInt(props.getProperty("cordyscrm.ssh.remote.port")));
+        
+        return config;
+    }
+
     public static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(URL, USERNAME, PASSWORD);
+        return getConnection(getCurrentConfig());
+    }
+
+    public static Connection getConnection(DatabaseConfig config) throws SQLException {
+        try {
+            Class.forName(config.getDriverClassName());
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("数据库驱动加载失败", e);
+        }
+
+        String url = config.getUrl();
+        
+        if (config.isUseSshTunnel()) {
+            String tunnelKey = config.getSshHost() + ":" + config.getSshPort() + "->" + 
+                              config.getSshLocalHost() + ":" + config.getSshLocalPort();
+            
+            SshTunnel tunnel = sshTunnels.computeIfAbsent(tunnelKey, k -> {
+                return new SshTunnel(
+                    config.getSshHost(),
+                    config.getSshPort(),
+                    config.getSshUsername(),
+                    config.getSshPrivateKeyPath(),
+                    config.getSshLocalHost(),
+                    config.getSshLocalPort(),
+                    config.getSshRemoteHost(),
+                    config.getSshRemotePort()
+                );
+            });
+            
+            url = tunnel.getTunnelUrl(url);
+        }
+
+        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
     }
 
     public static void close(Connection conn, Statement stmt, ResultSet rs) {
@@ -62,13 +138,17 @@ public class JdbcUtils {
     }
 
     public static List<Object[]> query(String sql, Object... params) {
+        return query(getCurrentConfig(), sql, params);
+    }
+
+    public static List<Object[]> query(DatabaseConfig config, String sql, Object... params) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         ResultSet rs = null;
         List<Object[]> result = new ArrayList<>();
 
         try {
-            conn = getConnection();
+            conn = getConnection(config);
             pstmt = conn.prepareStatement(sql);
             setParameters(pstmt, params);
             rs = pstmt.executeQuery();
@@ -92,13 +172,17 @@ public class JdbcUtils {
     }
 
     public static Object queryForObject(String sql, Object... params) {
+        return queryForObject(getCurrentConfig(), sql, params);
+    }
+
+    public static Object queryForObject(DatabaseConfig config, String sql, Object... params) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         ResultSet rs = null;
         Object result = null;
 
         try {
-            conn = getConnection();
+            conn = getConnection(config);
             pstmt = conn.prepareStatement(sql);
             setParameters(pstmt, params);
             rs = pstmt.executeQuery();
@@ -116,12 +200,16 @@ public class JdbcUtils {
     }
 
     public static int update(String sql, Object... params) {
+        return update(getCurrentConfig(), sql, params);
+    }
+
+    public static int update(DatabaseConfig config, String sql, Object... params) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         int result = 0;
 
         try {
-            conn = getConnection();
+            conn = getConnection(config);
             pstmt = conn.prepareStatement(sql);
             setParameters(pstmt, params);
             result = pstmt.executeUpdate();
@@ -135,20 +223,32 @@ public class JdbcUtils {
     }
 
     public static int insert(String sql, Object... params) {
-        return update(sql, params);
+        return insert(getCurrentConfig(), sql, params);
+    }
+
+    public static int insert(DatabaseConfig config, String sql, Object... params) {
+        return update(config, sql, params);
     }
 
     public static int delete(String sql, Object... params) {
-        return update(sql, params);
+        return delete(getCurrentConfig(), sql, params);
+    }
+
+    public static int delete(DatabaseConfig config, String sql, Object... params) {
+        return update(config, sql, params);
     }
 
     public static int[] batchUpdate(String sql, List<Object[]> paramsList) {
+        return batchUpdate(getCurrentConfig(), sql, paramsList);
+    }
+
+    public static int[] batchUpdate(DatabaseConfig config, String sql, List<Object[]> paramsList) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         int[] result = null;
 
         try {
-            conn = getConnection();
+            conn = getConnection(config);
             conn.setAutoCommit(false);
             pstmt = conn.prepareStatement(sql);
 
@@ -191,12 +291,16 @@ public class JdbcUtils {
     }
 
     public static boolean execute(String sql, Object... params) {
+        return execute(getCurrentConfig(), sql, params);
+    }
+
+    public static boolean execute(DatabaseConfig config, String sql, Object... params) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         boolean result = false;
 
         try {
-            conn = getConnection();
+            conn = getConnection(config);
             pstmt = conn.prepareStatement(sql);
             setParameters(pstmt, params);
             result = pstmt.execute();
@@ -207,5 +311,12 @@ public class JdbcUtils {
         }
 
         return result;
+    }
+
+    public static void closeSshTunnels() {
+        for (SshTunnel tunnel : sshTunnels.values()) {
+            tunnel.close();
+        }
+        sshTunnels.clear();
     }
 }
