@@ -1,4 +1,7 @@
 target/
+core-backend/target/
+core-frontend/node/
+core-frontend/node_modules/
 
 *.iml
 .idea
