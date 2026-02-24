@@ -1235,7 +1235,43 @@
   border-top: 1px solid #e5e7eb;
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-uniform {
+  min-width: 90px;
+  flex: 0 0 auto;
+}
+
+.btn-action {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.btn-action:hover {
+  background-color: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.btn-resolve {
+  background-color: #10b981;
+  color: white;
+  font-weight: 600;
+  border: 1px solid #10b981;
+}
+
+.btn-resolve:hover {
+  background-color: #059669;
+  border-color: #059669;
 }
 
 .form-group {
