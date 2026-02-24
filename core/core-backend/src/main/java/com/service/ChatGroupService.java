@@ -6,11 +6,35 @@ import com.model.MaintenanceRecord;
 import com.model.ServiceRecord;
 import com.model.Ticket;
 import com.model.TicketLog;
+import com.model.request.UpdateTicketRequest;
+import com.alibaba.fastjson.JSONObject;
+import com.util.HttpClientUtil;
+import org.springframework.beans.factory.annotation.Value;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class ChatGroupService {
+
+    @Value("${cscrm.base.url:http://democenter.fit2cloud.cn:24916}")
+    private String cscrmBaseUrl;
+
+    @Value("${cscrm.api.path:/api/v1/staff-admin}")
+    private String cscrmApiPath;
+
+    // 区域部门ID映射
+    private static final List<Long> EAST_REGION_DEPT_IDS = List.of(129L, 131L, 130L, 61L, 123L);
+    private static final List<Long> NORTH_REGION_DEPT_IDS = List.of(127L, 145L, 146L, 60L);
+    private static final List<Long> SOUTH_REGION_DEPT_IDS = List.of(125L, 126L, 62L);
+
+    // 线上部门ID
+    private static final List<Long> ONLINE_DEPT_IDS = List.of(123L, 127L, 125L);
+
+    // 虚拟账号部门ID
+    private static final List<Long> VIRTUAL_DEPT_IDS = List.of(61L, 60L, 62L);
+
+    // 线下部门ID
+    private static final List<Long> OFFLINE_DEPT_IDS = List.of(129L, 131L, 130L, 145L, 146L, 126L);
 
     public CustomerData getCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
@@ -292,5 +316,197 @@ public class ChatGroupService {
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
+    }
+
+    public void updateTicket(UpdateTicketRequest request, String modifiedById, String modifiedByName) throws Exception {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            // 根据处理人姓名查询处理人ID和部门ID
+            String ownerSql = "SELECT s.ext_id, sd.department_id FROM staff s " +
+                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE s.name = ? LIMIT 1";
+            var ownerResult = com.util.JdbcUtils.query(ownerSql, request.getOwnerName());
+
+            String ownerId = null;
+            Long ownerDeptId = null;
+            if (!ownerResult.isEmpty() && ownerResult.get(0)[0] != null) {
+                ownerId = ownerResult.get(0)[0].toString();
+                if (ownerResult.get(0)[1] != null) {
+                    ownerDeptId = Long.parseLong(ownerResult.get(0)[1].toString());
+                }
+            } else {
+                throw new Exception("未找到处理人: " + request.getOwnerName());
+            }
+
+            // 查询当前用户的部门ID
+            String currentUserSql = "SELECT sd.department_id FROM staff s " +
+                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE s.ext_id = ? LIMIT 1";
+            var currentUserResult = com.util.JdbcUtils.query(currentUserSql, modifiedById);
+
+            Long currentUserDeptId = null;
+            if (!currentUserResult.isEmpty() && currentUserResult.get(0)[0] != null) {
+                currentUserDeptId = Long.parseLong(currentUserResult.get(0)[0].toString());
+            }
+
+            // 判断状态：同部门=跟进(2)，同区不同部门=跨团队跟进(3)
+            // 特殊规则：虚拟账号和线上不跨团队，虚拟账号和线下跨团队
+            Integer status = 2; // 默认为"跟进中"
+            if (currentUserDeptId != null && ownerDeptId != null) {
+                if (!currentUserDeptId.equals(ownerDeptId)) {
+                    // 不同部门，检查是否跨团队
+                    if (isCrossTeam(currentUserDeptId, ownerDeptId)) {
+                        status = 3; // 跨团队跟进中
+                    }
+                }
+            }
+
+            // 构建请求体
+            JSONObject payload = new JSONObject();
+            payload.put("id", request.getTicketId());
+            payload.put("urgent", request.getUrgent());
+            payload.put("customer_sentiment", request.getCustomerSentiment());
+            payload.put("owner_name", request.getOwnerName());
+            payload.put("owner_id", ownerId);
+            payload.put("modified_by_id", modifiedById);
+            payload.put("modified_by_name", modifiedByName);
+            payload.put("comment", request.getComment());
+            payload.put("status", status);
+
+            // 调用 CSCRM API
+            String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
+            String response = HttpClientUtil.putJSON(url, payload.toJSONString());
+
+            JSONObject responseJson = JSONObject.parseObject(response);
+            if (responseJson.getInteger("code") != 0) {
+                throw new Exception("更新工单失败: " + responseJson.getString("msg"));
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    public List<String> getStaffList(String userId) {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            // 查询当前用户的部门ID
+            String currentUserSql = "SELECT sd.department_id FROM staff s " +
+                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE s.ext_id = ? LIMIT 1";
+            var currentUserResult = com.util.JdbcUtils.query(currentUserSql, userId);
+
+            Long currentUserDeptId = null;
+            if (!currentUserResult.isEmpty() && currentUserResult.get(0)[0] != null) {
+                currentUserDeptId = Long.parseLong(currentUserResult.get(0)[0].toString());
+            }
+
+            // 获取当前用户所属区域的所有部门ID
+            List<Long> regionDeptIds = getRegionDeptIds(currentUserDeptId);
+            if (regionDeptIds == null || regionDeptIds.isEmpty()) {
+                // 如果找不到区域，返回空列表
+                return new ArrayList<>();
+            }
+
+            // 构建 IN 子句
+            String deptIdsStr = regionDeptIds.stream()
+                    .map(String::valueOf)
+                    .reduce((a, b) -> a + "," + b)
+                    .orElse("");
+
+            // 查询同区域所有员工
+            String sql = "SELECT DISTINCT s.name FROM staff s " +
+                    "INNER JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE sd.department_id IN (" + deptIdsStr + ") " +
+                    "AND s.name IS NOT NULL AND s.name != '' " +
+                    "ORDER BY s.name";
+            var result = com.util.JdbcUtils.query(sql);
+            List<String> staffList = new ArrayList<>();
+
+            for (Object[] row : result) {
+                if (row[0] != null) {
+                    staffList.add(row[0].toString());
+                }
+            }
+
+            return staffList;
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    // 判断是否跨团队
+    private boolean isCrossTeam(Long deptId1, Long deptId2) {
+        if (deptId1 == null || deptId2 == null) {
+            return false;
+        }
+
+        // 首先检查是否在同一区域
+        if (!isSameRegion(deptId1, deptId2)) {
+            // 不在同一区域，不属于跨团队（因为只有同区才有跨团队的概念）
+            return false;
+        }
+
+        // 在同一区域内，检查特殊规则
+        boolean dept1IsVirtual = VIRTUAL_DEPT_IDS.contains(deptId1);
+        boolean dept2IsVirtual = VIRTUAL_DEPT_IDS.contains(deptId2);
+        boolean dept1IsOnline = ONLINE_DEPT_IDS.contains(deptId1);
+        boolean dept2IsOnline = ONLINE_DEPT_IDS.contains(deptId2);
+
+        // 虚拟账号和线上不跨团队
+        if ((dept1IsVirtual && dept2IsOnline) || (dept2IsVirtual && dept1IsOnline)) {
+            return false;
+        }
+
+        // 虚拟账号和虚拟账号不跨团队
+        if (dept1IsVirtual && dept2IsVirtual) {
+            return false;
+        }
+
+        // 线上和线上不跨团队
+        if (dept1IsOnline && dept2IsOnline) {
+            return false;
+        }
+
+        // 其他情况（包括虚拟账号和线下、线上和线下、线下和线下）都是跨团队
+        return true;
+    }
+
+    // 判断两个部门是否在同一区域
+    private boolean isSameRegion(Long deptId1, Long deptId2) {
+        if (deptId1 == null || deptId2 == null) {
+            return false;
+        }
+
+        // 检查是否都在东区
+        if (EAST_REGION_DEPT_IDS.contains(deptId1) && EAST_REGION_DEPT_IDS.contains(deptId2)) {
+            return true;
+        }
+        // 检查是否都在北区
+        if (NORTH_REGION_DEPT_IDS.contains(deptId1) && NORTH_REGION_DEPT_IDS.contains(deptId2)) {
+            return true;
+        }
+        // 检查是否都在南区
+        if (SOUTH_REGION_DEPT_IDS.contains(deptId1) && SOUTH_REGION_DEPT_IDS.contains(deptId2)) {
+            return true;
+        }
+        return false;
+    }
+
+    // 获取部门所属区域的所有部门ID
+    private List<Long> getRegionDeptIds(Long deptId) {
+        if (deptId == null) {
+            return new ArrayList<>();
+        }
+
+        if (EAST_REGION_DEPT_IDS.contains(deptId)) {
+            return EAST_REGION_DEPT_IDS;
+        }
+        if (NORTH_REGION_DEPT_IDS.contains(deptId)) {
+            return NORTH_REGION_DEPT_IDS;
+        }
+        if (SOUTH_REGION_DEPT_IDS.contains(deptId)) {
+            return SOUTH_REGION_DEPT_IDS;
+        }
+        return new ArrayList<>();
     }
 }

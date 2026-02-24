@@ -27,6 +27,14 @@ export const docApi = {
 
   getTicketLogs: (ticketId) => {
     return request.get('/api/chat-group/ticket-logs', { params: { ticketId } })
+  },
+
+  getStaffList: () => {
+    return request.get('/api/chat-group/staff-list')
+  },
+
+  updateTicket: (ticketId, data) => {
+    return request.put(`/api/chat-group/tickets/${ticketId}`, data)
   }
 }
 

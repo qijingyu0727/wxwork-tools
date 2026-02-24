@@ -243,14 +243,16 @@
               <p class="text-gray-500">暂无工单</p>
             </div>
             <div v-else class="maintenance-list">
-              <div v-for="ticket in getFilteredTickets()" :key="ticket.id" class="maintenance-card">
-                <div class="maintenance-header" @click="toggleTicketExpand(ticket.id)" style="cursor: pointer;">
+              <div v-for="ticket in getFilteredTickets()" :key="ticket.id" class="maintenance-card" @click="toggleTicketExpand(ticket.id)" style="cursor: pointer;">
+                <div class="maintenance-header">
                   <span class="maintenance-template">{{ ticket.title }}</span>
                   <div class="maintenance-header-right">
                     <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
                       {{ ticket.resolved ? '已解决' : '未解决' }}
                     </span>
-                    <i :class="['fa', expandedTickets.has(ticket.id) ? 'fa-chevron-up' : 'fa-chevron-down', 'ml-2']"></i>
+                    <button class="update-btn" @click.stop="handleUpdateTicket(ticket.id)" title="更新工单">
+                      <i class="fa fa-pencil"></i>
+                    </button>
                   </div>
                 </div>
                 <div class="maintenance-info">
@@ -314,6 +316,105 @@
       </div>
 
     </main>
+
+    <!-- 更新工单弹窗 -->
+    <div v-if="showUpdateModal" class="modal-overlay" @click="closeUpdateModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>更新工单</h3>
+          <button class="modal-close" @click="closeUpdateModal">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">是否紧急</label>
+            <div class="form-radio-group">
+              <label class="radio-label">
+                <input type="radio" :value="true" v-model="updateForm.urgent" />
+                <span>紧急</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" :value="false" v-model="updateForm.urgent" />
+                <span>普通</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">客户情绪</label>
+            <div class="form-radio-group">
+              <label class="radio-label">
+                <input type="radio" value="positive" v-model="updateForm.customerSentiment" />
+                <span>积极</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="neutral" v-model="updateForm.customerSentiment" />
+                <span>中性</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="negative" v-model="updateForm.customerSentiment" />
+                <span>负面</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">处理人 <span class="required">*</span></label>
+            <div class="autocomplete-wrapper">
+              <input
+                type="text"
+                v-model="updateForm.ownerName"
+                @input="handleOwnerInput"
+                @focus="showStaffDropdown = true"
+                @blur="handleOwnerBlur"
+                class="form-input autocomplete-input"
+                placeholder="请输入处理人姓名"
+                autocomplete="off"
+              />
+              <i
+                class="fa fa-chevron-down autocomplete-icon"
+                @mousedown.prevent="toggleStaffDropdown"
+              ></i>
+              <div v-if="showStaffDropdown && filteredStaffList.length > 0" class="autocomplete-dropdown">
+                <div
+                  v-for="staff in filteredStaffList"
+                  :key="staff"
+                  class="autocomplete-item"
+                  @mousedown.prevent="selectStaff(staff)"
+                >
+                  {{ staff }}
+                </div>
+              </div>
+              <div v-if="showStaffDropdown && filteredStaffList.length === 0 && staffList.length === 0" class="autocomplete-dropdown">
+                <div class="autocomplete-item autocomplete-empty">
+                  加载中...
+                </div>
+              </div>
+              <div v-if="showStaffDropdown && filteredStaffList.length === 0 && staffList.length > 0" class="autocomplete-dropdown">
+                <div class="autocomplete-item autocomplete-empty">
+                  未找到匹配的员工
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">处理备注 <span class="required">*</span></label>
+            <textarea
+              v-model="updateForm.comment"
+              class="form-textarea"
+              placeholder="请输入处理备注"
+              rows="4"
+            ></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="closeUpdateModal">取消</button>
+          <button class="btn btn-primary" @click="submitUpdateTicket">提交</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -347,6 +448,18 @@ const tabs = ref([
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' }
 ])
+
+// 更新工单弹窗相关状态
+const showUpdateModal = ref(false)
+const currentTicketId = ref(null)
+const staffList = ref([])
+const showStaffDropdown = ref(false)
+const updateForm = ref({
+  urgent: false,
+  customerSentiment: 'neutral',
+  ownerName: '',
+  comment: ''
+})
 
 const getCorpId = async () => {
   const res = await jsapiApi.getCorpId()
@@ -753,14 +866,14 @@ const getCurExternalChat = () => {
          success(result) {
            // 成功回调，result.errMsg 固定格式为"方法名:ok"
            chatId.value = result.chatId
-    // 获取客户数据
-    getCustomerData(chatId.value)
-    // 获取实施记录
-    getMaintenanceRecords(chatId.value)
-    // 获取维护记录
-    getServiceRecords(chatId.value)
-    // 获取工单
-    getTickets(chatId.value)
+           // 获取客户数据
+           getCustomerData(chatId.value)
+           // 获取实施记录
+           getMaintenanceRecords(chatId.value)
+           // 获取维护记录
+           getServiceRecords(chatId.value)
+           // 获取工单
+           getTickets(chatId.value)
 
            loading.value = false
          },
@@ -833,6 +946,103 @@ const handleDefectLabelClick = () => {
 
 const handleVersionClick = () => {
   activeTab.value = 'implementation'
+}
+
+const handleUpdateTicket = async (ticketId) => {
+  currentTicketId.value = ticketId
+  // 重置表单
+  updateForm.value = {
+    urgent: false,
+    customerSentiment: 'neutral',
+    ownerName: '',
+    comment: ''
+  }
+  // 加载员工列表
+  await loadStaffList()
+  showUpdateModal.value = true
+}
+
+const loadStaffList = async () => {
+  try {
+    const result = await docApi.getStaffList()
+    console.log('员工列表响应:', result)
+    if (result.success) {
+      staffList.value = result.data || []
+      console.log('员工列表加载成功，共', staffList.value.length, '人')
+    } else {
+      console.error('加载员工列表失败:', result.message)
+      showToast('加载员工列表失败: ' + result.message, false)
+    }
+  } catch (error) {
+    console.error('加载员工列表失败:', error)
+    showToast('加载员工列表失败', false)
+  }
+}
+
+// 过滤员工列表
+const filteredStaffList = computed(() => {
+  if (!updateForm.value.ownerName) {
+    return staffList.value
+  }
+  return staffList.value.filter(staff =>
+    staff.toLowerCase().includes(updateForm.value.ownerName.toLowerCase())
+  )
+})
+
+// 处理输入事件
+const handleOwnerInput = () => {
+  showStaffDropdown.value = true
+}
+
+// 处理失焦事件
+const handleOwnerBlur = () => {
+  setTimeout(() => {
+    showStaffDropdown.value = false
+  }, 200)
+}
+
+// 选择员工
+const selectStaff = (staff) => {
+  updateForm.value.ownerName = staff
+  showStaffDropdown.value = false
+}
+
+// 切换下拉框显示
+const toggleStaffDropdown = () => {
+  showStaffDropdown.value = !showStaffDropdown.value
+}
+
+const closeUpdateModal = () => {
+  showUpdateModal.value = false
+  currentTicketId.value = null
+}
+
+const submitUpdateTicket = async () => {
+  try {
+    if (!updateForm.value.ownerName) {
+      showToast('请选择处理人', false)
+      return
+    }
+
+    if (!updateForm.value.comment) {
+      showToast('请填写处理备注', false)
+      return
+    }
+
+    const result = await docApi.updateTicket(currentTicketId.value, updateForm.value)
+
+    if (result.success) {
+      showToast('工单更新成功', true)
+      closeUpdateModal()
+      // 重新加载工单列表
+      await loadTickets()
+    } else {
+      showToast(result.message || '工单更新失败', false)
+    }
+  } catch (error) {
+    console.error('更新工单失败:', error)
+    showToast('工单更新失败: ' + error.message, false)
+  }
 }
 
 onMounted(() => {

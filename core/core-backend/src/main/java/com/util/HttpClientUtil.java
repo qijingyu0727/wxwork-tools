@@ -12,6 +12,7 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
@@ -65,6 +66,12 @@ public class HttpClientUtil {
         return postRequest(path, "application/json", entity);
     }
 
+    // 发送PUT请求（JSON形式）
+    public static String putJSON(String path, String json) throws Exception {
+        StringEntity entity = new StringEntity(json, Charsets.UTF_8);
+        return putRequest(path, "application/json", entity);
+    }
+
     // 发送POST请求
     public static String postRequest(String path, String mediaType, HttpEntity entity) throws Exception {
         HttpPost post = new HttpPost(path);
@@ -87,6 +94,31 @@ public class HttpClientUtil {
         }
         finally {
             post.releaseConnection();
+        }
+    }
+
+    // 发送PUT请求
+    public static String putRequest(String path, String mediaType, HttpEntity entity) throws Exception {
+        HttpPut put = new HttpPut(path);
+        put.addHeader("Content-Type", mediaType);
+        put.addHeader("Accept", "application/json");
+        put.setEntity(entity);
+        try {
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpResponse response = client.execute(put);
+            int code = response.getStatusLine().getStatusCode();
+            if (code >= 400)
+                throw new Exception(EntityUtils.toString(response.getEntity()));
+            return EntityUtils.toString(response.getEntity());
+        }
+        catch (ClientProtocolException e) {
+            throw new Exception("putRequest -- Client protocol exception!", e);
+        }
+        catch (IOException e) {
+            throw new Exception("putRequest -- IO error!", e);
+        }
+        finally {
+            put.releaseConnection();
         }
     }
 }
