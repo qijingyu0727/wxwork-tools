@@ -26,13 +26,13 @@ public class HttpClientUtil {
         HttpGet get = new HttpGet(uriBuilder.build());
         return executeGetRequest(get);
     }
-    
+
     // 发送GET请求（不带参数）
     public static String getRequest(String path) throws Exception {
         HttpGet get = new HttpGet(path);
         return executeGetRequest(get);
     }
-    
+
     // 执行GET请求的通用方法
     private static String executeGetRequest(HttpGet get) throws Exception {
         HttpClient client = HttpClientBuilder.create().build();
@@ -72,6 +72,18 @@ public class HttpClientUtil {
         return putRequest(path, "application/json", entity);
     }
 
+    // 发送PUT请求（JSON形式，带API Key）
+    public static String putJSONWithApiKey(String path, String json, String apiKey) throws Exception {
+        StringEntity entity = new StringEntity(json, Charsets.UTF_8);
+        return putRequestWithApiKey(path, "application/json", entity, apiKey);
+    }
+
+    // 发送PUT请求（带Cookie）
+    public static String putJSONWithCookie(String path, String json, String cookie) throws Exception {
+        StringEntity entity = new StringEntity(json, Charsets.UTF_8);
+        return putRequestWithCookie(path, "application/json", entity, cookie);
+    }
+
     // 发送POST请求
     public static String postRequest(String path, String mediaType, HttpEntity entity) throws Exception {
         HttpPost post = new HttpPost(path);
@@ -102,6 +114,63 @@ public class HttpClientUtil {
         HttpPut put = new HttpPut(path);
         put.addHeader("Content-Type", mediaType);
         put.addHeader("Accept", "application/json");
+        put.setEntity(entity);
+        try {
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpResponse response = client.execute(put);
+            int code = response.getStatusLine().getStatusCode();
+            if (code >= 400)
+                throw new Exception(EntityUtils.toString(response.getEntity()));
+            return EntityUtils.toString(response.getEntity());
+        }
+        catch (ClientProtocolException e) {
+            throw new Exception("putRequest -- Client protocol exception!", e);
+        }
+        catch (IOException e) {
+            throw new Exception("putRequest -- IO error!", e);
+        }
+        finally {
+            put.releaseConnection();
+        }
+    }
+
+    // 发送PUT请求（带API Key）
+    public static String putRequestWithApiKey(String path, String mediaType, HttpEntity entity, String apiKey) throws Exception {
+        HttpPut put = new HttpPut(path);
+        put.addHeader("Content-Type", mediaType);
+        put.addHeader("Accept", "application/json");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            put.addHeader("Authorization", "Bearer " + apiKey);
+            put.addHeader("X-API-Key", apiKey);
+        }
+        put.setEntity(entity);
+        try {
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpResponse response = client.execute(put);
+            int code = response.getStatusLine().getStatusCode();
+            if (code >= 400)
+                throw new Exception(EntityUtils.toString(response.getEntity()));
+            return EntityUtils.toString(response.getEntity());
+        }
+        catch (ClientProtocolException e) {
+            throw new Exception("putRequest -- Client protocol exception!", e);
+        }
+        catch (IOException e) {
+            throw new Exception("putRequest -- IO error!", e);
+        }
+        finally {
+            put.releaseConnection();
+        }
+    }
+
+    // 发送PUT请求（带Cookie）
+    public static String putRequestWithCookie(String path, String mediaType, HttpEntity entity, String cookie) throws Exception {
+        HttpPut put = new HttpPut(path);
+        put.addHeader("Content-Type", mediaType);
+        put.addHeader("Accept", "application/json");
+        if (cookie != null && !cookie.isEmpty()) {
+            put.addHeader("Cookie", cookie);
+        }
         put.setEntity(entity);
         try {
             HttpClient client = HttpClientBuilder.create().build();

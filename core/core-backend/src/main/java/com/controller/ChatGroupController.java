@@ -93,7 +93,7 @@ public class ChatGroupController {
             System.out.println("userInfo keys: " + userInfo.keySet());
             System.out.println("userInfo: " + userInfo.toJSONString());
 
-            // 尝试多种可能的字段名
+            // 尝试多种可能的字段名获取userId
             String userId = userInfo.getString("userid");
             if (userId == null) {
                 userId = userInfo.getString("UserId");
@@ -102,9 +102,24 @@ public class ChatGroupController {
                 userId = userInfo.getString("user_id");
             }
 
+            // 尝试多种可能的字段名获取userName
             String userName = userInfo.getString("name");
             if (userName == null) {
                 userName = userInfo.getString("Name");
+            }
+            // 如果没有name字段，尝试使用email或biz_mail的前缀
+            if (userName == null) {
+                String email = userInfo.getString("email");
+                if (email == null) {
+                    email = userInfo.getString("biz_mail");
+                }
+                if (email != null && email.contains("@")) {
+                    userName = email.substring(0, email.indexOf("@"));
+                }
+            }
+            // 如果还是没有，使用userid
+            if (userName == null) {
+                userName = userId;
             }
 
             if (userId == null || userName == null) {

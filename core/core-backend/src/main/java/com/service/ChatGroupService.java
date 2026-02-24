@@ -22,6 +22,9 @@ public class ChatGroupService {
     @Value("${cscrm.api.path:/api/v1/staff-admin}")
     private String cscrmApiPath;
 
+    @Value("${cscrm.api.key:}")
+    private String cscrmApiKey;
+
     // 区域部门ID映射
     private static final List<Long> EAST_REGION_DEPT_IDS = List.of(129L, 131L, 130L, 61L, 123L);
     private static final List<Long> NORTH_REGION_DEPT_IDS = List.of(127L, 145L, 146L, 60L);
@@ -347,7 +350,7 @@ public class ChatGroupService {
 
             // 调用 CSCRM API
             String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
-            String response = HttpClientUtil.putJSON(url, payload.toJSONString());
+            String response = HttpClientUtil.putJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
 
             JSONObject responseJson = JSONObject.parseObject(response);
             if (responseJson.getInteger("code") != 0) {
@@ -388,7 +391,7 @@ public class ChatGroupService {
             // 查询同区域所有员工
             String sql = "SELECT DISTINCT s.name FROM staff s " +
                     "INNER JOIN staff_department sd ON s.id = sd.staff_id " +
-                    "WHERE sd.department_id IN (" + deptIdsStr + ") " +
+                    "WHERE sd.ext_department_id IN (" + deptIdsStr + ") " +
                     "AND s.name IS NOT NULL AND s.name != '' " +
                     "ORDER BY s.name";
             var result = com.util.JdbcUtils.query(sql);
