@@ -321,7 +321,7 @@
     <div v-if="showUpdateModal" class="modal-overlay" @click="closeUpdateModal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3>更新工单</h3>
+          <h3>{{ currentTicketTitle }}</h3>
           <button class="modal-close" @click="closeUpdateModal">
             <i class="fa fa-times"></i>
           </button>
@@ -409,9 +409,10 @@
             ></textarea>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeUpdateModal">取消</button>
-          <button class="btn btn-primary" @click="submitUpdateTicket">提交</button>
+        <div class="modal-footer modal-footer-actions">
+          <button class="btn btn-action btn-uniform" @click="submitUpdateTicket('follow')">跟进</button>
+          <button class="btn btn-action btn-uniform" @click="submitUpdateTicket('cross-team')">跨团队跟进</button>
+          <button class="btn btn-primary btn-resolve btn-uniform" @click="submitUpdateTicket('resolve')">确认解决</button>
         </div>
       </div>
     </div>
@@ -452,6 +453,7 @@ const tabs = ref([
 // 更新工单弹窗相关状态
 const showUpdateModal = ref(false)
 const currentTicketId = ref(null)
+const currentTicketTitle = ref('')
 const staffList = ref([])
 const showStaffDropdown = ref(false)
 const updateForm = ref({
@@ -950,6 +952,9 @@ const handleVersionClick = () => {
 
 const handleUpdateTicket = async (ticketId) => {
   currentTicketId.value = ticketId
+  // 查找当前工单并保存标题
+  const ticket = tickets.value.find(t => t.id === ticketId)
+  currentTicketTitle.value = ticket ? ticket.title : '更新工单'
   // 重置表单
   updateForm.value = {
     urgent: false,
@@ -1017,7 +1022,7 @@ const closeUpdateModal = () => {
   currentTicketId.value = null
 }
 
-const submitUpdateTicket = async () => {
+const submitUpdateTicket = async (action) => {
   try {
     if (!updateForm.value.ownerName) {
       showToast('请选择处理人', false)
@@ -1029,13 +1034,32 @@ const submitUpdateTicket = async () => {
       return
     }
 
-    const result = await docApi.updateTicket(currentTicketId.value, updateForm.value)
+    // 根据操作类型设置不同的参数
+    const requestData = {
+      ...updateForm.value
+    }
+
+    if (action === 'resolve') {
+      // 确认解决
+      requestData.resolved = true
+      requestData.status = 1
+    } else if (action === 'cross-team') {
+      // 跨团队跟进
+      requestData.resolved = false
+      requestData.status = 3
+    } else if (action === 'follow') {
+      // 跟进
+      requestData.resolved = false
+      requestData.status = 2
+    }
+
+    const result = await docApi.updateTicket(currentTicketId.value, requestData)
 
     if (result.success) {
       showToast('工单更新成功', true)
       closeUpdateModal()
       // 重新加载工单列表
-      await loadTickets()
+      await getTickets(chatId.value)
     } else {
       showToast(result.message || '工单更新失败', false)
     }

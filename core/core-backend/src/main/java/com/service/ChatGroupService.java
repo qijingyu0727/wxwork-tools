@@ -321,44 +321,15 @@ public class ChatGroupService {
     public void updateTicket(UpdateTicketRequest request, String modifiedById, String modifiedByName) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            // 根据处理人姓名查询处理人ID和部门ID
-            String ownerSql = "SELECT s.ext_id, sd.department_id FROM staff s " +
-                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
-                    "WHERE s.name = ? LIMIT 1";
+            // 根据处理人姓名查询处理人ID
+            String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
             var ownerResult = com.util.JdbcUtils.query(ownerSql, request.getOwnerName());
 
             String ownerId = null;
-            Long ownerDeptId = null;
             if (!ownerResult.isEmpty() && ownerResult.get(0)[0] != null) {
                 ownerId = ownerResult.get(0)[0].toString();
-                if (ownerResult.get(0)[1] != null) {
-                    ownerDeptId = Long.parseLong(ownerResult.get(0)[1].toString());
-                }
             } else {
                 throw new Exception("未找到处理人: " + request.getOwnerName());
-            }
-
-            // 查询当前用户的部门ID
-            String currentUserSql = "SELECT sd.department_id FROM staff s " +
-                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
-                    "WHERE s.ext_id = ? LIMIT 1";
-            var currentUserResult = com.util.JdbcUtils.query(currentUserSql, modifiedById);
-
-            Long currentUserDeptId = null;
-            if (!currentUserResult.isEmpty() && currentUserResult.get(0)[0] != null) {
-                currentUserDeptId = Long.parseLong(currentUserResult.get(0)[0].toString());
-            }
-
-            // 判断状态：同部门=跟进(2)，同区不同部门=跨团队跟进(3)
-            // 特殊规则：虚拟账号和线上不跨团队，虚拟账号和线下跨团队
-            Integer status = 2; // 默认为"跟进中"
-            if (currentUserDeptId != null && ownerDeptId != null) {
-                if (!currentUserDeptId.equals(ownerDeptId)) {
-                    // 不同部门，检查是否跨团队
-                    if (isCrossTeam(currentUserDeptId, ownerDeptId)) {
-                        status = 3; // 跨团队跟进中
-                    }
-                }
             }
 
             // 构建请求体
@@ -371,7 +342,8 @@ public class ChatGroupService {
             payload.put("modified_by_id", modifiedById);
             payload.put("modified_by_name", modifiedByName);
             payload.put("comment", request.getComment());
-            payload.put("status", status);
+            payload.put("status", request.getStatus());
+            payload.put("resolved", request.getResolved());
 
             // 调用 CSCRM API
             String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
@@ -390,7 +362,7 @@ public class ChatGroupService {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             // 查询当前用户的部门ID
-            String currentUserSql = "SELECT sd.department_id FROM staff s " +
+            String currentUserSql = "SELECT sd.ext_department_id FROM staff s " +
                     "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
                     "WHERE s.ext_id = ? LIMIT 1";
             var currentUserResult = com.util.JdbcUtils.query(currentUserSql, userId);

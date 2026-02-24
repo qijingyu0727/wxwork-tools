@@ -7,6 +7,8 @@ public class UpdateTicketRequest {
     private String ownerName;
     private String ownerId;
     private String comment;
+    private Integer status;
+    private Boolean resolved;
 
     public String getTicketId() {
         return ticketId;
@@ -54,5 +56,21 @@ public class UpdateTicketRequest {
 
     public void setComment(String comment) {
         this.comment = comment;
+    }
+
+    public Integer getStatus() {
+        return status;
+    }
+
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    public Boolean getResolved() {
+        return resolved;
+    }
+
+    public void setResolved(Boolean resolved) {
+        this.resolved = resolved;
     }
 }
