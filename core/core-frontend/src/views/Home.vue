@@ -864,17 +864,29 @@ const getLogActionClass = (action) => {
 const getCurExternalChat = () => {
   loading.value = true
   try {
-    chatId.value = 'wrVkCUDAAAjdk0US63rJYRMDYY7Ux29A'
-    showToast('获取群聊 chatID 成功！', true)
-    console.log('当前群聊ID:', chatId.value)
-    // 获取客户数据
-    getCustomerData(chatId.value)
-    // 获取实施记录
-    getMaintenanceRecords(chatId.value)
-    // 获取维护记录
-    getServiceRecords(chatId.value)
-    // 获取工单
-    getTickets(chatId.value)
+      ww.getCurExternalChat({
+         success(result) {
+           // 成功回调，result.errMsg 固定格式为"方法名:ok"
+           chatId.value = result.chatId
+           // 获取客户数据
+           getCustomerData(chatId.value)
+           // 获取实施记录
+           getMaintenanceRecords(chatId.value)
+           // 获取维护记录
+           getServiceRecords(chatId.value)
+           // 获取工单
+           getTickets(chatId.value)
+
+           loading.value = false
+         },
+         fail(result) {
+           // 失败回调，通过 result.errMsg 查看失败详情
+           showToast('获取群聊 chatID 失败！'+result.errMsg, false)
+           console.error('调用失败:', result)
+           loading.value = false
+         }
+       })
+    
   } catch (err) {
     showToast('异常：'+(err.message || err), false)
     console.error('异常:', err)
@@ -882,8 +894,6 @@ const getCurExternalChat = () => {
     loading.value = false
   }
 }
-
-getCurExternalChat();
 
 
 const copyChatId = () => {
@@ -1049,7 +1059,7 @@ const submitUpdateTicket = async (action) => {
       showToast('工单更新成功', true)
       closeUpdateModal()
       // 重新加载工单列表
-      await loadTickets()
+      await getTickets(chatId.value)
     } else {
       showToast(result.message || '工单更新失败', false)
     }

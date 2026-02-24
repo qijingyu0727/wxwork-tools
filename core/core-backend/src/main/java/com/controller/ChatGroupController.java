@@ -89,11 +89,26 @@ public class ChatGroupController {
                 return ApiResponse.error("用户未登录");
             }
 
+            // 打印调试信息
+            System.out.println("userInfo keys: " + userInfo.keySet());
+            System.out.println("userInfo: " + userInfo.toJSONString());
+
+            // 尝试多种可能的字段名
             String userId = userInfo.getString("userid");
+            if (userId == null) {
+                userId = userInfo.getString("UserId");
+            }
+            if (userId == null) {
+                userId = userInfo.getString("user_id");
+            }
+
             String userName = userInfo.getString("name");
+            if (userName == null) {
+                userName = userInfo.getString("Name");
+            }
 
             if (userId == null || userName == null) {
-                return ApiResponse.error("无法获取用户信息");
+                return ApiResponse.error("无法获取用户信息，userId: " + userId + ", userName: " + userName);
             }
 
             // 设置工单ID
@@ -104,6 +119,7 @@ public class ChatGroupController {
 
             return ApiResponse.success(null);
         } catch (Exception e) {
+            e.printStackTrace();
             return ApiResponse.error("更新工单失败: " + e.getMessage());
         }
     }
@@ -117,11 +133,24 @@ public class ChatGroupController {
             if (userInfo == null) {
                 return ApiResponse.error("用户未登录");
             }
+
+            // 尝试多种可能的字段名
             String userId = userInfo.getString("userid");
+            if (userId == null) {
+                userId = userInfo.getString("UserId");
+            }
+            if (userId == null) {
+                userId = userInfo.getString("user_id");
+            }
+
+            if (userId == null) {
+                return ApiResponse.error("无法获取用户ID");
+            }
 
             List<String> staffList = chatGroupService.getStaffList(userId);
             return ApiResponse.success(staffList);
         } catch (Exception e) {
+            e.printStackTrace();
             return ApiResponse.error("获取员工列表失败: " + e.getMessage());
         }
     }
