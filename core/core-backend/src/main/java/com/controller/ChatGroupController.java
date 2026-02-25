@@ -102,29 +102,33 @@ public class ChatGroupController {
                 userId = userInfo.getString("user_id");
             }
 
-            // 尝试多种可能的字段名获取userName
-            String userName = userInfo.getString("name");
-            if (userName == null) {
-                userName = userInfo.getString("Name");
+            if (userId == null) {
+                return ApiResponse.error("无法获取用户ID");
             }
-            // 如果没有name字段，尝试使用email或biz_mail的前缀
-            if (userName == null) {
-                String email = userInfo.getString("email");
-                if (email == null) {
-                    email = userInfo.getString("biz_mail");
+
+            // 从数据库查询真实姓名
+            String userName = null;
+            try {
+                com.util.JdbcUtils.setCscrmConfig();
+                String sql = "SELECT name FROM staff WHERE ext_id = ? LIMIT 1";
+                var result = com.util.JdbcUtils.query(sql, userId);
+                if (!result.isEmpty() && result.get(0)[0] != null) {
+                    userName = result.get(0)[0].toString();
                 }
-                if (email != null && email.contains("@")) {
-                    userName = email.substring(0, email.indexOf("@"));
-                }
+            } finally {
+                com.util.JdbcUtils.clearConfig();
             }
-            // 如果还是没有，使用userid
-            if (userName == null) {
+
+            // 如果数据库查询失败，使用 userId 作为备用
+            if (userName == null || userName.isEmpty()) {
                 userName = userId;
             }
 
-            if (userId == null || userName == null) {
-                return ApiResponse.error("无法获取用户信息，userId: " + userId + ", userName: " + userName);
-            }
+            // 打印当前登录用户信息
+            System.out.println("========== 当前登录用户信息 ==========");
+            System.out.println("当前登录用户ID (modifiedById): " + userId);
+            System.out.println("当前登录用户姓名 (modifiedByName): " + userName);
+            System.out.println("====================================");
 
             // 设置工单ID
             request.setTicketId(ticketId);

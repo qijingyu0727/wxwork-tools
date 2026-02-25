@@ -324,6 +324,13 @@ public class ChatGroupService {
     public void updateTicket(UpdateTicketRequest request, String modifiedById, String modifiedByName) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
+            // 打印接收到的参数
+            System.out.println("========== Service 层接收到的参数 ==========");
+            System.out.println("modifiedById (传入参数): " + modifiedById);
+            System.out.println("modifiedByName (传入参数): " + modifiedByName);
+            System.out.println("ownerName (处理人姓名): " + request.getOwnerName());
+            System.out.println("==========================================");
+
             // 根据处理人姓名查询处理人ID
             String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
             var ownerResult = com.util.JdbcUtils.query(ownerSql, request.getOwnerName());
@@ -335,22 +342,34 @@ public class ChatGroupService {
                 throw new Exception("未找到处理人: " + request.getOwnerName());
             }
 
+            System.out.println("查询到的处理人ID (ownerId): " + ownerId);
+
             // 构建请求体
             JSONObject payload = new JSONObject();
             payload.put("id", request.getTicketId());
             payload.put("urgent", request.getUrgent());
             payload.put("customer_sentiment", request.getCustomerSentiment());
             payload.put("owner_name", request.getOwnerName());
-            payload.put("owner_id", ownerId);
-            payload.put("modified_by_id", modifiedById);
-            payload.put("modified_by_name", modifiedByName);
+            payload.put("owner_id", ownerId);  // 处理人ID
+            payload.put("modified_by_id", modifiedById);  // 当前登录用户ID
+            payload.put("modified_by_name", modifiedByName);  // 当前登录用户姓名
             payload.put("comment", request.getComment());
             payload.put("status", request.getStatus());
             payload.put("resolved", request.getResolved());
 
+            // 打印日志
+            System.out.println("========== 更新工单请求信息 ==========");
+            System.out.println("请求URL: " + cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId());
+            System.out.println("请求头 Authorization: Bearer " + (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
+            System.out.println("请求头 X-API-Key: " + (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
+            System.out.println("请求体 Payload: " + payload.toJSONString());
+            System.out.println("=====================================");
+
             // 调用 CSCRM API
             String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
             String response = HttpClientUtil.putJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
+
+            System.out.println("响应内容: " + response);
 
             JSONObject responseJson = JSONObject.parseObject(response);
             if (responseJson.getInteger("code") != 0) {

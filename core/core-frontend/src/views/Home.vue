@@ -706,7 +706,7 @@ const ticketStatusMap = {
   '1': '待确认',
   '2': '跟进中',
   '3': '跨团队跟进中',
-  '4': '已归档'
+  '4': '已处理'
 }
 
 const logActionMap = {
@@ -718,6 +718,7 @@ const logActionMap = {
   'reassigned': '重新分配',
   'comment': '评论',
   'commented': '评论',
+  'comment_added': '添加备注',
   'resolve': '解决',
   'resolved': '已解决',
   'create': '创建',
@@ -1042,7 +1043,7 @@ const submitUpdateTicket = async (action) => {
     if (action === 'resolve') {
       // 确认解决
       requestData.resolved = true
-      requestData.status = 1
+      requestData.status = 4
     } else if (action === 'cross-team') {
       // 跨团队跟进
       requestData.resolved = false
@@ -1060,6 +1061,8 @@ const submitUpdateTicket = async (action) => {
       closeUpdateModal()
       // 重新加载工单列表
       await getTickets(chatId.value)
+      // 重新加载该工单的流转记录
+      await getTicketLogs(currentTicketId.value)
     } else {
       showToast(result.message || '工单更新失败', false)
     }
