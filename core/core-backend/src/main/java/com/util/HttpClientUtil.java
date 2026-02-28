@@ -33,6 +33,17 @@ public class HttpClientUtil {
         return executeGetRequest(get);
     }
 
+    // 发送GET请求（带API Key）
+    public static String getRequestWithApiKey(String path, String apiKey) throws Exception {
+        HttpGet get = new HttpGet(path);
+        if (apiKey != null && !apiKey.isEmpty()) {
+            get.addHeader("Authorization", "Bearer " + apiKey);
+            get.addHeader("X-API-Key", apiKey);
+        }
+        get.addHeader("Accept", "application/json");
+        return executeGetRequest(get);
+    }
+
     // 执行GET请求的通用方法
     private static String executeGetRequest(HttpGet get) throws Exception {
         HttpClient client = HttpClientBuilder.create().build();
@@ -64,6 +75,12 @@ public class HttpClientUtil {
     public static String postJSON(String path, String json) throws Exception {
         StringEntity entity = new StringEntity(json, Charsets.UTF_8);
         return postRequest(path, "application/json", entity);
+    }
+
+    // 发送POST请求（JSON形式，带API Key）
+    public static String postJSONWithApiKey(String path, String json, String apiKey) throws Exception {
+        StringEntity entity = new StringEntity(json, Charsets.UTF_8);
+        return postRequestWithApiKey(path, "application/json", entity, apiKey);
     }
 
     // 发送PUT请求（JSON形式）
@@ -103,6 +120,35 @@ public class HttpClientUtil {
         }
         catch (IOException e) {
             throw new Exception("postRequest -- IO error!", e);
+        }
+        finally {
+            post.releaseConnection();
+        }
+    }
+
+    // 发送POST请求（带API Key）
+    public static String postRequestWithApiKey(String path, String mediaType, HttpEntity entity, String apiKey) throws Exception {
+        HttpPost post = new HttpPost(path);
+        post.addHeader("Content-Type", mediaType);
+        post.addHeader("Accept", "application/json");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            post.addHeader("Authorization", "Bearer " + apiKey);
+            post.addHeader("X-API-Key", apiKey);
+        }
+        post.setEntity(entity);
+        try {
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpResponse response = client.execute(post);
+            int code = response.getStatusLine().getStatusCode();
+            if (code >= 400)
+                throw new Exception(EntityUtils.toString(response.getEntity()));
+            return EntityUtils.toString(response.getEntity());
+        }
+        catch (ClientProtocolException e) {
+            throw new Exception("postRequestWithApiKey -- Client protocol exception!", e);
+        }
+        catch (IOException e) {
+            throw new Exception("postRequestWithApiKey -- IO error!", e);
         }
         finally {
             post.releaseConnection();

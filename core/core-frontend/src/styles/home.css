@@ -321,6 +321,10 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+.stat-item-clickable {
+  cursor: pointer;
+}
+
 .stat-item.stat-error {
   border-left-color: #ef4444;
 }
@@ -676,6 +680,33 @@
   gap: 0.125rem;
 }
 
+.info-row-inline {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.info-row-inline .info-label {
+  flex: 0 0 60px;
+  margin-top: 1px;
+}
+
+.info-row-inline .info-value {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.info-value-time {
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.info-row-full {
+  grid-column: 1 / -1;
+}
+
 .info-label {
   font-size: 0.75rem;
   color: #9ca3af;
@@ -745,6 +776,54 @@
   background-color: #07C160;
   color: white;
   border-color: #07C160;
+}
+
+.ticket-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: -0.5rem 0 1.25rem;
+}
+
+.ticket-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  color: #1f2937;
+  background-color: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ticket-search-input:focus {
+  outline: none;
+  border-color: #07C160;
+  box-shadow: 0 0 0 3px rgba(7, 193, 96, 0.14);
+}
+
+.ticket-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  height: 36px;
+  padding: 0 0.875rem;
+  border: 1px solid #07C160;
+  border-radius: 0.5rem;
+  background-color: #07C160;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.ticket-search-btn:hover {
+  background-color: #06ad56;
+  border-color: #06ad56;
 }
 
 /* 工单日志样式 */
@@ -1029,6 +1108,21 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.6875rem;
   }
+
+  .ticket-search-bar {
+    margin: -0.125rem 0 0.875rem;
+    gap: 0.375rem;
+  }
+
+  .ticket-search-input,
+  .ticket-search-btn {
+    height: 32px;
+    font-size: 0.75rem;
+  }
+
+  .ticket-search-btn {
+    padding: 0 0.625rem;
+  }
 }
 
 /* 极窄屏幕适配 (宽度小于 320px) */
@@ -1248,6 +1342,17 @@
   width: 100%;
 }
 
+.add-maintenance-footer {
+  justify-content: flex-end;
+}
+
+.add-maintenance-footer .btn-uniform {
+  flex: 0 0 108px;
+  max-width: 108px;
+  min-width: 108px;
+  min-height: 40px;
+}
+
 .btn-uniform {
   flex: 1 1 auto;
   min-width: 0;
@@ -1376,6 +1481,11 @@
   min-height: 80px;
 }
 
+.maintenance-summary-textarea {
+  min-height: 56px;
+  line-height: 1.5;
+}
+
 .form-radio-group {
   display: flex;
   gap: 1rem;
@@ -1422,6 +1532,61 @@
 
 .btn-secondary:hover {
   background-color: #e5e7eb;
+}
+
+/* 新增维护按钮样式 */
+.add-maintenance-section {
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.btn-add-maintenance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 11px;
+  background: #ffffff;
+  color: #2563eb;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-add-maintenance:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.22);
+  transform: translateY(-1px);
+}
+
+.btn-add-maintenance:active {
+  transform: translateY(0);
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.2);
+}
+
+@media (max-width: 768px) {
+  .add-maintenance-section {
+    justify-content: flex-end;
+  }
+
+  .btn-add-maintenance {
+    height: 28px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
 }
 
 /* Autocomplete样式 */
@@ -1495,4 +1660,3 @@
 .autocomplete-empty:hover {
   background-color: white;
 }
-

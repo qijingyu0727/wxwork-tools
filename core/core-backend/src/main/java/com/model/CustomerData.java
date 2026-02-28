@@ -2,6 +2,9 @@ package com.model;
 
 public class CustomerData {
     private String name;
+    private Long clientId;
+    private Long productId;
+    private String regionId;
     private String subscriptionEndDate;
     private String isAccepted;
     private Integer notResolvedTicketCount;
@@ -18,6 +21,30 @@ public class CustomerData {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public Long getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(Long clientId) {
+        this.clientId = clientId;
+    }
+
+    public Long getProductId() {
+        return productId;
+    }
+
+    public void setProductId(Long productId) {
+        this.productId = productId;
+    }
+
+    public String getRegionId() {
+        return regionId;
+    }
+
+    public void setRegionId(String regionId) {
+        this.regionId = regionId;
     }
 
     public String getSubscriptionEndDate() {

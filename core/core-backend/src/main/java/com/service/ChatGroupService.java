@@ -7,14 +7,28 @@ import com.model.ServiceRecord;
 import com.model.Ticket;
 import com.model.TicketLog;
 import com.model.request.UpdateTicketRequest;
+import com.model.request.CreateMaintenanceRecordRequest;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.JSONArray;
 import com.util.HttpClientUtil;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.net.UnknownHostException;
 
 @Service
 public class ChatGroupService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ChatGroupService.class);
 
     @Value("${cscrm.base.url:http://democenter.fit2cloud.cn:24916}")
     private String cscrmBaseUrl;
@@ -39,6 +53,10 @@ public class ChatGroupService {
     // 线下部门ID
     private static final List<Long> OFFLINE_DEPT_IDS = List.of(129L, 131L, 130L, 145L, 146L, 126L);
 
+    // 版本聚合产品ID映射
+    private static final List<Long> MAXKB_PRODUCT_IDS = Arrays.asList(2009L, 2013L);
+    private static final List<Long> DATAEASE_PRODUCT_IDS = Arrays.asList(2003L, 2008L);
+
     public CustomerData getCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
@@ -48,6 +66,23 @@ public class ChatGroupService {
                     "            count(1) all_ticket_count, " +
                     "            sum(if(status = 3, 1, 0)) critical_ticket_count " +
                     "     from chat_analysis_tickets " +
+                    "     where deleted_at IS NULL " +
+                    "     group by room_id " +
+                    " ), " +
+                    " issue_count as ( " +
+                    "     select room_id, " +
+                    "            sum(if(resolved, 0, 1)) not_resolved_issue_count, " +
+                    "            count(1) all_issue_count " +
+                    "     from chat_analysis_tickets " +
+                    "     where issue_category = '功能需求' AND deleted_at IS NULL " +
+                    "     group by room_id " +
+                    " ), " +
+                    " bug_count as ( " +
+                    "     select room_id, " +
+                    "            sum(if(resolved, 0, 1)) not_resolved_bug_count, " +
+                    "            count(1) all_bug_count " +
+                    "     from chat_analysis_tickets " +
+                    "     where issue_category = '产品缺陷' AND deleted_at IS NULL " +
                     "     group by room_id " +
                     " ), " +
                     " subscription_info as ( " +
@@ -60,18 +95,21 @@ public class ChatGroupService {
                     " ) " +
                     " " +
                     " select support_client.name, " +
+                    "        subscription_info.client_id, " +
                     "        subscription_info.subscription_end_date, " +
                     "        ticket_count.not_resolved_ticket_count, " +
                     "        ticket_count.all_ticket_count, " +
                     "        ticket_count.critical_ticket_count, " +
-                    "        0 all_issue_count, " +
-                    "        0 not_resolved_issue_count, " +
-                    "        0 all_bug_count, " +
-                    "        0 not_resolved_bug_count " +
+                    "        issue_count.all_issue_count, " +
+                    "        issue_count.not_resolved_issue_count, " +
+                    "        bug_count.all_bug_count, " +
+                    "        bug_count.not_resolved_bug_count " +
                     " from group_chat " +
                     " left join subscription_info on group_chat.name = subscription_info.group_chat_name " +
                     " left join support_client on subscription_info.client_id = support_client.id " +
-                    " left  join ticket_count on ticket_count.room_id = group_chat.ext_chat_id " +
+                    " left join ticket_count on ticket_count.room_id = group_chat.ext_chat_id " +
+                    " left join issue_count on issue_count.room_id = group_chat.ext_chat_id " +
+                    " left join bug_count on bug_count.room_id = group_chat.ext_chat_id " +
                     " where ext_chat_id = ?";
 
             var result = com.util.JdbcUtils.query(sql, extChatId);
@@ -80,21 +118,175 @@ public class ChatGroupService {
             if (!result.isEmpty()) {
                 Object[] row = result.get(0);
                 data.setName(row[0] != null ? row[0].toString() : null);
-                data.setSubscriptionEndDate(row[1] != null ? row[1].toString() : null);
+                data.setClientId(row[1] != null ? Long.parseLong(row[1].toString()) : null);
+                data.setSubscriptionEndDate(row[2] != null ? row[2].toString() : null);
                 data.setIsAccepted("无需验收");
-                data.setNotResolvedTicketCount(row[2] != null ? Integer.parseInt(row[2].toString()) : 0);
-                data.setAllTicketCount(row[3] != null ? Integer.parseInt(row[3].toString()) : 0);
-                data.setCriticalTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
-                data.setAllIssueCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
-                data.setNotResolvedIssueCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
-                data.setAllBugCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
-                data.setNotResolvedBugCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
+                data.setNotResolvedTicketCount(row[3] != null ? Integer.parseInt(row[3].toString()) : 0);
+                data.setAllTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
+                data.setCriticalTicketCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
+                data.setAllIssueCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
+                data.setNotResolvedIssueCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
+                data.setAllBugCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
+                data.setNotResolvedBugCount(row[9] != null ? Integer.parseInt(row[9].toString()) : 0);
+                fillCustomerProductMeta(extChatId, data);
             }
 
             return data;
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
+    }
+
+    // 补齐客户产品/区域信息（优先订阅数据，次选群聊产品映射，再次选维护记录）
+    private void fillCustomerProductMeta(String extChatId, CustomerData data) {
+        if (data == null) {
+            return;
+        }
+        LOGGER.info("fillCustomerProductMeta start extChatId={}, clientId={}", extChatId, data.getClientId());
+
+        // 1) 如果 productId 为空，按群聊名称映射产品再去 support_product_service 取 product_id
+        if (data.getProductId() == null) {
+            try {
+                String productSql = "WITH chat_product AS ( " +
+                        "    SELECT CASE " +
+                        "        WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
+                        "        WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
+                        "        WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
+                        "        WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBot' " +
+                        "        ELSE NULL END AS product " +
+                        "    FROM group_chat gc WHERE gc.ext_chat_id = ? " +
+                        ") " +
+                        "SELECT sps.product_id " +
+                        "FROM support_product_service sps " +
+                        "CROSS JOIN chat_product cp " +
+                        "WHERE cp.product IS NOT NULL " +
+                        "AND (UPPER(sps.name) LIKE CONCAT('%', UPPER(cp.product), '%') " +
+                        "OR UPPER(cp.product) LIKE CONCAT('%', UPPER(sps.name), '%')) " +
+                        "ORDER BY sps.product_id LIMIT 1";
+                var productResult = com.util.JdbcUtils.query(productSql, extChatId);
+                if (!productResult.isEmpty() && productResult.get(0)[0] != null) {
+                    data.setProductId(Long.parseLong(productResult.get(0)[0].toString()));
+                    LOGGER.info("fillCustomerProductMeta by chatName success extChatId={}, productId={}", extChatId, data.getProductId());
+                }
+            } catch (Exception ignored) {
+                // 忽略并继续兜底
+            }
+        }
+
+        // 2) 如果 productId 仍为空，从该群实时工单记录里的 product 名称反查 product_id
+        if (data.getProductId() == null) {
+            try {
+                String ticketProductSql = "SELECT cat.product " +
+                        "FROM chat_analysis_tickets cat " +
+                        "WHERE cat.room_id = ? " +
+                        "AND cat.product IS NOT NULL AND cat.product != '' " +
+                        "ORDER BY cat.updated_at DESC LIMIT 1";
+                var ticketProductResult = com.util.JdbcUtils.query(ticketProductSql, extChatId);
+                if (!ticketProductResult.isEmpty() && ticketProductResult.get(0)[0] != null) {
+                    String productName = ticketProductResult.get(0)[0].toString().trim();
+                    if (!productName.isEmpty()) {
+                        String findProductIdSql = "SELECT sps.product_id " +
+                                "FROM support_product_service sps " +
+                                "WHERE UPPER(sps.name) = UPPER(?) " +
+                                "OR UPPER(sps.name) LIKE CONCAT('%', UPPER(?), '%') " +
+                                "OR UPPER(?) LIKE CONCAT('%', UPPER(sps.name), '%') " +
+                                "ORDER BY sps.product_id LIMIT 1";
+                        var pidResult = com.util.JdbcUtils.query(findProductIdSql, productName, productName, productName);
+                        if (!pidResult.isEmpty() && pidResult.get(0)[0] != null) {
+                            data.setProductId(Long.parseLong(pidResult.get(0)[0].toString()));
+                            LOGGER.info("fillCustomerProductMeta by ticketProduct success extChatId={}, ticketProduct={}, productId={}",
+                                    extChatId, productName, data.getProductId());
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // 忽略并继续兜底
+            }
+        }
+
+        // 3) regionId 兜底取最近维护记录
+        if ((data.getRegionId() == null || data.getRegionId().isEmpty()) && data.getClientId() != null) {
+            try {
+                String regionSql = "SELECT smr.region_id " +
+                        "FROM support_maintenance_record smr " +
+                        "WHERE smr.client_id = ? AND smr.region_id IS NOT NULL AND smr.region_id != '' " +
+                        "ORDER BY smr.create_time DESC LIMIT 1";
+                var regionResult = com.util.JdbcUtils.query(regionSql, data.getClientId());
+                if (!regionResult.isEmpty() && regionResult.get(0)[0] != null) {
+                    data.setRegionId(regionResult.get(0)[0].toString());
+                    LOGGER.info("fillCustomerProductMeta region fallback success extChatId={}, regionId={}", extChatId, data.getRegionId());
+                }
+            } catch (Exception ignored) {
+                // 忽略兜底失败
+            }
+        }
+        LOGGER.info("fillCustomerProductMeta done extChatId={}, productId={}, regionId={}",
+                extChatId, data.getProductId(), data.getRegionId());
+    }
+
+    // 通用的获取工单方法
+    private List<Ticket> getTicketsByCategory(String extChatId, String issueCategory) {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            StringBuilder sql = new StringBuilder("SELECT cat.id, " +
+                    "       cat.title, " +
+                    "       cat.description, " +
+                    "       cat.product, " +
+                    "       cat.status, " +
+                    "       cat.urgent, " +
+                    "       cat.resolved, " +
+                    "       cat.owner_name, " +
+                    "       cat.issue_category, " +
+                    "       cat.customer_sentiment, " +
+                    "       cat.tracking_links, " +
+                    "       DATE_FORMAT(cat.created_at, '%Y-%m-%d %H:%i:%s') as created_at, " +
+                    "       DATE_FORMAT(cat.updated_at, '%Y-%m-%d %H:%i:%s') as updated_at " +
+                    "FROM chat_analysis_tickets cat " +
+                    "WHERE cat.room_id = ? AND cat.deleted_at IS NULL ");
+
+            List<Object> params = new ArrayList<>();
+            params.add(extChatId);
+
+            if (issueCategory != null) {
+                sql.append("AND cat.issue_category = ? ");
+                params.add(issueCategory);
+            }
+
+            sql.append("ORDER BY cat.created_at DESC");
+
+            var result = com.util.JdbcUtils.query(sql.toString(), params.toArray());
+            List<Ticket> tickets = new ArrayList<>();
+
+            for (Object[] row : result) {
+                Ticket ticket = new Ticket();
+                ticket.setId(row[0] != null ? Long.parseLong(row[0].toString()) : null);
+                ticket.setTitle(row[1] != null ? row[1].toString() : null);
+                ticket.setDescription(row[2] != null ? row[2].toString() : null);
+                ticket.setProduct(row[3] != null ? row[3].toString() : null);
+                ticket.setStatus(row[4] != null ? Long.parseLong(row[4].toString()) : null);
+                ticket.setUrgent(row[5] != null ? (Boolean) row[5] : null);
+                ticket.setResolved(row[6] != null ? (Boolean) row[6] : null);
+                ticket.setOwnerName(row[7] != null ? row[7].toString() : null);
+                ticket.setIssueCategory(row[8] != null ? row[8].toString() : null);
+                ticket.setCustomerSentiment(row[9] != null ? row[9].toString() : null);
+                ticket.setTrackingLinks(row[10] != null ? row[10].toString() : null);
+                ticket.setCreatedAt(row[11] != null ? row[11].toString() : null);
+                ticket.setUpdatedAt(row[12] != null ? row[12].toString() : null);
+                tickets.add(ticket);
+            }
+
+            return tickets;
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    public List<Ticket> getIssueTickets(String extChatId) {
+        return getTicketsByCategory(extChatId, "功能需求");
+    }
+
+    public List<Ticket> getBugTickets(String extChatId) {
+        return getTicketsByCategory(extChatId, "产品缺陷");
     }
 
     public List<MaintenanceRecord> getMaintenanceRecords(String extChatId) {
@@ -240,48 +432,7 @@ public class ChatGroupService {
     }
 
     public List<Ticket> getTickets(String extChatId) {
-        com.util.JdbcUtils.setCscrmConfig();
-        try {
-            String sql = "SELECT cat.id, " +
-                    "       cat.title, " +
-                    "       cat.description, " +
-                    "       cat.product, " +
-                    "       cat.status, " +
-                    "       cat.urgent, " +
-                    "       cat.resolved, " +
-                    "       cat.owner_name, " +
-                    "       cat.issue_category, " +
-                    "       cat.customer_sentiment, " +
-                    "       DATE_FORMAT(cat.created_at, '%Y-%m-%d %H:%i:%s') as created_at, " +
-                    "       DATE_FORMAT(cat.updated_at, '%Y-%m-%d %H:%i:%s') as updated_at " +
-                    "FROM chat_analysis_tickets cat " +
-                    "WHERE cat.room_id = ? AND cat.deleted_at IS NULL " +
-                    "ORDER BY cat.created_at DESC";
-
-            var result = com.util.JdbcUtils.query(sql, extChatId);
-            List<Ticket> tickets = new ArrayList<>();
-
-            for (Object[] row : result) {
-                Ticket ticket = new Ticket();
-                ticket.setId(row[0] != null ? Long.parseLong(row[0].toString()) : null);
-                ticket.setTitle(row[1] != null ? row[1].toString() : null);
-                ticket.setDescription(row[2] != null ? row[2].toString() : null);
-                ticket.setProduct(row[3] != null ? row[3].toString() : null);
-                ticket.setStatus(row[4] != null ? Long.parseLong(row[4].toString()) : null);
-                ticket.setUrgent(row[5] != null ? (Boolean) row[5] : null);
-                ticket.setResolved(row[6] != null ? (Boolean) row[6] : null);
-                ticket.setOwnerName(row[7] != null ? row[7].toString() : null);
-                ticket.setIssueCategory(row[8] != null ? row[8].toString() : null);
-                ticket.setCustomerSentiment(row[9] != null ? row[9].toString() : null);
-                ticket.setCreatedAt(row[10] != null ? row[10].toString() : null);
-                ticket.setUpdatedAt(row[11] != null ? row[11].toString() : null);
-                tickets.add(ticket);
-            }
-
-            return tickets;
-        } finally {
-            com.util.JdbcUtils.clearConfig();
-        }
+        return getTicketsByCategory(extChatId, null);
     }
 
     public List<TicketLog> getTicketLogs(Long ticketId) {
@@ -325,11 +476,11 @@ public class ChatGroupService {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             // 打印接收到的参数
-            System.out.println("========== Service 层接收到的参数 ==========");
-            System.out.println("modifiedById (传入参数): " + modifiedById);
-            System.out.println("modifiedByName (传入参数): " + modifiedByName);
-            System.out.println("ownerName (处理人姓名): " + request.getOwnerName());
-            System.out.println("==========================================");
+            LOGGER.info("========== Service 层接收到的参数 ==========");
+            LOGGER.info("modifiedById (传入参数): {}", modifiedById);
+            LOGGER.info("modifiedByName (传入参数): {}", modifiedByName);
+            LOGGER.info("ownerName (处理人姓名): {}", request.getOwnerName());
+            LOGGER.info("==========================================");
 
             // 根据处理人姓名查询处理人ID
             String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
@@ -342,7 +493,7 @@ public class ChatGroupService {
                 throw new Exception("未找到处理人: " + request.getOwnerName());
             }
 
-            System.out.println("查询到的处理人ID (ownerId): " + ownerId);
+            LOGGER.info("查询到的处理人ID (ownerId): {}", ownerId);
 
             // 构建请求体
             JSONObject payload = new JSONObject();
@@ -356,20 +507,23 @@ public class ChatGroupService {
             payload.put("comment", request.getComment());
             payload.put("status", request.getStatus());
             payload.put("resolved", request.getResolved());
+            if (request.getTrackingLinks() != null && !request.getTrackingLinks().isEmpty()) {
+                payload.put("tracking_links", request.getTrackingLinks());
+            }
 
             // 打印日志
-            System.out.println("========== 更新工单请求信息 ==========");
-            System.out.println("请求URL: " + cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId());
-            System.out.println("请求头 Authorization: Bearer " + (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
-            System.out.println("请求头 X-API-Key: " + (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
-            System.out.println("请求体 Payload: " + payload.toJSONString());
-            System.out.println("=====================================");
+            LOGGER.info("========== 更新工单请求信息 ==========");
+            LOGGER.info("请求URL: {}", cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId());
+            LOGGER.info("请求头 Authorization: Bearer {}", (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
+            LOGGER.info("请求头 X-API-Key: {}", (cscrmApiKey != null ? cscrmApiKey.substring(0, Math.min(20, cscrmApiKey.length())) + "..." : "null"));
+            LOGGER.info("请求体 Payload: {}", payload.toJSONString());
+            LOGGER.info("=====================================");
 
             // 调用 CSCRM API
             String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
             String response = HttpClientUtil.putJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
 
-            System.out.println("响应内容: " + response);
+            LOGGER.info("响应内容: {}", response);
 
             JSONObject responseJson = JSONObject.parseObject(response);
             if (responseJson.getInteger("code") != 0) {
@@ -378,6 +532,197 @@ public class ChatGroupService {
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
+    }
+
+    public JSONObject createMaintenanceRecord(CreateMaintenanceRecordRequest request, String loginUserId) throws Exception {
+        if (request.getClientId() == null) {
+            throw new Exception("缺少客户ID");
+        }
+        if (request.getProductId() == null) {
+            throw new Exception("缺少产品ID");
+        }
+        if (request.getMaintenanceTime() == null) {
+            throw new Exception("缺少维护日期");
+        }
+        if (request.getMaintenanceTypes() == null || request.getMaintenanceTypes().isEmpty()) {
+            throw new Exception("缺少维护类型");
+        }
+        if (request.getMaintenanceTitle() == null || request.getMaintenanceTitle().isEmpty()) {
+            throw new Exception("缺少概述");
+        }
+        if (request.getMaintenanceVersion() == null || request.getMaintenanceVersion().isEmpty()) {
+            throw new Exception("缺少版本");
+        }
+        if (request.getMaintenanceContext() == null || request.getMaintenanceContext().isEmpty()) {
+            throw new Exception("缺少详细过程记录");
+        }
+
+        String regionId = request.getRegionId();
+        if (regionId == null || regionId.isEmpty()) {
+            regionId = resolveRegionId(request.getClientId(), request.getExtChatId());
+        }
+        if (regionId == null || regionId.isEmpty()) {
+            throw new Exception("缺少区域ID，无法提交维护记录");
+        }
+
+        String ownerId = request.getOwnerId();
+        if (ownerId == null || ownerId.isEmpty()) {
+            ownerId = request.getEditorUserId();
+        }
+        if (ownerId == null || ownerId.isEmpty()) {
+            ownerId = loginUserId;
+        }
+        if (ownerId == null || ownerId.isEmpty()) {
+            throw new Exception("缺少提交人ID");
+        }
+        ownerId = resolveSupportUserId(ownerId);
+        LOGGER.info("createMaintenanceRecord resolved ownerId={}", ownerId);
+
+        JSONObject payload = new JSONObject();
+        payload.put("clientId", request.getClientId());
+        payload.put("editorUserId", ownerId);
+        payload.put("creatorId", ownerId);
+        payload.put("updaterId", ownerId);
+        payload.put("maintenanceTypes", request.getMaintenanceTypes());
+        payload.put("maintenanceTitle", request.getMaintenanceTitle());
+        payload.put("maintenanceTime", request.getMaintenanceTime());
+        payload.put("regionId", regionId);
+        payload.put("maintenanceVersion", request.getMaintenanceVersion());
+        payload.put("maintenanceContext", request.getMaintenanceContext());
+        payload.put("productId", request.getProductId());
+
+        String url = cscrmBaseUrl + cscrmApiPath + "/support-info/maintenance-records";
+        LOGGER.info("createMaintenanceRecord request url={}, payload={}", url, payload.toJSONString());
+        String response = HttpClientUtil.postJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
+        LOGGER.info("createMaintenanceRecord response={}", response);
+
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code != null && code != 0) {
+            throw new Exception(responseJson.getString("msg"));
+        }
+        return responseJson.getJSONObject("data");
+    }
+
+    // 维护记录接口需要 support_user.user_id（UUID）。当前登录态常见为企业微信 userid（如 QiJingYu），这里做自动映射。
+    private String resolveSupportUserId(String candidate) {
+        if (candidate == null || candidate.isEmpty()) {
+            return candidate;
+        }
+        if (isUuid(candidate)) {
+            return candidate;
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            // 1) 直接按 support_user.username / name / email 兜底匹配
+            try {
+                String sql = "SELECT su.user_id FROM support_user su " +
+                        "WHERE su.username = ? OR su.name = ? OR su.email = ? LIMIT 1";
+                var result = com.util.JdbcUtils.query(sql, candidate, candidate, candidate);
+                if (!result.isEmpty() && result.get(0)[0] != null) {
+                    return result.get(0)[0].toString();
+                }
+            } catch (Exception ignored) {
+                // ignore and fallback
+            }
+
+            // 2) 先从 staff 按 ext_id 找到姓名/邮箱，再映射 support_user.user_id
+            try {
+                String staffSql = "SELECT s.name, s.email FROM staff s WHERE s.ext_id = ? LIMIT 1";
+                var staffResult = com.util.JdbcUtils.query(staffSql, candidate);
+                if (!staffResult.isEmpty()) {
+                    String name = staffResult.get(0)[0] != null ? staffResult.get(0)[0].toString() : null;
+                    String email = staffResult.get(0)[1] != null ? staffResult.get(0)[1].toString() : null;
+
+                    String supportSql = "SELECT su.user_id FROM support_user su " +
+                            "WHERE (? IS NOT NULL AND su.email = ?) " +
+                            "   OR (? IS NOT NULL AND su.name = ?) " +
+                            "LIMIT 1";
+                    var supportResult = com.util.JdbcUtils.query(supportSql, email, email, name, name);
+                    if (!supportResult.isEmpty() && supportResult.get(0)[0] != null) {
+                        return supportResult.get(0)[0].toString();
+                    }
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+        return candidate;
+    }
+
+    private boolean isUuid(String value) {
+        if (value == null) {
+            return false;
+        }
+        String v = value.toLowerCase(Locale.ROOT);
+        return v.matches("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+    }
+
+    private String resolveRegionId(Long clientId, String extChatId) {
+        // 优先按订阅数据读取 region_id（你的库字段为 support_subscription.region_id）
+        if (extChatId != null && !extChatId.isEmpty()) {
+            try {
+                String subRegionSql = "SELECT ss.region_id " +
+                        "FROM support_subscription ss " +
+                        "INNER JOIN group_chat gc ON gc.name = ss.group_chat_name " +
+                        "WHERE gc.ext_chat_id = ? " +
+                        "AND (? IS NULL OR ss.client_id = ?) " +
+                        "AND ss.region_id IS NOT NULL " +
+                        "ORDER BY ss.support_end_date DESC LIMIT 1";
+                var subRegionResult = com.util.JdbcUtils.query(subRegionSql, extChatId, clientId, clientId);
+                if (!subRegionResult.isEmpty() && subRegionResult.get(0)[0] != null) {
+                    String regionId = subRegionResult.get(0)[0].toString();
+                    LOGGER.info("resolveRegionId by subscription success extChatId={}, clientId={}, regionId={}",
+                            extChatId, clientId, regionId);
+                    return regionId;
+                }
+            } catch (Exception ignored) {
+                // ignore and fallback
+            }
+        }
+
+        // 优先按客户历史维护记录
+        if (clientId != null) {
+            try {
+                String regionSql = "SELECT smr.region_id " +
+                        "FROM support_maintenance_record smr " +
+                        "WHERE smr.client_id = ? AND smr.region_id IS NOT NULL AND smr.region_id != '' " +
+                        "ORDER BY smr.create_time DESC LIMIT 1";
+                var regionResult = com.util.JdbcUtils.query(regionSql, clientId);
+                if (!regionResult.isEmpty() && regionResult.get(0)[0] != null) {
+                    return regionResult.get(0)[0].toString();
+                }
+            } catch (Exception ignored) {
+                // ignore and fallback
+            }
+        }
+
+        // 次选按群聊对应的维护记录
+        if (extChatId != null && !extChatId.isEmpty()) {
+            try {
+                String regionSqlByChat = "SELECT smr.region_id " +
+                        "FROM support_maintenance_record smr " +
+                        "WHERE smr.client_id IN ( " +
+                        "    SELECT DISTINCT ss.client_id " +
+                        "    FROM group_chat gc " +
+                        "    INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                        "    WHERE gc.ext_chat_id = ? " +
+                        ") " +
+                        "AND smr.region_id IS NOT NULL AND smr.region_id != '' " +
+                        "ORDER BY smr.create_time DESC LIMIT 1";
+                var regionResultByChat = com.util.JdbcUtils.query(regionSqlByChat, extChatId);
+                if (!regionResultByChat.isEmpty() && regionResultByChat.get(0)[0] != null) {
+                    return regionResultByChat.get(0)[0].toString();
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
+        }
+
+        return null;
     }
 
     public List<String> getStaffList(String userId) {
@@ -425,6 +770,204 @@ public class ChatGroupService {
             return staffList;
         } finally {
             com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private List<String> fetchProductVersions(Long productId) throws Exception {
+        List<String> versions = new ArrayList<>();
+        String url = cscrmBaseUrl + cscrmApiPath + "/support-info/products/" + productId + "/versions";
+        LOGGER.info("fetchProductVersions start productId={}, url={}", productId, url);
+        String response = requestWithDnsRetry(url);
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code != null && code != 0) {
+            LOGGER.warn("fetchProductVersions non-zero code productId={}, code={}, msg={}",
+                    productId, code, responseJson.getString("msg"));
+            return versions;
+        }
+
+        Object dataObj = responseJson.get("data");
+        JSONArray list = null;
+        if (dataObj instanceof JSONArray) {
+            list = (JSONArray) dataObj;
+        } else if (dataObj instanceof JSONObject) {
+            JSONObject dataJson = (JSONObject) dataObj;
+            if (dataJson.get("items") instanceof JSONArray) {
+                list = dataJson.getJSONArray("items");
+            }
+        }
+        if (list == null) {
+            return versions;
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            Object item = list.get(i);
+            if (item instanceof String) {
+                versions.add((String) item);
+            } else if (item instanceof JSONObject) {
+                JSONObject itemJson = (JSONObject) item;
+                String version = itemJson.getString("version");
+                if (version == null || version.isEmpty()) {
+                    version = itemJson.getString("name");
+                }
+                if (version != null && !version.isEmpty()) {
+                    versions.add(version);
+                }
+            }
+        }
+        LOGGER.info("fetchProductVersions done productId={}, count={}", productId, versions.size());
+        return versions;
+    }
+
+    private String requestWithDnsRetry(String url) throws Exception {
+        Exception last = null;
+        int maxAttempts = 2;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return HttpClientUtil.getRequestWithApiKey(url, cscrmApiKey);
+            } catch (Exception e) {
+                last = e;
+                if (!containsUnknownHost(e) || attempt >= maxAttempts) {
+                    throw e;
+                }
+                LOGGER.warn("requestWithDnsRetry unknown host, retrying attempt={}/{}, url={}", attempt, maxAttempts, url);
+                try {
+                    Thread.sleep(300L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+        throw last;
+    }
+
+    private boolean containsUnknownHost(Throwable t) {
+        Throwable cur = t;
+        while (cur != null) {
+            if (cur instanceof UnknownHostException) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
+    }
+
+    public List<Long> resolveVersionProductIds(Long productId, String extChatId) {
+        String alias = getProductAliasByExtChatId(extChatId);
+        LOGGER.info("resolveVersionProductIds input productId={}, extChatId={}, alias={}", productId, extChatId, alias);
+
+        if ("MK".equals(alias)) {
+            return new ArrayList<>(MAXKB_PRODUCT_IDS);
+        }
+        if ("DE".equals(alias)) {
+            return new ArrayList<>(DATAEASE_PRODUCT_IDS);
+        }
+        if (productId != null && MAXKB_PRODUCT_IDS.contains(productId)) {
+            return new ArrayList<>(MAXKB_PRODUCT_IDS);
+        }
+        if (productId != null && DATAEASE_PRODUCT_IDS.contains(productId)) {
+            return new ArrayList<>(DATAEASE_PRODUCT_IDS);
+        }
+        if (productId == null) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(List.of(productId));
+    }
+
+    public List<String> getProductVersions(Long productId, String extChatId) throws Exception {
+        List<Long> productIds = resolveVersionProductIds(productId, extChatId);
+        if (productIds.isEmpty()) {
+            throw new Exception("productId 不能为空");
+        }
+        LOGGER.info("getProductVersions aggregate start extChatId={}, baseProductId={}, productIds={}", extChatId, productId, productIds);
+
+        Set<String> merged = new LinkedHashSet<>();
+        for (Long pid : productIds) {
+            merged.addAll(fetchProductVersions(pid));
+        }
+
+        List<String> sorted = new ArrayList<>(merged);
+        sorted.sort(new VersionDescComparator());
+        LOGGER.info("getProductVersions aggregate done extChatId={}, productIds={}, mergedCount={}", extChatId, productIds, sorted.size());
+        return sorted;
+    }
+
+    public Long getProductIdByExtChatId(String extChatId) {
+        if (extChatId == null || extChatId.isEmpty()) {
+            return null;
+        }
+        try {
+            CustomerData customerData = getCustomerData(extChatId);
+            Long productId = customerData != null ? customerData.getProductId() : null;
+            LOGGER.info("getProductIdByExtChatId extChatId={}, productId={}", extChatId, productId);
+            return productId;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String getProductAliasByExtChatId(String extChatId) {
+        if (extChatId == null || extChatId.isEmpty()) {
+            return null;
+        }
+        try {
+            String sql = "SELECT name FROM group_chat WHERE ext_chat_id = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, extChatId);
+            if (result.isEmpty() || result.get(0)[0] == null) {
+                return null;
+            }
+            String chatName = result.get(0)[0].toString().toUpperCase();
+            if (chatName.contains("MK") || chatName.contains("MAXKB")) {
+                return "MK";
+            }
+            if (chatName.contains("DE") || chatName.contains("DATAEASE")) {
+                return "DE";
+            }
+            if (chatName.contains("JS") || chatName.contains("JUMPSERVER")) {
+                return "JS";
+            }
+            if (chatName.contains("SQLBOT")) {
+                return "SQLBOT";
+            }
+            return null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static class VersionDescComparator implements Comparator<String> {
+        private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+");
+
+        @Override
+        public int compare(String a, String b) {
+            List<Integer> av = extractNumbers(a);
+            List<Integer> bv = extractNumbers(b);
+            int size = Math.max(av.size(), bv.size());
+            for (int i = 0; i < size; i++) {
+                int ai = i < av.size() ? av.get(i) : 0;
+                int bi = i < bv.size() ? bv.get(i) : 0;
+                if (ai != bi) {
+                    return Integer.compare(bi, ai);
+                }
+            }
+            return b.compareToIgnoreCase(a);
+        }
+
+        private List<Integer> extractNumbers(String version) {
+            List<Integer> numbers = new ArrayList<>();
+            if (version == null) {
+                return numbers;
+            }
+            Matcher matcher = NUMBER_PATTERN.matcher(version);
+            while (matcher.find()) {
+                try {
+                    numbers.add(Integer.parseInt(matcher.group()));
+                } catch (NumberFormatException ignored) {
+                    // ignore malformed part
+                }
+            }
+            return numbers;
         }
     }
 

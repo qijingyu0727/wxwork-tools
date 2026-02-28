@@ -8,15 +8,22 @@ import com.model.ServiceRecord;
 import com.model.Ticket;
 import com.model.TicketLog;
 import com.model.request.UpdateTicketRequest;
+import com.model.request.CreateMaintenanceRecordRequest;
 import com.service.ChatGroupService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chat-group")
 public class ChatGroupController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ChatGroupController.class);
 
     @Resource
     private ChatGroupService chatGroupService;
@@ -26,6 +33,11 @@ public class ChatGroupController {
     public ApiResponse<CustomerData> getCustomerData(@RequestParam String extChatId) {
         try {
             CustomerData data = chatGroupService.getCustomerData(extChatId);
+            LOGGER.info("customer-data extChatId={}, clientId={}, productId={}, regionId={}",
+                    extChatId,
+                    data != null ? data.getClientId() : null,
+                    data != null ? data.getProductId() : null,
+                    data != null ? data.getRegionId() : null);
             return ApiResponse.success(data);
         } catch (Exception e) {
             return ApiResponse.error("获取客户数据失败: " + e.getMessage());
@@ -51,6 +63,32 @@ public class ChatGroupController {
             return ApiResponse.success(records);
         } catch (Exception e) {
             return ApiResponse.error("获取维护记录失败: " + e.getMessage());
+        }
+    }
+
+    // 新增维护记录接口（后端代调 CSCRM）
+    @PostMapping("/maintenance-records")
+    public ApiResponse<JSONObject> createMaintenanceRecord(
+            @RequestBody CreateMaintenanceRecordRequest request,
+            HttpSession session) {
+        try {
+            JSONObject userInfo = (JSONObject) session.getAttribute("login_user");
+            String loginUserId = null;
+            if (userInfo != null) {
+                loginUserId = userInfo.getString("userid");
+                if (loginUserId == null) {
+                    loginUserId = userInfo.getString("UserId");
+                }
+                if (loginUserId == null) {
+                    loginUserId = userInfo.getString("user_id");
+                }
+            }
+
+            JSONObject data = chatGroupService.createMaintenanceRecord(request, loginUserId);
+            return ApiResponse.success(data);
+        } catch (Exception e) {
+            LOGGER.error("createMaintenanceRecord failed: {}", e.getMessage(), e);
+            return ApiResponse.error("新增维护记录失败: " + e.getMessage());
         }
     }
 
@@ -90,8 +128,8 @@ public class ChatGroupController {
             }
 
             // 打印调试信息
-            System.out.println("userInfo keys: " + userInfo.keySet());
-            System.out.println("userInfo: " + userInfo.toJSONString());
+            LOGGER.debug("userInfo keys: {}", userInfo.keySet());
+            LOGGER.debug("userInfo: {}", userInfo.toJSONString());
 
             // 尝试多种可能的字段名获取userId
             String userId = userInfo.getString("userid");
@@ -125,10 +163,10 @@ public class ChatGroupController {
             }
 
             // 打印当前登录用户信息
-            System.out.println("========== 当前登录用户信息 ==========");
-            System.out.println("当前登录用户ID (modifiedById): " + userId);
-            System.out.println("当前登录用户姓名 (modifiedByName): " + userName);
-            System.out.println("====================================");
+            LOGGER.info("========== 当前登录用户信息 ==========");
+            LOGGER.info("当前登录用户ID (modifiedById): {}", userId);
+            LOGGER.info("当前登录用户姓名 (modifiedByName): {}", userName);
+            LOGGER.info("====================================");
 
             // 设置工单ID
             request.setTicketId(ticketId);
@@ -140,6 +178,28 @@ public class ChatGroupController {
         } catch (Exception e) {
             e.printStackTrace();
             return ApiResponse.error("更新工单失败: " + e.getMessage());
+        }
+    }
+
+    // 获取需求工单接口
+    @GetMapping("/issue-tickets")
+    public ApiResponse<List<Ticket>> getIssueTickets(@RequestParam String extChatId) {
+        try {
+            List<Ticket> tickets = chatGroupService.getIssueTickets(extChatId);
+            return ApiResponse.success(tickets);
+        } catch (Exception e) {
+            return ApiResponse.error("获取需求工单失败: " + e.getMessage());
+        }
+    }
+
+    // 获取缺陷工单接口
+    @GetMapping("/bug-tickets")
+    public ApiResponse<List<Ticket>> getBugTickets(@RequestParam String extChatId) {
+        try {
+            List<Ticket> tickets = chatGroupService.getBugTickets(extChatId);
+            return ApiResponse.success(tickets);
+        } catch (Exception e) {
+            return ApiResponse.error("获取缺陷工单失败: " + e.getMessage());
         }
     }
 
@@ -173,5 +233,31 @@ public class ChatGroupController {
             return ApiResponse.error("获取员工列表失败: " + e.getMessage());
         }
     }
-}
 
+    // 获取产品版本列表接口
+    @GetMapping("/product-versions")
+    public ApiResponse<Map<String, Object>> getProductVersions(
+            @RequestParam(required = false) Long productId,
+            @RequestParam(required = false) String extChatId) {
+        try {
+            LOGGER.info("product-versions request productId={}, extChatId={}", productId, extChatId);
+            if (productId == null && extChatId != null && !extChatId.isEmpty()) {
+                productId = chatGroupService.getProductIdByExtChatId(extChatId);
+                LOGGER.info("product-versions resolved productId by extChatId={}, productId={}", extChatId, productId);
+            }
+            if (productId == null) {
+                LOGGER.warn("product-versions resolve failed, productId is null, extChatId={}", extChatId);
+                return ApiResponse.error("无法识别产品ID");
+            }
+            List<String> versions = chatGroupService.getProductVersions(productId, extChatId);
+            Map<String, Object> data = new HashMap<>();
+            data.put("productId", productId);
+            data.put("items", versions);
+            LOGGER.info("product-versions success productId={}, count={}", productId, versions.size());
+            return ApiResponse.success(data);
+        } catch (Exception e) {
+            LOGGER.error("product-versions failed productId={}, extChatId={}, err={}", productId, extChatId, e.getMessage(), e);
+            return ApiResponse.error("获取产品版本失败: " + e.getMessage());
+        }
+    }
+}

@@ -26,12 +26,12 @@
       </div>
 
       <!-- 客户信息区域 -->
-      <div v-if="chatId && customerData" class="customer-info-section">
+      <div v-if="chatId" class="customer-info-section">
         <!-- 客户名称和标签 -->
         <div class="customer-header">
-          <h2 class="customer-name">{{ customerData.name }}</h2>
+          <h2 class="customer-name">{{ customerData?.name || '-' }}</h2>
           <div class="customer-badges">
-            <span v-if="customerData.isAccepted" class="badge badge-success">{{ customerData.isAccepted }}</span>
+            <span v-if="customerData?.isAccepted" class="badge badge-success">{{ customerData.isAccepted }}</span>
             <span v-if="latestVersion" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ latestVersion }}</span>
           </div>
         </div>
@@ -43,56 +43,56 @@
               <i class="fa fa-calendar"></i>
             </div>
             <div class="stat-content">
-              <div class="stat-label">订阅到期</div>
+              <div class="stat-label">服务到期</div>
               <div class="stat-value">
-                <span class="stat-primary">{{ customerData.subscriptionEndDate }}</span>
+                <span class="stat-primary">{{ customerData?.subscriptionEndDate || '-' }}</span>
               </div>
             </div>
           </div>
-          <div class="stat-item stat-error">
+          <div class="stat-item stat-error stat-item-clickable" @click="handleTicketRowClick">
             <div class="stat-icon">
               <i class="fa fa-ticket"></i>
             </div>
             <div class="stat-content">
               <div class="stat-label stat-label-clickable" @click="handleTicketLabelClick">工单</div>
               <div class="stat-value">
-                <span class="stat-critical clickable" @click="handleCriticalClick">{{ customerData.criticalTicketCount || 0 }}</span>
+                <span class="stat-critical clickable" @click.stop="handleCriticalClick">{{ getCriticalCount(getTicketBaseList()) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-warning clickable" @click="handleUnresolvedClick">{{ customerData.notResolvedTicketCount || 0 }}</span>
+                <span class="stat-warning clickable" @click.stop="handleUnresolvedClick">{{ getUnresolvedCount(getTicketBaseList()) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-all clickable" @click="handleAllClick">{{ customerData.allTicketCount || 0 }}</span>
+                <span class="stat-all clickable" @click.stop="handleAllClick">{{ getResolvedCount(getTicketBaseList()) }}</span>
               </div>
             </div>
           </div>
 
-          <div class="stat-item stat-info">
+          <div class="stat-item stat-info stat-item-clickable" @click="handleRequirementRowClick">
             <div class="stat-icon">
               <i class="fa fa-lightbulb-o"></i>
             </div>
             <div class="stat-content">
               <div class="stat-label stat-label-clickable" @click="handleRequirementLabelClick">需求</div>
               <div class="stat-value">
-                <span class="stat-critical clickable" @click="handleRequirementLabelClick">0</span>
+                <span class="stat-critical clickable" @click.stop="handleRequirementCriticalClick">{{ getCriticalCount(issueTickets) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-warning clickable" @click="handleRequirementLabelClick">{{ customerData.notResolvedIssueCount || 0 }}</span>
+                <span class="stat-warning clickable" @click.stop="handleRequirementUnresolvedClick">{{ getUnresolvedCount(issueTickets) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-all clickable" @click="handleRequirementLabelClick">{{ customerData.allIssueCount || 0 }}</span>
+                <span class="stat-all clickable" @click.stop="handleRequirementResolvedClick">{{ getResolvedCount(issueTickets) }}</span>
               </div>
             </div>
           </div>
 
-          <div class="stat-item stat-warning">
+          <div class="stat-item stat-warning stat-item-clickable" @click="handleDefectRowClick">
             <div class="stat-icon">
               <i class="fa fa-bug"></i>
             </div>
             <div class="stat-content">
               <div class="stat-label stat-label-clickable" @click="handleDefectLabelClick">缺陷</div>
               <div class="stat-value">
-                <span class="stat-critical clickable" @click="handleDefectLabelClick">0</span>
+                <span class="stat-critical clickable" @click.stop="handleDefectCriticalClick">{{ getCriticalCount(bugTickets) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-warning clickable" @click="handleDefectLabelClick">{{ customerData.notResolvedBugCount || 0 }}</span>
+                <span class="stat-warning clickable" @click.stop="handleDefectUnresolvedClick">{{ getUnresolvedCount(bugTickets) }}</span>
                 <span class="stat-separator">/</span>
-                <span class="stat-all clickable" @click="handleDefectLabelClick">{{ customerData.allBugCount || 0 }}</span>
+                <span class="stat-all clickable" @click.stop="handleDefectResolvedClick">{{ getResolvedCount(bugTickets) }}</span>
               </div>
             </div>
           </div>
@@ -160,6 +160,13 @@
 
           <!-- 维护 Tab -->
           <div v-if="activeTab === 'maintenance'" class="tab-pane active">
+            <!-- 新增维护按钮 -->
+            <div class="add-maintenance-section">
+              <button class="btn-add-maintenance" @click="handleAddMaintenance">
+                <span>+ 新增</span>
+              </button>
+            </div>
+
             <div v-if="serviceLoading" class="tab-placeholder">
               <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
               <p class="text-gray-500">加载中...</p>
@@ -212,25 +219,39 @@
                 :class="['filter-btn', ticketFilter === 'all' ? 'active' : '']"
                 @click="ticketFilter = 'all'"
               >
-                全部 ({{ tickets.length }})
+                全部 ({{ getTicketBaseList().length }})
               </button>
               <button
                 :class="['filter-btn', ticketFilter === 'critical' ? 'active' : '']"
                 @click="ticketFilter = 'critical'"
               >
-                重点事件 ({{ tickets.filter(t => t.status === 3).length }})
+                重点事件 ({{ getCriticalCount(getTicketBaseList()) }})
               </button>
               <button
                 :class="['filter-btn', ticketFilter === 'unresolved' ? 'active' : '']"
                 @click="ticketFilter = 'unresolved'"
               >
-                未解决 ({{ tickets.filter(t => !t.resolved).length }})
+                未解决 ({{ getUnresolvedCount(getTicketBaseList()) }})
               </button>
               <button
                 :class="['filter-btn', ticketFilter === 'resolved' ? 'active' : '']"
                 @click="ticketFilter = 'resolved'"
               >
-                已解决 ({{ tickets.filter(t => t.resolved).length }})
+                已解决 ({{ getResolvedCount(getTicketBaseList()) }})
+              </button>
+            </div>
+
+            <div class="ticket-search-bar">
+              <input
+                v-model="ticketSearchInput"
+                type="text"
+                class="ticket-search-input"
+                placeholder="请输入工单标题关键词"
+                @keyup.enter="applyTicketSearch"
+              />
+              <button class="ticket-search-btn" @click="applyTicketSearch">
+                <i class="fa fa-search"></i>
+                <span>搜索</span>
               </button>
             </div>
 
@@ -272,9 +293,9 @@
                     <span class="info-label">客户情绪</span>
                     <span class="info-value">{{ translateSentiment(ticket.customerSentiment) }}</span>
                   </div>
-                  <div class="info-row">
+                  <div class="info-row info-row-inline">
                     <span class="info-label">创建时间</span>
-                    <span class="info-value">{{ ticket.createdAt || '-' }}</span>
+                    <span class="info-value info-value-time">{{ ticket.createdAt || '-' }}</span>
                   </div>
                 </div>
                 <div v-if="ticket.description" class="maintenance-content">
@@ -305,17 +326,321 @@
             </div>
           </div>
 
-          <!-- 需求和缺陷 Tab 占位符 -->
-          <div v-for="tab in tabs.filter(t => t.id !== 'implementation' && t.id !== 'maintenance' && t.id !== 'ticket')" :key="tab.id" :class="['tab-pane', activeTab === tab.id ? 'active' : '']">
-            <div class="tab-placeholder">
-              <i class="fa fa-hourglass-half text-3xl text-gray-400 mb-4"></i>
-              <p class="text-gray-500">敬请期待</p>
+          <!-- 需求 Tab -->
+          <div v-if="activeTab === 'requirement'" class="tab-pane active">
+            <!-- 筛选栏 -->
+            <div class="ticket-filter-bar">
+              <div class="filter-label">筛选：</div>
+              <button
+                :class="['filter-btn', issueFilter === 'all' ? 'active' : '']"
+                @click="issueFilter = 'all'"
+              >
+                全部 ({{ issueTickets.length }})
+              </button>
+              <button
+                :class="['filter-btn', issueFilter === 'critical' ? 'active' : '']"
+                @click="issueFilter = 'critical'"
+              >
+                重点事件 ({{ getCriticalCount(issueTickets) }})
+              </button>
+              <button
+                :class="['filter-btn', issueFilter === 'unresolved' ? 'active' : '']"
+                @click="issueFilter = 'unresolved'"
+              >
+                未解决 ({{ getUnresolvedCount(issueTickets) }})
+              </button>
+              <button
+                :class="['filter-btn', issueFilter === 'resolved' ? 'active' : '']"
+                @click="issueFilter = 'resolved'"
+              >
+                已解决 ({{ getResolvedCount(issueTickets) }})
+              </button>
+            </div>
+
+            <div class="ticket-search-bar">
+              <input
+                v-model="issueSearchInput"
+                type="text"
+                class="ticket-search-input"
+                placeholder="请输入需求标题关键词"
+                @keyup.enter="applyIssueSearch"
+              />
+              <button class="ticket-search-btn" @click="applyIssueSearch">
+                <i class="fa fa-search"></i>
+                <span>搜索</span>
+              </button>
+            </div>
+
+            <div v-if="issueTicketsLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="getFilteredIssueTickets().length === 0" class="tab-placeholder">
+              <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无需求工单</p>
+            </div>
+            <div v-else class="maintenance-list">
+              <div v-for="ticket in getFilteredIssueTickets()" :key="ticket.id" class="maintenance-card" @click="toggleIssueTicketExpand(ticket.id)" style="cursor: pointer;">
+                <div class="maintenance-header">
+                  <span class="maintenance-template">{{ ticket.title }}</span>
+                  <div class="maintenance-header-right">
+                    <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
+                      {{ ticket.resolved ? '已解决' : '未解决' }}
+                    </span>
+                    <button class="update-btn" @click.stop="handleUpdateTicket(ticket.id)" title="更新工单">
+                      <i class="fa fa-pencil"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="maintenance-info">
+                  <div class="info-row">
+                    <span class="info-label">问题分类</span>
+                    <span class="info-value">{{ ticket.issueCategory || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">负责人</span>
+                    <span class="info-value">{{ ticket.ownerName || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">紧急度</span>
+                    <span class="info-value">{{ ticket.urgent ? '紧急' : '普通' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">客户情绪</span>
+                    <span class="info-value">{{ translateSentiment(ticket.customerSentiment) }}</span>
+                  </div>
+                  <div class="info-row info-row-inline">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value info-value-time">{{ ticket.createdAt || '-' }}</span>
+                  </div>
+                  <div class="info-row info-row-inline info-row-full">
+                    <span class="info-label">跟踪链接</span>
+                    <div class="info-value">
+                      <template v-if="ticket.trackingLinks">
+                        <div v-for="(link, index) in ticket.trackingLinks.split('\n')" :key="index" v-if="link.trim()">
+                          <a :href="link.trim()" target="_blank" rel="noopener noreferrer" class="link">{{ link.trim() }}</a>
+                        </div>
+                      </template>
+                      <span v-else>-</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="ticket.description" class="maintenance-content">
+                  <div class="info-label">问题描述</div>
+                  <pre class="content-text">{{ ticket.description }}</pre>
+                </div>
+                <!-- 工单日志 -->
+                <div v-if="expandedIssueTickets.has(ticket.id)" class="ticket-logs">
+                  <div class="info-label" style="margin-top: 12px;">工单流转记录</div>
+                  <div v-if="!ticketLogs[ticket.id] || ticketLogs[ticket.id].length === 0" class="text-gray-400 text-sm mt-2">
+                    暂无流转记录
+                  </div>
+                  <div v-else class="logs-timeline">
+                    <div v-for="log in getFilteredLogs(ticketLogs[ticket.id])" :key="log.id" class="log-item">
+                      <div class="log-row log-row-top">
+                        <span class="log-time">{{ log.createdAt }}</span>
+                        <span :class="['log-action', getLogActionClass(log.action)]">{{ formatLogEntry(log) }}</span>
+                      </div>
+                      <div v-if="log.comment || log.modifiedByName" class="log-row log-row-bottom">
+                        <span v-if="log.comment" class="log-comment-inline">{{ log.comment }}</span>
+                        <span v-else></span>
+                        <span v-if="log.modifiedByName" class="log-operator">{{ log.modifiedByName }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 缺陷 Tab -->
+          <div v-if="activeTab === 'defect'" class="tab-pane active">
+            <!-- 筛选栏 -->
+            <div class="ticket-filter-bar">
+              <div class="filter-label">筛选：</div>
+              <button
+                :class="['filter-btn', bugFilter === 'all' ? 'active' : '']"
+                @click="bugFilter = 'all'"
+              >
+                全部 ({{ bugTickets.length }})
+              </button>
+              <button
+                :class="['filter-btn', bugFilter === 'critical' ? 'active' : '']"
+                @click="bugFilter = 'critical'"
+              >
+                重点事件 ({{ getCriticalCount(bugTickets) }})
+              </button>
+              <button
+                :class="['filter-btn', bugFilter === 'unresolved' ? 'active' : '']"
+                @click="bugFilter = 'unresolved'"
+              >
+                未解决 ({{ getUnresolvedCount(bugTickets) }})
+              </button>
+              <button
+                :class="['filter-btn', bugFilter === 'resolved' ? 'active' : '']"
+                @click="bugFilter = 'resolved'"
+              >
+                已解决 ({{ getResolvedCount(bugTickets) }})
+              </button>
+            </div>
+
+            <div class="ticket-search-bar">
+              <input
+                v-model="bugSearchInput"
+                type="text"
+                class="ticket-search-input"
+                placeholder="请输入缺陷标题关键词"
+                @keyup.enter="applyBugSearch"
+              />
+              <button class="ticket-search-btn" @click="applyBugSearch">
+                <i class="fa fa-search"></i>
+                <span>搜索</span>
+              </button>
+            </div>
+
+            <div v-if="bugTicketsLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="getFilteredBugTickets().length === 0" class="tab-placeholder">
+              <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无缺陷工单</p>
+            </div>
+            <div v-else class="maintenance-list">
+              <div v-for="ticket in getFilteredBugTickets()" :key="ticket.id" class="maintenance-card" @click="toggleBugTicketExpand(ticket.id)" style="cursor: pointer;">
+                <div class="maintenance-header">
+                  <span class="maintenance-template">{{ ticket.title }}</span>
+                  <div class="maintenance-header-right">
+                    <span :class="['maintenance-status', ticket.resolved ? 'status-resolved' : 'status-pending']">
+                      {{ ticket.resolved ? '已解决' : '未解决' }}
+                    </span>
+                    <button class="update-btn" @click.stop="handleUpdateTicket(ticket.id)" title="更新工单">
+                      <i class="fa fa-pencil"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="maintenance-info">
+                  <div class="info-row">
+                    <span class="info-label">问题分类</span>
+                    <span class="info-value">{{ ticket.issueCategory || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">负责人</span>
+                    <span class="info-value">{{ ticket.ownerName || '-' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">紧急度</span>
+                    <span class="info-value">{{ ticket.urgent ? '紧急' : '普通' }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">客户情绪</span>
+                    <span class="info-value">{{ translateSentiment(ticket.customerSentiment) }}</span>
+                  </div>
+                  <div class="info-row info-row-inline">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value info-value-time">{{ ticket.createdAt || '-' }}</span>
+                  </div>
+                  <div class="info-row info-row-inline info-row-full">
+                    <span class="info-label">跟踪链接</span>
+                    <div class="info-value">
+                      <template v-if="ticket.trackingLinks">
+                        <div v-for="(link, index) in ticket.trackingLinks.split('\n')" :key="index" v-if="link.trim()">
+                          <a :href="link.trim()" target="_blank" rel="noopener noreferrer" class="link">{{ link.trim() }}</a>
+                        </div>
+                      </template>
+                      <span v-else>-</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="ticket.description" class="maintenance-content">
+                  <div class="info-label">问题描述</div>
+                  <pre class="content-text">{{ ticket.description }}</pre>
+                </div>
+                <!-- 工单日志 -->
+                <div v-if="expandedBugTickets.has(ticket.id)" class="ticket-logs">
+                  <div class="info-label" style="margin-top: 12px;">工单流转记录</div>
+                  <div v-if="!ticketLogs[ticket.id] || ticketLogs[ticket.id].length === 0" class="text-gray-400 text-sm mt-2">
+                    暂无流转记录
+                  </div>
+                  <div v-else class="logs-timeline">
+                    <div v-for="log in getFilteredLogs(ticketLogs[ticket.id])" :key="log.id" class="log-item">
+                      <div class="log-row log-row-top">
+                        <span class="log-time">{{ log.createdAt }}</span>
+                        <span :class="['log-action', getLogActionClass(log.action)]">{{ formatLogEntry(log) }}</span>
+                      </div>
+                      <div v-if="log.comment || log.modifiedByName" class="log-row log-row-bottom">
+                        <span v-if="log.comment" class="log-comment-inline">{{ log.comment }}</span>
+                        <span v-else></span>
+                        <span v-if="log.modifiedByName" class="log-operator">{{ log.modifiedByName }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
     </main>
+
+    <!-- 新增维护弹窗 -->
+    <div v-if="showAddMaintenanceModal" class="modal-overlay" @click="closeAddMaintenanceModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>新增维护记录</h3>
+          <button class="modal-close" @click="closeAddMaintenanceModal">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">维护日期 <span class="required">*</span></label>
+            <input type="date" v-model="addMaintenanceForm.maintenanceTime" class="form-input" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">维护类型 <span class="required">*</span></label>
+            <select v-model="addMaintenanceForm.maintenanceTypes" class="form-input" required>
+              <option value="升级">升级</option>
+              <option value="巡检">巡检</option>
+              <option value="需求变更">需求变更</option>
+              <option value="问题处理">问题处理</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">概述 <span class="required">*</span></label>
+            <textarea
+              v-model="addMaintenanceForm.maintenanceTitle"
+              class="form-textarea maintenance-summary-textarea"
+              placeholder="请输入维护概述"
+              rows="2"
+              required
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">选择版本 <span class="required">*</span></label>
+            <select v-model="addMaintenanceForm.maintenanceVersion" class="form-input" :disabled="versionsLoading" required>
+              <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
+            </select>
+            <div v-if="versionsLoading" class="text-gray-400 text-sm mt-2">版本加载中...</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">详细过程记录 <span class="required">*</span></label>
+            <textarea v-model="addMaintenanceForm.maintenanceContext" class="form-textarea" placeholder="请输入详细过程记录" rows="3" required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer modal-footer-actions add-maintenance-footer">
+          <button class="btn btn-secondary btn-uniform" @click="closeAddMaintenanceModal">取消</button>
+          <button class="btn btn-primary btn-resolve btn-uniform" :disabled="addMaintenanceSubmitting" @click="submitAddMaintenance">
+            {{ addMaintenanceSubmitting ? '提交中...' : '提交' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 更新工单弹窗 -->
     <div v-if="showUpdateModal" class="modal-overlay" @click="closeUpdateModal">
@@ -357,6 +682,16 @@
                 <span>负面</span>
               </label>
             </div>
+          </div>
+
+          <div v-if="activeTab === 'requirement' || activeTab === 'defect'" class="form-group">
+            <label class="form-label">跟踪链接</label>
+            <textarea
+              v-model="updateForm.trackingLinks"
+              class="form-textarea"
+              placeholder="GitHub/TAPD链接，多个链接请换行"
+              rows="3"
+            ></textarea>
           </div>
 
           <div class="form-group">
@@ -431,7 +766,7 @@ const corpId = ref('')
 const agentId = ref('')
 const chatId = ref('')
 const loading = ref(false)
-const customerData = ref(null)
+const customerData = ref({})
 const maintenanceRecords = ref([])
 const maintenanceLoading = ref(false)
 const serviceRecords = ref([])
@@ -439,6 +774,8 @@ const serviceLoading = ref(false)
 const tickets = ref([])
 const ticketsLoading = ref(false)
 const ticketFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
+const ticketSearchInput = ref('')
+const ticketSearchKeyword = ref('')
 const expandedTickets = ref(new Set())
 const ticketLogs = ref({})
 const activeTab = ref('implementation')
@@ -450,6 +787,20 @@ const tabs = ref([
   { id: 'defect', name: '缺陷' }
 ])
 
+// 需求和缺陷工单相关状态
+const issueTickets = ref([])
+const issueTicketsLoading = ref(false)
+const bugTickets = ref([])
+const bugTicketsLoading = ref(false)
+const issueFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
+const bugFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
+const issueSearchInput = ref('')
+const issueSearchKeyword = ref('')
+const bugSearchInput = ref('')
+const bugSearchKeyword = ref('')
+const expandedIssueTickets = ref(new Set())
+const expandedBugTickets = ref(new Set())
+
 // 更新工单弹窗相关状态
 const showUpdateModal = ref(false)
 const currentTicketId = ref(null)
@@ -460,7 +811,21 @@ const updateForm = ref({
   urgent: false,
   customerSentiment: 'neutral',
   ownerName: '',
-  comment: ''
+  comment: '',
+  trackingLinks: ''
+})
+const showAddMaintenanceModal = ref(false)
+const addMaintenanceSubmitting = ref(false)
+const versionsLoading = ref(false)
+const productVersions = ref([])
+const versionsLoadedProductId = ref(null)
+const versionPreloadPromise = ref(null)
+const addMaintenanceForm = ref({
+  maintenanceTime: '',
+  maintenanceTypes: '',
+  maintenanceTitle: '',
+  maintenanceVersion: '',
+  maintenanceContext: ''
 })
 
 const getCorpId = async () => {
@@ -536,8 +901,8 @@ const registerWxWork = async () => {
   await getAgentId()
   
   if (corpId.value && agentId.value) {
-    console.log('corpId:', corpId.value)
-    console.log('agentId:', agentId.value)
+    // console.log('corpId:', corpId.value)
+    // console.log('agentId:', agentId.value)
 
     ww.register({
       corpId: corpId.value,
@@ -557,11 +922,11 @@ const getCustomerData = async (extChatId) => {
       customerData.value = res.data
     } else {
       showToast('获取客户数据失败：' + res.message, false)
-      customerData.value = null
+      customerData.value = {}
     }
   } catch (err) {
     showToast('获取客户数据异常：' + (err.message || err), false)
-    customerData.value = null
+    customerData.value = {}
   }
 }
 
@@ -597,19 +962,77 @@ const getServiceRecords = async (extChatId) => {
   }
 }
 
+const syncIssueAndBugTickets = () => {
+  issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
+  bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
+}
+
+const resetTicketViewState = () => {
+  ticketFilter.value = 'unresolved'
+  issueFilter.value = 'unresolved'
+  bugFilter.value = 'unresolved'
+  ticketSearchInput.value = ''
+  ticketSearchKeyword.value = ''
+  issueSearchInput.value = ''
+  issueSearchKeyword.value = ''
+  bugSearchInput.value = ''
+  bugSearchKeyword.value = ''
+}
+
 const getTickets = async (extChatId) => {
   ticketsLoading.value = true
   try {
     const res = await docApi.getTickets(extChatId)
     if (res.success) {
       tickets.value = res.data || []
+      syncIssueAndBugTickets()
     } else {
       tickets.value = []
+      syncIssueAndBugTickets()
     }
   } catch (err) {
     tickets.value = []
+    syncIssueAndBugTickets()
   } finally {
     ticketsLoading.value = false
+  }
+}
+
+const getIssueTickets = async (extChatId) => {
+  issueTicketsLoading.value = true
+  try {
+    const res = await docApi.getIssueTickets(extChatId)
+    if (res.success) {
+      const list = Array.isArray(res.data) ? res.data : []
+      issueTickets.value = list.length > 0
+        ? list
+        : tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
+    } else {
+      issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
+    }
+  } catch (err) {
+    issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
+  } finally {
+    issueTicketsLoading.value = false
+  }
+}
+
+const getBugTickets = async (extChatId) => {
+  bugTicketsLoading.value = true
+  try {
+    const res = await docApi.getBugTickets(extChatId)
+    if (res.success) {
+      const list = Array.isArray(res.data) ? res.data : []
+      bugTickets.value = list.length > 0
+        ? list
+        : tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
+    } else {
+      bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
+    }
+  } catch (err) {
+    bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
+  } finally {
+    bugTicketsLoading.value = false
   }
 }
 
@@ -635,24 +1058,132 @@ const toggleTicketExpand = (ticketId) => {
   }
 }
 
-const getFilteredTickets = () => {
-  if (ticketFilter.value === 'all') {
-    return tickets.value
-  } else if (ticketFilter.value === 'resolved') {
-    return tickets.value.filter(t => t.resolved)
-  } else if (ticketFilter.value === 'unresolved') {
-    return tickets.value.filter(t => !t.resolved)
-  } else if (ticketFilter.value === 'critical') {
-    return tickets.value.filter(t => t.status === 3)
+const applyTicketSearch = () => {
+  ticketSearchKeyword.value = ticketSearchInput.value.trim().toLowerCase()
+}
+
+const applyIssueSearch = () => {
+  issueSearchKeyword.value = issueSearchInput.value.trim().toLowerCase()
+}
+
+const applyBugSearch = () => {
+  bugSearchKeyword.value = bugSearchInput.value.trim().toLowerCase()
+}
+
+const isResolvedTicket = (ticket) => {
+  const value = ticket?.resolved
+  if (value === true || value === 1 || value === '1') return true
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false' || normalized === '') return false
   }
-  return tickets.value
+  return false
+}
+
+const isCriticalTicket = (ticket) => Number(ticket?.status) === 3
+const isIssueCategory = (ticket) => (ticket?.issueCategory || '') === '功能需求'
+const isBugCategory = (ticket) => (ticket?.issueCategory || '') === '产品缺陷'
+const getTicketBaseList = () => tickets.value.filter(t => !isIssueCategory(t) && !isBugCategory(t))
+
+const getResolvedCount = (list) => (Array.isArray(list) ? list.filter(isResolvedTicket).length : 0)
+const getUnresolvedCount = (list) => (Array.isArray(list) ? list.filter(t => !isResolvedTicket(t)).length : 0)
+const getCriticalCount = (list) => (Array.isArray(list) ? list.filter(isCriticalTicket).length : 0)
+
+const getFilteredTickets = () => {
+  const ticketBaseList = getTicketBaseList()
+  let filtered = ticketBaseList
+
+  if (ticketFilter.value === 'all') {
+    filtered = ticketBaseList
+  } else if (ticketFilter.value === 'resolved') {
+    filtered = ticketBaseList.filter(isResolvedTicket)
+  } else if (ticketFilter.value === 'unresolved') {
+    filtered = ticketBaseList.filter(t => !isResolvedTicket(t))
+  } else if (ticketFilter.value === 'critical') {
+    filtered = ticketBaseList.filter(isCriticalTicket)
+  }
+
+  if (!ticketSearchKeyword.value) {
+    return filtered
+  }
+
+  return filtered.filter(ticket =>
+    (ticket.title || '').toLowerCase().includes(ticketSearchKeyword.value)
+  )
+}
+
+const getFilteredIssueTickets = () => {
+  let filtered = issueTickets.value
+
+  if (issueFilter.value === 'all') {
+    filtered = issueTickets.value
+  } else if (issueFilter.value === 'resolved') {
+    filtered = issueTickets.value.filter(isResolvedTicket)
+  } else if (issueFilter.value === 'unresolved') {
+    filtered = issueTickets.value.filter(t => !isResolvedTicket(t))
+  } else if (issueFilter.value === 'critical') {
+    filtered = issueTickets.value.filter(isCriticalTicket)
+  }
+
+  if (!issueSearchKeyword.value) {
+    return filtered
+  }
+
+  return filtered.filter(ticket =>
+    (ticket.title || '').toLowerCase().includes(issueSearchKeyword.value)
+  )
+}
+
+const getFilteredBugTickets = () => {
+  let filtered = bugTickets.value
+
+  if (bugFilter.value === 'all') {
+    filtered = bugTickets.value
+  } else if (bugFilter.value === 'resolved') {
+    filtered = bugTickets.value.filter(isResolvedTicket)
+  } else if (bugFilter.value === 'unresolved') {
+    filtered = bugTickets.value.filter(t => !isResolvedTicket(t))
+  } else if (bugFilter.value === 'critical') {
+    filtered = bugTickets.value.filter(isCriticalTicket)
+  }
+
+  if (!bugSearchKeyword.value) {
+    return filtered
+  }
+
+  return filtered.filter(ticket =>
+    (ticket.title || '').toLowerCase().includes(bugSearchKeyword.value)
+  )
+}
+
+const toggleIssueTicketExpand = (ticketId) => {
+  if (expandedIssueTickets.value.has(ticketId)) {
+    expandedIssueTickets.value.delete(ticketId)
+  } else {
+    expandedIssueTickets.value.add(ticketId)
+    if (!ticketLogs.value[ticketId]) {
+      getTicketLogs(ticketId)
+    }
+  }
+}
+
+const toggleBugTicketExpand = (ticketId) => {
+  if (expandedBugTickets.value.has(ticketId)) {
+    expandedBugTickets.value.delete(ticketId)
+  } else {
+    expandedBugTickets.value.add(ticketId)
+    if (!ticketLogs.value[ticketId]) {
+      getTicketLogs(ticketId)
+    }
+  }
 }
 
 const translateSentiment = (sentiment) => {
   const sentimentMap = {
-    'negative': '消极',
+    'negative': '负面',
     'positive': '积极',
-    'neutral': '中立',
+    'neutral': '中性',
     'angry': '愤怒',
     'satisfied': '满意'
   }
@@ -769,7 +1300,7 @@ const logActionMap = {
 const sentimentMap = {
   'negative': '负面',
   'neutral': '中性',
-  'positive': '正面',
+  'positive': '积极',
   'angry': '愤怒',
   'satisfied': '满意',
   'frustrated': '沮丧',
@@ -862,36 +1393,67 @@ const getLogActionClass = (action) => {
   return ''
 }
 
+// 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
+const LOCAL_DEBUG_CHAT = false
+const DEBUG_CHAT_ID = 'wrVkCUDAAAUhda0surI_P9YfNkbCoEvw'
+
+const loadChatData = async (targetChatId) => {
+  resetTicketViewState()
+  await getCustomerData(targetChatId)
+  await Promise.all([
+    getMaintenanceRecords(targetChatId),
+    getServiceRecords(targetChatId),
+    getTickets(targetChatId),
+    getIssueTickets(targetChatId),
+    getBugTickets(targetChatId)
+  ])
+  // 群聊加载时即预取版本，避免打开新增维护才开始请求
+  prefetchProductVersions()
+}
+
 const getCurExternalChat = () => {
   loading.value = true
-  try {
-      ww.getCurExternalChat({
-         success(result) {
-           // 成功回调，result.errMsg 固定格式为"方法名:ok"
-           chatId.value = result.chatId
-           // 获取客户数据
-           getCustomerData(chatId.value)
-           // 获取实施记录
-           getMaintenanceRecords(chatId.value)
-           // 获取维护记录
-           getServiceRecords(chatId.value)
-           // 获取工单
-           getTickets(chatId.value)
 
-           loading.value = false
-         },
-         fail(result) {
-           // 失败回调，通过 result.errMsg 查看失败详情
-           showToast('获取群聊 chatID 失败！'+result.errMsg, false)
-           console.error('调用失败:', result)
-           loading.value = false
-         }
-       })
-    
+  if (LOCAL_DEBUG_CHAT) {
+    ;(async () => {
+      try {
+        chatId.value = DEBUG_CHAT_ID
+        showToast('本地调试模式：使用写死 chatID', true)
+        await loadChatData(chatId.value)
+      } catch (err) {
+        showToast('异常：' + (err.message || err), false)
+        console.error('异常:', err)
+      } finally {
+        loading.value = false
+      }
+    })()
+    return
+  }
+
+  try {
+    ww.getCurExternalChat({
+      async success(result) {
+        try {
+          // 成功回调，result.errMsg 固定格式为"方法名:ok"
+          chatId.value = result.chatId
+          await loadChatData(chatId.value)
+        } catch (err) {
+          showToast('异常：' + (err.message || err), false)
+          console.error('异常:', err)
+        } finally {
+          loading.value = false
+        }
+      },
+      fail(result) {
+        // 失败回调，通过 result.errMsg 查看失败详情
+        showToast('获取群聊 chatID 失败！' + result.errMsg, false)
+        console.error('调用失败:', result)
+        loading.value = false
+      }
+    })
   } catch (err) {
-    showToast('异常：'+(err.message || err), false)
+    showToast('异常：' + (err.message || err), false)
     console.error('异常:', err)
-  } finally {
     loading.value = false
   }
 }
@@ -932,7 +1494,11 @@ const handleUnresolvedClick = () => {
 
 const handleAllClick = () => {
   activeTab.value = 'ticket'
-  ticketFilter.value = 'all'
+  ticketFilter.value = 'resolved'
+}
+
+const handleTicketRowClick = () => {
+  activeTab.value = 'ticket'
 }
 
 const handleTicketLabelClick = () => {
@@ -943,26 +1509,244 @@ const handleRequirementLabelClick = () => {
   activeTab.value = 'requirement'
 }
 
+const handleRequirementRowClick = () => {
+  activeTab.value = 'requirement'
+}
+
+const handleRequirementCriticalClick = () => {
+  activeTab.value = 'requirement'
+  issueFilter.value = 'critical'
+}
+
+const handleRequirementUnresolvedClick = () => {
+  activeTab.value = 'requirement'
+  issueFilter.value = 'unresolved'
+}
+
+const handleRequirementResolvedClick = () => {
+  activeTab.value = 'requirement'
+  issueFilter.value = 'resolved'
+}
+
 const handleDefectLabelClick = () => {
   activeTab.value = 'defect'
+}
+
+const handleDefectRowClick = () => {
+  activeTab.value = 'defect'
+}
+
+const handleDefectCriticalClick = () => {
+  activeTab.value = 'defect'
+  bugFilter.value = 'critical'
+}
+
+const handleDefectUnresolvedClick = () => {
+  activeTab.value = 'defect'
+  bugFilter.value = 'unresolved'
+}
+
+const handleDefectResolvedClick = () => {
+  activeTab.value = 'defect'
+  bugFilter.value = 'resolved'
 }
 
 const handleVersionClick = () => {
   activeTab.value = 'implementation'
 }
 
+const formatDateInputValue = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getCurrentProductId = () => {
+  return customerData.value?.productId || null
+}
+
+const getEditorUserId = () => {
+  return userStore.userInfo?.userid || userStore.userInfo?.UserId || userStore.userInfo?.user_id || ''
+}
+
+const loadProductVersions = async ({ silent = false, force = false } = {}) => {
+  const productId = getCurrentProductId()
+  if (!productId) {
+    productVersions.value = []
+    versionsLoadedProductId.value = null
+    if (!silent) {
+      showToast('未识别到当前客户产品，无法加载版本列表', false)
+    }
+    return
+  }
+  if (!force && versionsLoadedProductId.value === productId && productVersions.value.length > 0) {
+    return
+  }
+
+  versionsLoading.value = true
+  try {
+    const result = await Promise.race([
+      docApi.getProductVersions(productId, chatId.value),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('获取版本列表超时')), 12000))
+    ])
+    if (result.success) {
+      const rawVersions = Array.isArray(result.data) ? result.data : (result.data?.items || [])
+      const resolvedProductId = result.data?.productId
+      if (!customerData.value?.productId && resolvedProductId) {
+        customerData.value = {
+          ...(customerData.value || {}),
+          productId: resolvedProductId
+        }
+      }
+      productVersions.value = rawVersions.map(item => {
+        if (typeof item === 'string') return item
+        return item?.version || item?.name || ''
+      }).filter(Boolean)
+      versionsLoadedProductId.value = resolvedProductId || productId
+      return
+    }
+    productVersions.value = []
+    versionsLoadedProductId.value = null
+    if (!silent) {
+      showToast(result.message || '获取版本列表失败', false)
+    }
+  } catch (error) {
+    productVersions.value = []
+    versionsLoadedProductId.value = null
+    if (!silent) {
+      showToast('获取版本列表失败: ' + (error.message || error), false)
+    }
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+const prefetchProductVersions = () => {
+  if (versionPreloadPromise.value) {
+    return versionPreloadPromise.value
+  }
+  versionPreloadPromise.value = (async () => {
+    await loadProductVersions({ silent: true, force: false })
+    if (productVersions.value.length === 0 && getCurrentProductId()) {
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await loadProductVersions({ silent: true, force: true })
+    }
+  })().finally(() => {
+    versionPreloadPromise.value = null
+  })
+  return versionPreloadPromise.value
+}
+
+const resetAddMaintenanceForm = () => {
+  addMaintenanceForm.value = {
+    maintenanceTime: formatDateInputValue(),
+    maintenanceTypes: '',
+    maintenanceTitle: '',
+    maintenanceVersion: '',
+    maintenanceContext: ''
+  }
+}
+
+const closeAddMaintenanceModal = () => {
+  showAddMaintenanceModal.value = false
+  addMaintenanceSubmitting.value = false
+}
+
+const handleAddMaintenance = async () => {
+  resetAddMaintenanceForm()
+  showAddMaintenanceModal.value = true
+  if (productVersions.value.length === 0) {
+    prefetchProductVersions()
+  }
+}
+
+const submitAddMaintenance = async () => {
+  if (!customerData.value?.clientId) {
+    showToast('缺少客户ID，无法提交维护记录', false)
+    return
+  }
+  if (!getCurrentProductId()) {
+    showToast('缺少产品ID，无法提交维护记录', false)
+    return
+  }
+  if (!addMaintenanceForm.value.maintenanceTime || !addMaintenanceForm.value.maintenanceTypes ||
+      !addMaintenanceForm.value.maintenanceTitle || !addMaintenanceForm.value.maintenanceVersion ||
+      !addMaintenanceForm.value.maintenanceContext) {
+    showToast('请完整填写必填项', false)
+    return
+  }
+
+  addMaintenanceSubmitting.value = true
+  try {
+    const payload = {
+      clientId: customerData.value.clientId,
+      ownerId: getEditorUserId(),
+      editorUserId: getEditorUserId(),
+      maintenanceTypes: addMaintenanceForm.value.maintenanceTypes,
+      maintenanceTitle: addMaintenanceForm.value.maintenanceTitle.trim(),
+      maintenanceTime: new Date(`${addMaintenanceForm.value.maintenanceTime}T00:00:00`).getTime(),
+      regionId: customerData.value.regionId,
+      maintenanceVersion: addMaintenanceForm.value.maintenanceVersion,
+      maintenanceContext: addMaintenanceForm.value.maintenanceContext.trim(),
+      productId: getCurrentProductId(),
+      extChatId: chatId.value
+    }
+
+    const result = await docApi.createMaintenanceRecord(payload)
+    if (result.success || result.code === 0) {
+      const nowDate = formatDateInputValue()
+      const optimisticRecord = {
+        id: result.data?.id || `tmp-${Date.now()}`,
+        maintenanceTitle: payload.maintenanceTitle,
+        maintenanceTypes: payload.maintenanceTypes,
+        maintenanceVersion: payload.maintenanceVersion,
+        maintenanceTime: addMaintenanceForm.value.maintenanceTime || nowDate,
+        creatorName: userStore.userInfo?.name || userStore.userInfo?.UserId || '-',
+        createTime: nowDate,
+        maintenanceContext: payload.maintenanceContext
+      }
+      serviceRecords.value = [optimisticRecord, ...(serviceRecords.value || [])]
+      showToast('新增维护记录成功', true)
+      closeAddMaintenanceModal()
+      // 再从后端拉取最新数据，确保列表与服务端一致
+      if (chatId.value) {
+        await getServiceRecords(chatId.value)
+      }
+      return
+    }
+    showToast(result.message || result.msg || '新增维护记录失败', false)
+  } catch (error) {
+    showToast('新增维护记录失败: ' + (error.message || error), false)
+  } finally {
+    addMaintenanceSubmitting.value = false
+  }
+}
+
 const handleUpdateTicket = async (ticketId) => {
   currentTicketId.value = ticketId
-  // 查找当前工单并保存标题
-  const ticket = tickets.value.find(t => t.id === ticketId)
-  currentTicketTitle.value = ticket ? ticket.title : '更新工单'
-  // 重置表单
-  updateForm.value = {
-    urgent: false,
-    customerSentiment: 'neutral',
-    ownerName: '',
-    comment: ''
+  let ticket = null
+
+  // 根据当前活跃的标签页查找对应的工单
+  if (activeTab.value === 'ticket') {
+    ticket = tickets.value.find(t => t.id === ticketId)
+  } else if (activeTab.value === 'requirement') {
+    ticket = issueTickets.value.find(t => t.id === ticketId)
+  } else if (activeTab.value === 'defect') {
+    ticket = bugTickets.value.find(t => t.id === ticketId)
   }
+
+  currentTicketTitle.value = ticket ? ticket.title : '更新工单'
+
+  // 初始化表单，使用当前工单的数据
+  updateForm.value = {
+    urgent: ticket?.urgent || false,
+    customerSentiment: ticket?.customerSentiment || 'neutral',
+    ownerName: '',
+    comment: '',
+    trackingLinks: ticket?.trackingLinks || ''
+  }
+
   // 加载员工列表
   await loadStaffList()
   showUpdateModal.value = true
@@ -971,10 +1755,10 @@ const handleUpdateTicket = async (ticketId) => {
 const loadStaffList = async () => {
   try {
     const result = await docApi.getStaffList()
-    console.log('员工列表响应:', result)
+    // console.log('员工列表响应:', result)
     if (result.success) {
       staffList.value = result.data || []
-      console.log('员工列表加载成功，共', staffList.value.length, '人')
+      // console.log('员工列表加载成功，共', staffList.value.length, '人')
     } else {
       console.error('加载员工列表失败:', result.message)
       showToast('加载员工列表失败: ' + result.message, false)
@@ -1059,8 +1843,12 @@ const submitUpdateTicket = async (action) => {
     if (result.success) {
       showToast('工单更新成功', true)
       closeUpdateModal()
-      // 重新加载工单列表
+      // 重新加载工单/需求/缺陷列表
       await getTickets(chatId.value)
+      await Promise.all([
+        getIssueTickets(chatId.value),
+        getBugTickets(chatId.value)
+      ])
       // 重新加载该工单的流转记录
       await getTicketLogs(currentTicketId.value)
     } else {

@@ -9,6 +9,7 @@ public class UpdateTicketRequest {
     private String comment;
     private Integer status;
     private Boolean resolved;
+    private String trackingLinks;
 
     public String getTicketId() {
         return ticketId;
@@ -72,5 +73,13 @@ public class UpdateTicketRequest {
 
     public void setResolved(Boolean resolved) {
         this.resolved = resolved;
+    }
+
+    public String getTrackingLinks() {
+        return trackingLinks;
+    }
+
+    public void setTrackingLinks(String trackingLinks) {
+        this.trackingLinks = trackingLinks;
     }
 }

@@ -33,8 +33,26 @@ export const docApi = {
     return request.get('/api/chat-group/staff-list')
   },
 
+  getIssueTickets: (extChatId) => {
+    return request.get('/api/chat-group/issue-tickets', { params: { extChatId } })
+  },
+
+  getBugTickets: (extChatId) => {
+    return request.get('/api/chat-group/bug-tickets', { params: { extChatId } })
+  },
+
   updateTicket: (ticketId, data) => {
     return request.put(`/api/chat-group/tickets/${ticketId}`, data)
+  },
+
+  // 新增维护记录
+  createMaintenanceRecord: (data) => {
+    return request.post('/api/chat-group/maintenance-records', data)
+  },
+
+  // 获取产品版本列表
+  getProductVersions: (productId, extChatId) => {
+    return request.get('/api/chat-group/product-versions', { params: { productId, extChatId } })
   }
 }
 

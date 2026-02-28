@@ -11,6 +11,7 @@ public class Ticket {
     private String ownerName;
     private String issueCategory;
     private String customerSentiment;
+    private String trackingLinks;
     private String createdAt;
     private String updatedAt;
 
@@ -92,6 +93,14 @@ public class Ticket {
 
     public void setCustomerSentiment(String customerSentiment) {
         this.customerSentiment = customerSentiment;
+    }
+
+    public String getTrackingLinks() {
+        return trackingLinks;
+    }
+
+    public void setTrackingLinks(String trackingLinks) {
+        this.trackingLinks = trackingLinks;
     }
 
     public String getCreatedAt() {
