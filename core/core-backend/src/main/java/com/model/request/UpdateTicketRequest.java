@@ -7,6 +7,7 @@ public class UpdateTicketRequest {
     private String ownerName;
     private String ownerId;
     private String comment;
+    private Integer reminderCycle;
     private Integer status;
     private Boolean resolved;
     private String trackingLinks;
@@ -57,6 +58,14 @@ public class UpdateTicketRequest {
 
     public void setComment(String comment) {
         this.comment = comment;
+    }
+
+    public Integer getReminderCycle() {
+        return reminderCycle;
+    }
+
+    public void setReminderCycle(Integer reminderCycle) {
+        this.reminderCycle = reminderCycle;
     }
 
     public Integer getStatus() {

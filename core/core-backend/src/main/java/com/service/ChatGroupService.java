@@ -534,6 +534,89 @@ public class ChatGroupService {
         }
     }
 
+    // 更新需求/缺陷工单：按 api.md 中“更新需求工单/更新缺陷工单”字段组装
+    public void updateIssueOrBugTicket(UpdateTicketRequest request, String loginUserId, String kind) throws Exception {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String ownerId = request.getOwnerId();
+            if (ownerId == null || ownerId.isEmpty()) {
+                String ownerName = request.getOwnerName();
+                if (ownerName != null && !ownerName.isEmpty()) {
+                    String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
+                    var ownerResult = com.util.JdbcUtils.query(ownerSql, ownerName);
+                    if (!ownerResult.isEmpty() && ownerResult.get(0)[0] != null) {
+                        ownerId = ownerResult.get(0)[0].toString();
+                    }
+                }
+            }
+            if (ownerId == null || ownerId.isEmpty()) {
+                ownerId = loginUserId;
+            }
+            if (ownerId == null || ownerId.isEmpty()) {
+                throw new Exception("缺少负责人ID");
+            }
+            String ownerName = resolveStaffNameByExtId(ownerId);
+            String modifiedByName = resolveStaffNameByExtId(loginUserId);
+
+            JSONObject payload = new JSONObject();
+            payload.put("id", request.getTicketId());
+            payload.put("owner_id", ownerId);
+            if (ownerName != null && !ownerName.isEmpty()) {
+                payload.put("owner_name", ownerName);
+            }
+            if (loginUserId != null && !loginUserId.isEmpty()) {
+                payload.put("modified_by_id", loginUserId);
+            }
+            if (modifiedByName != null && !modifiedByName.isEmpty()) {
+                payload.put("modified_by_name", modifiedByName);
+            }
+            payload.put("comment", request.getComment());
+            payload.put("reminder_cycle", request.getReminderCycle() != null ? request.getReminderCycle() : 2);
+            payload.put("urgent", request.getUrgent());
+            payload.put("customer_sentiment", request.getCustomerSentiment());
+            payload.put("tracking_links", request.getTrackingLinks() == null ? "" : request.getTrackingLinks());
+            payload.put("status", request.getStatus());
+            if (request.getResolved() != null) {
+                payload.put("resolved", request.getResolved());
+            }
+
+            String url = cscrmBaseUrl + cscrmApiPath + "/smart-tickets/tickets/" + request.getTicketId();
+            LOGGER.info("update{}Ticket request url={}, payload={}",
+                    "bug".equals(kind) ? "Bug" : "Issue", url, payload.toJSONString());
+
+            String response = HttpClientUtil.putJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
+            LOGGER.info("update{}Ticket response={}", "bug".equals(kind) ? "Bug" : "Issue", response);
+
+            JSONObject responseJson = JSONObject.parseObject(response);
+            Integer code = responseJson.getInteger("code");
+            if (code != null && code != 0) {
+                String msg = responseJson.getString("msg");
+                if (msg == null || msg.isEmpty()) {
+                    msg = responseJson.getString("message");
+                }
+                throw new Exception(msg != null ? msg : "更新失败");
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private String resolveStaffNameByExtId(String extId) {
+        if (extId == null || extId.isEmpty()) {
+            return null;
+        }
+        try {
+            String sql = "SELECT s.name FROM staff s WHERE s.ext_id = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, extId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return result.get(0)[0].toString();
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
     public JSONObject createMaintenanceRecord(CreateMaintenanceRecordRequest request, String loginUserId) throws Exception {
         if (request.getClientId() == null) {
             throw new Exception("缺少客户ID");

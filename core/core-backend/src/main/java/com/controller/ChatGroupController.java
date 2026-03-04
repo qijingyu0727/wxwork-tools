@@ -28,6 +28,21 @@ public class ChatGroupController {
     @Resource
     private ChatGroupService chatGroupService;
 
+    private String getLoginUserId(HttpSession session) {
+        JSONObject userInfo = (JSONObject) session.getAttribute("login_user");
+        if (userInfo == null) {
+            return null;
+        }
+        String userId = userInfo.getString("userid");
+        if (userId == null) {
+            userId = userInfo.getString("UserId");
+        }
+        if (userId == null) {
+            userId = userInfo.getString("user_id");
+        }
+        return userId;
+    }
+
     // 获取客户数据接口
     @GetMapping("/customer-data")
     public ApiResponse<CustomerData> getCustomerData(@RequestParam String extChatId) {
@@ -178,6 +193,46 @@ public class ChatGroupController {
         } catch (Exception e) {
             e.printStackTrace();
             return ApiResponse.error("更新工单失败: " + e.getMessage());
+        }
+    }
+
+    // 更新需求工单接口（按 api.md 需求工单参数组装）
+    @PutMapping("/issue-tickets/{ticketId}")
+    public ApiResponse<Void> updateIssueTicket(
+            @PathVariable String ticketId,
+            @RequestBody UpdateTicketRequest request,
+            HttpSession session) {
+        try {
+            String loginUserId = getLoginUserId(session);
+            if (loginUserId == null) {
+                return ApiResponse.error("用户未登录");
+            }
+            request.setTicketId(ticketId);
+            chatGroupService.updateIssueOrBugTicket(request, loginUserId, "issue");
+            return ApiResponse.success(null);
+        } catch (Exception e) {
+            LOGGER.error("updateIssueTicket failed: {}", e.getMessage(), e);
+            return ApiResponse.error("更新需求工单失败: " + e.getMessage());
+        }
+    }
+
+    // 更新缺陷工单接口（按 api.md 缺陷工单参数组装）
+    @PutMapping("/bug-tickets/{ticketId}")
+    public ApiResponse<Void> updateBugTicket(
+            @PathVariable String ticketId,
+            @RequestBody UpdateTicketRequest request,
+            HttpSession session) {
+        try {
+            String loginUserId = getLoginUserId(session);
+            if (loginUserId == null) {
+                return ApiResponse.error("用户未登录");
+            }
+            request.setTicketId(ticketId);
+            chatGroupService.updateIssueOrBugTicket(request, loginUserId, "bug");
+            return ApiResponse.success(null);
+        } catch (Exception e) {
+            LOGGER.error("updateBugTicket failed: {}", e.getMessage(), e);
+            return ApiResponse.error("更新缺陷工单失败: " + e.getMessage());
         }
     }
 

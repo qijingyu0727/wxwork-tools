@@ -416,9 +416,9 @@
                   <div class="info-row info-row-inline info-row-full">
                     <span class="info-label">跟踪链接</span>
                     <div class="info-value">
-                      <template v-if="ticket.trackingLinks">
-                        <div v-for="(link, index) in ticket.trackingLinks.split('\n')" :key="index" v-if="link.trim()">
-                          <a :href="link.trim()" target="_blank" rel="noopener noreferrer" class="link">{{ link.trim() }}</a>
+                      <template v-if="getTrackingLinkList(ticket).length > 0">
+                        <div v-for="(link, index) in getTrackingLinkList(ticket)" :key="`${ticket.id}-${index}`">
+                          <a :href="link" target="_blank" rel="noopener noreferrer" class="link">{{ link }}</a>
                         </div>
                       </template>
                       <span v-else>-</span>
@@ -543,9 +543,9 @@
                   <div class="info-row info-row-inline info-row-full">
                     <span class="info-label">跟踪链接</span>
                     <div class="info-value">
-                      <template v-if="ticket.trackingLinks">
-                        <div v-for="(link, index) in ticket.trackingLinks.split('\n')" :key="index" v-if="link.trim()">
-                          <a :href="link.trim()" target="_blank" rel="noopener noreferrer" class="link">{{ link.trim() }}</a>
+                      <template v-if="getTrackingLinkList(ticket).length > 0">
+                        <div v-for="(link, index) in getTrackingLinkList(ticket)" :key="`${ticket.id}-${index}`">
+                          <a :href="link" target="_blank" rel="noopener noreferrer" class="link">{{ link }}</a>
                         </div>
                       </template>
                       <span v-else>-</span>
@@ -1037,6 +1037,9 @@ const getBugTickets = async (extChatId) => {
 }
 
 const getTicketLogs = async (ticketId) => {
+  if (!ticketId) {
+    return
+  }
   try {
     const res = await docApi.getTicketLogs(ticketId)
     if (res.success) {
@@ -1070,6 +1073,34 @@ const applyBugSearch = () => {
   bugSearchKeyword.value = bugSearchInput.value.trim().toLowerCase()
 }
 
+const getTrackingLinkList = (ticket) => {
+  const raw = ticket?.trackingLinks
+  if (raw == null) {
+    return []
+  }
+  if (Array.isArray(raw)) {
+    return raw.map(item => String(item || '').trim()).filter(Boolean)
+  }
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) {
+      return []
+    }
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(text)
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item || '').trim()).filter(Boolean)
+        }
+      } catch (e) {
+        // ignore parse error and fallback to newline split
+      }
+    }
+    return text.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+  }
+  return [String(raw).trim()].filter(Boolean)
+}
+
 const isResolvedTicket = (ticket) => {
   const value = ticket?.resolved
   if (value === true || value === 1 || value === '1') return true
@@ -1081,13 +1112,28 @@ const isResolvedTicket = (ticket) => {
   return false
 }
 
-const isCriticalTicket = (ticket) => Number(ticket?.status) === 3
+const getStatusCode = (ticket) => {
+  const status = ticket?.status
+  if (typeof status === 'number') return status
+  if (typeof status === 'string') {
+    const s = status.trim()
+    if (/^\d+$/.test(s)) return Number(s)
+    if (s.includes('跨团队')) return 3
+    if (s.includes('跟进')) return 2
+    if (s.includes('已处理') || s.includes('已解决')) return 4
+    if (s.includes('待确认')) return 1
+  }
+  return null
+}
+
+const isCriticalTicket = (ticket) => getStatusCode(ticket) === 3
 const isIssueCategory = (ticket) => (ticket?.issueCategory || '') === '功能需求'
 const isBugCategory = (ticket) => (ticket?.issueCategory || '') === '产品缺陷'
 const getTicketBaseList = () => tickets.value.filter(t => !isIssueCategory(t) && !isBugCategory(t))
+const isUnresolvedNonCriticalTicket = (ticket) => !isResolvedTicket(ticket) && !isCriticalTicket(ticket)
 
 const getResolvedCount = (list) => (Array.isArray(list) ? list.filter(isResolvedTicket).length : 0)
-const getUnresolvedCount = (list) => (Array.isArray(list) ? list.filter(t => !isResolvedTicket(t)).length : 0)
+const getUnresolvedCount = (list) => (Array.isArray(list) ? list.filter(isUnresolvedNonCriticalTicket).length : 0)
 const getCriticalCount = (list) => (Array.isArray(list) ? list.filter(isCriticalTicket).length : 0)
 
 const getFilteredTickets = () => {
@@ -1099,7 +1145,7 @@ const getFilteredTickets = () => {
   } else if (ticketFilter.value === 'resolved') {
     filtered = ticketBaseList.filter(isResolvedTicket)
   } else if (ticketFilter.value === 'unresolved') {
-    filtered = ticketBaseList.filter(t => !isResolvedTicket(t))
+    filtered = ticketBaseList.filter(isUnresolvedNonCriticalTicket)
   } else if (ticketFilter.value === 'critical') {
     filtered = ticketBaseList.filter(isCriticalTicket)
   }
@@ -1121,7 +1167,7 @@ const getFilteredIssueTickets = () => {
   } else if (issueFilter.value === 'resolved') {
     filtered = issueTickets.value.filter(isResolvedTicket)
   } else if (issueFilter.value === 'unresolved') {
-    filtered = issueTickets.value.filter(t => !isResolvedTicket(t))
+    filtered = issueTickets.value.filter(isUnresolvedNonCriticalTicket)
   } else if (issueFilter.value === 'critical') {
     filtered = issueTickets.value.filter(isCriticalTicket)
   }
@@ -1143,7 +1189,7 @@ const getFilteredBugTickets = () => {
   } else if (bugFilter.value === 'resolved') {
     filtered = bugTickets.value.filter(isResolvedTicket)
   } else if (bugFilter.value === 'unresolved') {
-    filtered = bugTickets.value.filter(t => !isResolvedTicket(t))
+    filtered = bugTickets.value.filter(isUnresolvedNonCriticalTicket)
   } else if (bugFilter.value === 'critical') {
     filtered = bugTickets.value.filter(isCriticalTicket)
   }
@@ -1821,7 +1867,8 @@ const submitUpdateTicket = async (action) => {
 
     // 根据操作类型设置不同的参数
     const requestData = {
-      ...updateForm.value
+      ...updateForm.value,
+      reminderCycle: 2
     }
 
     if (action === 'resolve') {
@@ -1838,7 +1885,15 @@ const submitUpdateTicket = async (action) => {
       requestData.status = 2
     }
 
-    const result = await docApi.updateTicket(currentTicketId.value, requestData)
+    const ticketIdToUpdate = currentTicketId.value
+    let result
+    if (activeTab.value === 'requirement') {
+      result = await docApi.updateIssueTicket(ticketIdToUpdate, requestData)
+    } else if (activeTab.value === 'defect') {
+      result = await docApi.updateBugTicket(ticketIdToUpdate, requestData)
+    } else {
+      result = await docApi.updateTicket(ticketIdToUpdate, requestData)
+    }
 
     if (result.success) {
       showToast('工单更新成功', true)
@@ -1850,7 +1905,7 @@ const submitUpdateTicket = async (action) => {
         getBugTickets(chatId.value)
       ])
       // 重新加载该工单的流转记录
-      await getTicketLogs(currentTicketId.value)
+      await getTicketLogs(ticketIdToUpdate)
     } else {
       showToast(result.message || '工单更新失败', false)
     }

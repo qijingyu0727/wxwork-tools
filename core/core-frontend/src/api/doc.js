@@ -45,6 +45,14 @@ export const docApi = {
     return request.put(`/api/chat-group/tickets/${ticketId}`, data)
   },
 
+  updateIssueTicket: (ticketId, data) => {
+    return request.put(`/api/chat-group/issue-tickets/${ticketId}`, data)
+  },
+
+  updateBugTicket: (ticketId, data) => {
+    return request.put(`/api/chat-group/bug-tickets/${ticketId}`, data)
+  },
+
   // 新增维护记录
   createMaintenanceRecord: (data) => {
     return request.post('/api/chat-group/maintenance-records', data)
