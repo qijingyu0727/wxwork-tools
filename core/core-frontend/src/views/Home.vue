@@ -850,7 +850,7 @@ import '@/styles/home.css'
 
 // 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
 const LOCAL_DEBUG_CHAT = false
-const DEBUG_CHAT_ID = ''
+const DEBUG_CHAT_ID = 'wrVkCUDAAANWaxa2nTWPJPwOZPu2Y_IQ'
 const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
 
 const corpId = ref('')
