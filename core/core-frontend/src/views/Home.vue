@@ -29,11 +29,22 @@
       <div v-if="chatId" class="customer-info-section">
         <!-- 客户名称和标签 -->
         <div class="customer-header">
-          <h2 class="customer-name">{{ customerData?.name || '-' }}</h2>
+          <h2 class="customer-name">{{ customerDisplayName }}</h2>
           <div class="customer-badges">
-            <span v-if="customerData?.isAccepted" class="badge badge-success">{{ customerData.isAccepted }}</span>
-            <span v-if="latestVersion" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ latestVersion }}</span>
+            <span
+              v-if="customerData?.isAccepted"
+              :class="['badge', getAcceptanceBadgeClass(customerData?.acceptanceStatusCode)]"
+            >
+              {{ customerData.isAccepted }}
+            </span>
+            <span v-if="versionBadgeText" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ versionBadgeText }}</span>
           </div>
+        </div>
+        <div
+          v-if="showCustomerDataCompletionGuide"
+          class="customer-data-guide"
+        >
+          未识别到客户名称。请前往 CRM -> 客户管理 -> 许可列表，搜索客户全称，编辑补充客户群聊名称后点击“同步”按钮。
         </div>
 
         <!-- 统计数据 -->
@@ -206,6 +217,81 @@
                   <div class="info-label">维护内容</div>
                   <pre class="content-text">{{ record.maintenanceContext }}</pre>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 工具 Tab -->
+          <div v-if="activeTab === 'tools'" class="tab-pane active">
+            <div class="tools-pane">
+              <div class="tools-grid">
+                <section class="tool-card tool-card-report">
+                  <div class="tool-card-title-row">
+                    <span class="tool-card-icon">
+                      <i class="fa fa-file-word-o"></i>
+                    </span>
+                    <div class="tool-card-heading">
+                      <h4 class="tool-card-title">获取验收报告</h4>
+                      <p class="tool-card-desc">根据当前群聊对应合同生成并下载验收报告。</p>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-body tool-card-body-report"></div>
+
+                  <div class="tool-card-footer">
+                    <button
+                      class="tool-action-btn tool-action-btn-report"
+                      :disabled="toolReportSubmitting"
+                      @click="handleGetAcceptanceReport"
+                    >
+                      {{ toolReportSubmitting ? '请求中...' : '获取验收报告' }}
+                    </button>
+                  </div>
+                </section>
+
+                <section class="tool-card tool-card-email">
+                  <div class="tool-card-title-row">
+                    <span class="tool-card-icon">
+                      <i class="fa fa-envelope"></i>
+                    </span>
+                    <div class="tool-card-heading">
+                      <h4 class="tool-card-title">邮件发送</h4>
+                      <p class="tool-card-desc">输入客户邮箱后发送交付通知。</p>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-body">
+                    <div class="tool-form-row">
+                      <input
+                        v-model.trim="toolEmail"
+                        type="email"
+                        class="tool-email-input"
+                        placeholder="客户邮箱"
+                      />
+                    </div>
+
+                    <div class="tool-form-row tool-cc-row">
+                      <textarea
+                        ref="toolCcTextareaRef"
+                        v-model.trim="toolCcEmails"
+                        class="tool-email-input tool-cc-textarea"
+                        rows="1"
+                        placeholder="多个邮箱用分号 ; 隔开"
+                        @input="adjustToolCcTextarea"
+                      ></textarea>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-footer">
+                    <button
+                      class="tool-action-btn tool-action-btn-email"
+                      :disabled="toolMailSubmitting"
+                      @click="handleSendToolMail"
+                    >
+                      {{ toolMailSubmitting ? '发送中...' : '发送邮件' }}
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
           </div>
@@ -755,18 +841,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { jsapiApi, docApi } from '@/api/doc'
 import CryptoJS from 'crypto-js'
 import * as ww from '@wecom/jssdk'
 import '@/styles/home.css'
 
+// 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
+const LOCAL_DEBUG_CHAT = false
+const DEBUG_CHAT_ID = ''
+const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
+
 const corpId = ref('')
 const agentId = ref('')
 const chatId = ref('')
 const loading = ref(false)
 const customerData = ref({})
+const customerDataLoading = ref(false)
 const maintenanceRecords = ref([])
 const maintenanceLoading = ref(false)
 const serviceRecords = ref([])
@@ -784,8 +876,14 @@ const tabs = ref([
   { id: 'maintenance', name: '维护' },
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
-  { id: 'defect', name: '缺陷' }
+  { id: 'defect', name: '缺陷' },
+  { id: 'tools', name: '工具' }
 ])
+const toolEmail = ref('')
+const toolCcEmails = ref(DEFAULT_TOOL_MAIL_CC)
+const toolCcTextareaRef = ref(null)
+const toolMailSubmitting = ref(false)
+const toolReportSubmitting = ref(false)
 
 // 需求和缺陷工单相关状态
 const issueTickets = ref([])
@@ -857,6 +955,911 @@ const showToast = (message, isSuccess = true) => {
   }, 5000)
 }
 
+const getAcceptanceBadgeClass = (statusCode) => {
+  if (statusCode === 'accepted') return 'badge-success'
+  if (statusCode === 'pending') return 'badge-warning'
+  return 'badge-neutral'
+}
+
+const isValidEmail = (value) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value || '')
+}
+
+const splitEmailParts = (value) => {
+  return String(value || '')
+    .replace(/；/g, ';')
+    .replace(/，/g, ';')
+    .replace(/,/g, ';')
+    .split(';')
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+const normalizeCcEmailList = (emails) => {
+  const deduped = []
+  const seen = new Set()
+  ;(emails || []).forEach((item) => {
+    const email = String(item || '').trim().toLowerCase()
+    if (!email || seen.has(email)) return
+    seen.add(email)
+    deduped.push(email)
+  })
+  return deduped
+}
+
+const formatCcEmailList = (emails) => {
+  return normalizeCcEmailList(emails).join(';')
+}
+
+const parseCcEmailsInput = (value, allowEmpty = true) => {
+  const parts = splitEmailParts(value)
+  if (parts.length === 0) {
+    if (allowEmpty) return []
+    throw new Error('请输入抄送邮箱')
+  }
+  const invalid = parts.find(item => !isValidEmail(item))
+  if (invalid) {
+    throw new Error(`抄送邮箱格式不正确：${invalid}`)
+  }
+  return normalizeCcEmailList(parts)
+}
+
+const loadToolMailDefaultCc = async (extChatId) => {
+  if (!extChatId) {
+    toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
+    return
+  }
+  try {
+    const result = await docApi.getMailDefaultCc(extChatId)
+    if (result?.success) {
+      const data = result?.data || {}
+      const list = Array.isArray(data.defaultCcList) ? data.defaultCcList : []
+      const formatted = formatCcEmailList(list)
+      toolCcEmails.value = formatted || DEFAULT_TOOL_MAIL_CC
+      return
+    }
+  } catch (error) {
+    console.warn('loadToolMailDefaultCc failed:', error)
+  }
+  toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
+}
+
+const doAdjustToolCcTextarea = () => {
+  const textarea = toolCcTextareaRef.value
+  if (!textarea) return
+  textarea.style.height = 'auto'
+  const borderHeight = textarea.offsetHeight - textarea.clientHeight
+  textarea.style.height = `${Math.max(textarea.scrollHeight + borderHeight, 48)}px`
+}
+
+const adjustToolCcTextarea = async () => {
+  await nextTick()
+  doAdjustToolCcTextarea()
+  requestAnimationFrame(() => {
+    doAdjustToolCcTextarea()
+  })
+}
+
+const pad2 = (value) => String(value).padStart(2, '0')
+
+const sanitizeFileNamePart = (value) => {
+  const text = String(value || '').trim()
+  if (!text) {
+    return ''
+  }
+  return text
+    .replace(/[\\/:*?"<>|\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const getAcceptanceReportFormData = (result) => {
+  const payload = result?.data?.requestPayload
+  if (payload && typeof payload === 'object') {
+    if (payload.form_data && typeof payload.form_data === 'object') {
+      return payload.form_data
+    }
+    return payload
+  }
+  return {}
+}
+
+const buildReportDownloadName = (result, extChatId) => {
+  const formData = getAcceptanceReportFormData(result)
+  const finalCustomer = sanitizeFileNamePart(formData?.finalcustomer)
+  const productName = sanitizeFileNamePart(formData?.productname)
+  const partya = sanitizeFileNamePart(formData?.partya)
+  if (finalCustomer && productName) {
+    return `${partya}-${finalCustomer}${productName}验收报告.docx`
+  }
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = pad2(now.getMonth() + 1)
+  const dd = pad2(now.getDate())
+  const hh = pad2(now.getHours())
+  const mi = pad2(now.getMinutes())
+  const ss = pad2(now.getSeconds())
+  return `acceptance-report-${extChatId}-${yyyy}${mm}${dd}${hh}${mi}${ss}.docx`
+}
+
+const normalizeBase64 = (value) => {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  let text = value.trim()
+  if (!text) {
+    return ''
+  }
+  const dataUriPrefixMatch = text.match(/^data:[^;]+;base64,/i)
+  if (dataUriPrefixMatch) {
+    text = text.slice(dataUriPrefixMatch[0].length)
+  }
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1)
+  }
+  text = text.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+  if (!/^[A-Za-z0-9+/=]+$/.test(text)) {
+    return ''
+  }
+  const mod = text.length % 4
+  if (mod) {
+    text += '='.repeat(4 - mod)
+  }
+  return text.length >= 100 ? text : ''
+}
+
+const concatUint8Arrays = (chunks) => {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return new Uint8Array(0)
+  }
+  const total = chunks.reduce((sum, item) => sum + (item?.length || 0), 0)
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const item of chunks) {
+    if (!(item instanceof Uint8Array) || item.length === 0) {
+      continue
+    }
+    merged.set(item, offset)
+    offset += item.length
+  }
+  return merged
+}
+
+const zipMagic = [
+  [0x50, 0x4b, 0x03, 0x04],
+  [0x50, 0x4b, 0x05, 0x06],
+  [0x50, 0x4b, 0x07, 0x08]
+]
+
+const findZipHeaderOffset = (bytes) => {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 4) {
+    return -1
+  }
+  for (let i = 0; i <= bytes.length - 4; i++) {
+    for (const magic of zipMagic) {
+      if (bytes[i] === magic[0] && bytes[i + 1] === magic[1] && bytes[i + 2] === magic[2] && bytes[i + 3] === magic[3]) {
+        return i
+      }
+    }
+  }
+  return -1
+}
+
+const normalizeZipBytes = (bytes) => {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 4) {
+    return new Uint8Array(0)
+  }
+  const offset = findZipHeaderOffset(bytes)
+  if (offset < 0) {
+    return new Uint8Array(0)
+  }
+  return offset === 0 ? bytes : bytes.subarray(offset)
+}
+
+const parseEscapedBytesText = (value) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+  let text = value.trim()
+  if (!text) {
+    return null
+  }
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1)
+  }
+  const bytes = []
+  let escapeCount = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0) & 0xff)
+      continue
+    }
+    if (i + 1 >= text.length) {
+      bytes.push(92)
+      continue
+    }
+    const next = text[++i]
+    if (next === 'x' && i + 2 < text.length) {
+      const hex = text.slice(i + 1, i + 3)
+      if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+        bytes.push(parseInt(hex, 16))
+        i += 2
+        escapeCount++
+        continue
+      }
+      bytes.push('x'.charCodeAt(0))
+      continue
+    }
+    if (next >= '0' && next <= '7') {
+      let oct = next
+      let count = 1
+      while (count < 3 && i + 1 < text.length && /[0-7]/.test(text[i + 1])) {
+        oct += text[++i]
+        count++
+      }
+      bytes.push(parseInt(oct, 8))
+      escapeCount++
+      continue
+    }
+    const escapedMap = {
+      '\\': 92,
+      "'": 39,
+      '"': 34,
+      n: 10,
+      r: 13,
+      t: 9,
+      a: 7,
+      b: 8,
+      f: 12,
+      v: 11
+    }
+    if (Object.prototype.hasOwnProperty.call(escapedMap, next)) {
+      bytes.push(escapedMap[next])
+      escapeCount++
+      continue
+    }
+    bytes.push(next.charCodeAt(0) & 0xff)
+  }
+  if (escapeCount === 0) {
+    return null
+  }
+  return new Uint8Array(bytes)
+}
+
+const parsePythonBytesLiteral = (value) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+  let text = value.trim()
+  if (!text) {
+    return null
+  }
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim()
+  }
+  if (!(text.startsWith("b'") || text.startsWith('b"'))) {
+    return null
+  }
+  if (text.length < 3) {
+    return null
+  }
+  const quote = text[1]
+  if (text[text.length - 1] !== quote) {
+    return null
+  }
+  const body = text.slice(2, -1)
+  const bytes = []
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0) & 0xff)
+      continue
+    }
+    if (i + 1 >= body.length) {
+      bytes.push(92)
+      continue
+    }
+    const next = body[++i]
+    if (next === 'x' && i + 2 < body.length) {
+      const hex = body.slice(i + 1, i + 3)
+      if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+        bytes.push(parseInt(hex, 16))
+        i += 2
+        continue
+      }
+      bytes.push('x'.charCodeAt(0))
+      continue
+    }
+    if (next >= '0' && next <= '7') {
+      let oct = next
+      let count = 1
+      while (count < 3 && i + 1 < body.length && /[0-7]/.test(body[i + 1])) {
+        oct += body[++i]
+        count++
+      }
+      bytes.push(parseInt(oct, 8))
+      continue
+    }
+    const escapedMap = {
+      '\\': 92,
+      "'": 39,
+      '"': 34,
+      n: 10,
+      r: 13,
+      t: 9,
+      a: 7,
+      b: 8,
+      f: 12,
+      v: 11
+    }
+    if (Object.prototype.hasOwnProperty.call(escapedMap, next)) {
+      bytes.push(escapedMap[next])
+      continue
+    }
+    bytes.push(next.charCodeAt(0) & 0xff)
+  }
+  return new Uint8Array(bytes)
+}
+
+const deescapeForPythonBytesParsing = (value) => {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  let text = value
+  // 常见转义：b\'...\' / b\"...\"
+  text = text.replace(/b\\'/g, "b'").replace(/b\\"/g, 'b"')
+  // 常见双反斜杠转义：\\xNN -> \xNN
+  text = text.replace(/\\\\x([0-9a-fA-F]{2})/g, '\\x$1')
+  // 统一收敛剩余双反斜杠
+  text = text.replace(/\\\\/g, '\\')
+  // 去掉引号转义
+  text = text.replace(/\\'/g, "'").replace(/\\"/g, '"')
+  return text
+}
+
+const extractPythonBytesFromLooseText = (text) => {
+  if (typeof text !== 'string') {
+    return new Uint8Array(0)
+  }
+  const source = text.trim()
+  if (!source) {
+    return new Uint8Array(0)
+  }
+  const candidates = [source, deescapeForPythonBytesParsing(source)]
+
+  for (const candidateText of candidates) {
+    const candidate = (candidateText || '').trim()
+    if (!candidate) {
+      continue
+    }
+    const chunks = []
+    let i = 0
+    while (i < candidate.length - 2) {
+      if (candidate[i] !== 'b' || (candidate[i + 1] !== "'" && candidate[i + 1] !== '"')) {
+        i++
+        continue
+      }
+      const quote = candidate[i + 1]
+      let j = i + 2
+      let foundEnd = false
+      while (j < candidate.length) {
+        const ch = candidate[j]
+        if (ch === '\\') {
+          j += 2
+          continue
+        }
+        if (ch === quote) {
+          const literal = candidate.slice(i, j + 1)
+          const parsed = parsePythonBytesLiteral(literal)
+          if (parsed && parsed.length > 0) {
+            chunks.push(parsed)
+          }
+          i = j + 1
+          foundEnd = true
+          break
+        }
+        j++
+      }
+      if (!foundEnd) {
+        break
+      }
+    }
+    if (chunks.length > 0) {
+      return concatUint8Arrays(chunks)
+    }
+  }
+  const escaped = parseEscapedBytesText(source)
+  if (escaped && escaped.length > 0) {
+    return escaped
+  }
+  const escapedDeescaped = parseEscapedBytesText(deescapeForPythonBytesParsing(source))
+  return escapedDeescaped || new Uint8Array(0)
+}
+
+const extractPythonBytesFromNode = (node, depth = 0) => {
+  if (depth > 8 || node === null || node === undefined) {
+    return new Uint8Array(0)
+  }
+  if (typeof node === 'string') {
+    const parsed = parsePythonBytesLiteral(node)
+    if (parsed && parsed.length > 0) {
+      return parsed
+    }
+    const text = node.trim()
+    if (text && (text.startsWith('[') || text.startsWith('{'))) {
+      try {
+        const parsedJson = JSON.parse(text)
+        return extractPythonBytesFromNode(parsedJson, depth + 1)
+      } catch (error) {
+        // ignore invalid JSON
+      }
+    }
+    const fromLoose = extractPythonBytesFromLooseText(text)
+    if (fromLoose.length > 0) {
+      return fromLoose
+    }
+    return new Uint8Array(0)
+  }
+  if (Array.isArray(node)) {
+    const literalChunks = []
+    let allLiteral = node.length > 0
+    for (const item of node) {
+      if (typeof item !== 'string') {
+        allLiteral = false
+        break
+      }
+      const chunk = parsePythonBytesLiteral(item)
+      if (!chunk) {
+        allLiteral = false
+        break
+      }
+      literalChunks.push(chunk)
+    }
+    if (allLiteral && literalChunks.length > 0) {
+      return concatUint8Arrays(literalChunks)
+    }
+    for (const item of node) {
+      const found = extractPythonBytesFromNode(item, depth + 1)
+      if (found.length > 0) {
+        return found
+      }
+    }
+    return new Uint8Array(0)
+  }
+  if (typeof node !== 'object') {
+    return new Uint8Array(0)
+  }
+  for (const value of Object.values(node)) {
+    const found = extractPythonBytesFromNode(value, depth + 1)
+    if (found.length > 0) {
+      return found
+    }
+  }
+  return new Uint8Array(0)
+}
+
+const extractBase64FromObject = (node, depth = 0) => {
+  if (depth > 6 || node === null || node === undefined) {
+    return ''
+  }
+  if (typeof node === 'string') {
+    return normalizeBase64(node)
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = extractBase64FromObject(item, depth + 1)
+      if (found) {
+        return found
+      }
+    }
+    return ''
+  }
+  if (typeof node !== 'object') {
+    return ''
+  }
+
+  const priorityKeys = ['reportBase64', 'docxBase64', 'base64', 'fileBase64', 'docBase64', 'wordBase64', 'fileStream', 'file_stream', 'data', 'result', 'content']
+  for (const key of priorityKeys) {
+    if (Object.prototype.hasOwnProperty.call(node, key)) {
+      const found = extractBase64FromObject(node[key], depth + 1)
+      if (found) {
+        return found
+      }
+    }
+  }
+
+  for (const value of Object.values(node)) {
+    const found = extractBase64FromObject(value, depth + 1)
+    if (found) {
+      return found
+    }
+  }
+  return ''
+}
+
+const extractAcceptanceReportBase64 = (data) => {
+  const fromReportField = normalizeBase64(data?.reportBase64 || data?.docxBase64 || '')
+  if (fromReportField) {
+    return fromReportField
+  }
+
+  const raw = typeof data?.upstreamRaw === 'string' ? data.upstreamRaw.trim() : ''
+  const rawBase64 = normalizeBase64(raw)
+  if (rawBase64) {
+    return rawBase64
+  }
+
+  if (raw && (raw.startsWith('{') || raw.startsWith('['))) {
+    try {
+      const parsedRaw = JSON.parse(raw)
+      const fromRawJson = extractBase64FromObject(parsedRaw)
+      if (fromRawJson) {
+        return fromRawJson
+      }
+    } catch (error) {
+      // ignore invalid JSON
+    }
+  }
+
+  const fromUpstreamJson = extractBase64FromObject(data?.upstreamJson)
+  if (fromUpstreamJson) {
+    return fromUpstreamJson
+  }
+
+  if (typeof data?.upstreamJson === 'string') {
+    const upstreamJsonStr = data.upstreamJson.trim()
+    const directBase64 = normalizeBase64(upstreamJsonStr)
+    if (directBase64) {
+      return directBase64
+    }
+    if (upstreamJsonStr.startsWith('{') || upstreamJsonStr.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(upstreamJsonStr)
+        return extractBase64FromObject(parsed)
+      } catch (error) {
+        // ignore invalid JSON
+      }
+    }
+  }
+  return ''
+}
+
+const base64ToBytes = (base64) => {
+  const binary = window.atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+const bytesToWordBlob = (bytes) => {
+  const normalized = normalizeZipBytes(bytes)
+  if (!(normalized instanceof Uint8Array) || normalized.length === 0) {
+    return null
+  }
+  return new Blob([normalized], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  })
+}
+
+const base64ToWordBlob = (base64) => {
+  try {
+    const bytes = base64ToBytes(base64)
+    const strictBlob = bytesToWordBlob(bytes)
+    if (strictBlob) {
+      return strictBlob
+    }
+    if (bytes instanceof Uint8Array && bytes.length > 0) {
+      // Fallback: if header detection fails but base64 is decodable, still download for inspection.
+      return new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      })
+    }
+    return null
+  } catch (error) {
+    return null
+  }
+}
+
+const parseContentFieldToBytes = (content) => {
+  if (typeof content !== 'string') {
+    return new Uint8Array(0)
+  }
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return new Uint8Array(0)
+  }
+  const py = parsePythonBytesLiteral(trimmed)
+  if (py && py.length > 0) {
+    return py
+  }
+  const pyDeescaped = parsePythonBytesLiteral(deescapeForPythonBytesParsing(trimmed))
+  if (pyDeescaped && pyDeescaped.length > 0) {
+    return pyDeescaped
+  }
+  const fromLoose = extractPythonBytesFromLooseText(trimmed)
+  if (fromLoose.length > 0) {
+    return fromLoose
+  }
+  const escaped = parseEscapedBytesText(trimmed)
+  if (escaped && escaped.length > 0) {
+    return escaped
+  }
+  const escapedDeescaped = parseEscapedBytesText(deescapeForPythonBytesParsing(trimmed))
+  if (escapedDeescaped && escapedDeescaped.length > 0) {
+    return escapedDeescaped
+  }
+  const b64 = normalizeBase64(trimmed)
+  if (b64) {
+    try {
+      return base64ToBytes(b64)
+    } catch (error) {
+      // ignore
+    }
+  }
+  return new Uint8Array(0)
+}
+
+const extractBlobFromSseEvents = (upstreamJson) => {
+  if (!upstreamJson || upstreamJson.isSse !== true || !Array.isArray(upstreamJson.events)) {
+    return null
+  }
+  const chunks = []
+  for (const event of upstreamJson.events) {
+    const candidates = []
+    if (typeof event === 'string') {
+      const text = event.trim()
+      if (text) {
+        candidates.push(text)
+        if (text.startsWith('data:')) {
+          candidates.push(text.slice(5).trim())
+        }
+      }
+    } else if (event && typeof event === 'object') {
+      candidates.push(event.content)
+      try {
+        candidates.push(JSON.stringify(event))
+      } catch (error) {
+        // ignore stringify error
+      }
+    }
+    for (const candidate of candidates) {
+      const bytes = parseContentFieldToBytes(candidate)
+      if (bytes.length > 0) {
+        chunks.push(bytes)
+        break
+      }
+    }
+  }
+  if (chunks.length === 0) {
+    return null
+  }
+  return bytesToWordBlob(concatUint8Arrays(chunks))
+}
+
+const extractAcceptanceReportBlob = (data) => {
+  const fromSse = extractBlobFromSseEvents(data?.upstreamJson)
+  if (fromSse) {
+    return fromSse
+  }
+
+  const pythonRawBytes = extractPythonBytesFromNode(data?.upstreamRaw)
+  if (pythonRawBytes.length > 0) {
+    return bytesToWordBlob(pythonRawBytes)
+  }
+
+  const pythonJsonBytes = extractPythonBytesFromNode(data?.upstreamJson)
+  if (pythonJsonBytes.length > 0) {
+    return bytesToWordBlob(pythonJsonBytes)
+  }
+
+  const reportBase64 = extractAcceptanceReportBase64(data)
+  if (!reportBase64) {
+    return null
+  }
+  return base64ToWordBlob(reportBase64)
+}
+
+const resolvePrimaryReportBlob = (result) => {
+  const data = result?.data || {}
+  const primaryBase64 = normalizeBase64(data?.reportBase64 || data?.docxBase64 || result?.reportBase64 || result?.docxBase64 || '')
+  if (!primaryBase64) {
+    return { blob: null, reason: 'no_file_content' }
+  }
+  const blob = base64ToWordBlob(primaryBase64)
+  if (!blob) {
+    return { blob: null, reason: 'invalid_base64' }
+  }
+  return { blob, reason: '' }
+}
+
+const trimLogText = (value, max = 3000) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+  const text = value.trim()
+  if (text.length <= max) {
+    return text
+  }
+  return `${text.slice(0, max)}...(truncated, total=${text.length})`
+}
+
+const logAcceptanceReportDebug = (stage, data) => {
+  try {
+    const raw = typeof data?.upstreamRaw === 'string' ? data.upstreamRaw : ''
+    const sseLines = raw
+      ? raw.split(/\r?\n/).map(line => line.trim()).filter(line => line.startsWith('data:'))
+      : []
+    console.groupCollapsed(`[acceptance-report] ${stage}`)
+    console.info('upstreamRaw.length:', raw.length)
+    console.info('upstreamRaw.preview:', trimLogText(raw, 8000))
+    console.info('upstreamJson:', data?.upstreamJson)
+    const sseEventCount = data?.upstreamJson?.isSse === true && Array.isArray(data?.upstreamJson?.events)
+      ? data.upstreamJson.events.length
+      : 0
+    console.info('sseEventCount:', sseEventCount)
+    if (sseLines.length > 0) {
+      console.info('sseDataLines:', sseLines.map(line => trimLogText(line, 2000)))
+    }
+    console.groupEnd()
+  } catch (error) {
+    console.warn('[acceptance-report] debug log failed:', error)
+  }
+}
+
+const triggerReportDownload = (blob, filename) => {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+const buildToolMailErrorMessage = (rawMessage) => {
+  const message = (rawMessage || '').toString().trim()
+  const lower = message.toLowerCase()
+  if (!message) {
+    return '邮件发送失败：请稍后重试'
+  }
+  if (message.includes('tool.mail.from-address') || message.includes('tool.mail.auth-code') || message.includes('占位值')) {
+    return '邮件发送失败：邮件配置缺失，请联系管理员补全发件配置'
+  }
+  if (lower.includes('stage=auth') || lower.includes('authentication failed') || lower.includes('535')) {
+    return '邮件发送失败：邮箱认证失败，请检查客户端专用密码'
+  }
+  if (lower.includes('stage=connect')
+    || lower.includes('timed out')
+    || lower.includes('connection refused')
+    || lower.includes('unknownhost')
+    || lower.includes('nodename nor servname')) {
+    return '邮件发送失败：SMTP 连接异常，请稍后重试或联系管理员检查网络'
+  }
+  if (message.startsWith('邮件发送失败')) {
+    return message
+  }
+  return `邮件发送失败：${message}`
+}
+
+const handleSendToolMail = async () => {
+  if (!toolEmail.value) {
+    showToast('请输入邮件地址', false)
+    return
+  }
+  if (!isValidEmail(toolEmail.value)) {
+    showToast('邮箱格式不正确，请重新输入', false)
+    return
+  }
+  if (!chatId.value) {
+    showToast('未获取到当前群聊ID，无法发送邮件', false)
+    return
+  }
+
+  let ccList = []
+  try {
+    ccList = parseCcEmailsInput(toolCcEmails.value, true)
+  } catch (error) {
+    showToast(error?.message || '抄送邮箱格式不正确', false)
+    return
+  }
+
+  toolMailSubmitting.value = true
+  try {
+    const payload = {
+      toEmail: toolEmail.value,
+      ccEmails: formatCcEmailList(ccList),
+      customerName: customerData.value?.name || '',
+      latestVersion: latestVersion.value || '',
+      extChatId: chatId.value
+    }
+    const result = await docApi.sendToolMail(payload)
+    if (result?.success) {
+      const data = result?.data || {}
+      const attached = Array.isArray(data.attachedAttachments) ? data.attachedAttachments : []
+      const skipped = Array.isArray(data.skippedAttachments) ? data.skippedAttachments : []
+      const warning = data.warningMessage || ''
+      const resolvedProduct = data.resolvedProduct || ''
+      const appliedCc = Array.isArray(data.ccEmails) ? data.ccEmails : ccList
+
+      let message = '邮件发送成功'
+      if (attached.length > 0) {
+        message = `邮件发送成功，已附带 ${attached.join('、')}`
+      } else if (resolvedProduct === 'DataEase') {
+        message = '邮件发送成功（当前产品无需附件）'
+      } else if (warning) {
+        message = `邮件发送成功（${warning}）`
+      }
+      if (skipped.length > 0) {
+        message += `；缺失已跳过：${skipped.join('、')}`
+      }
+      if (appliedCc.length > 0) {
+        message += `；抄送 ${appliedCc.length} 个邮箱`
+      }
+      showToast(message, true)
+      return
+    }
+    showToast(buildToolMailErrorMessage(result?.message || result?.errmsg), false)
+  } catch (error) {
+    showToast(buildToolMailErrorMessage(error?.message || error), false)
+  } finally {
+    toolMailSubmitting.value = false
+  }
+}
+
+const handleGetAcceptanceReport = async () => {
+  if (!chatId.value) {
+    showToast('未获取到当前群聊ID，无法获取验收报告', false)
+    return
+  }
+
+  toolReportSubmitting.value = true
+  try {
+    const payload = {
+      extChatId: chatId.value
+    }
+    const result = await docApi.getAcceptanceReport(payload)
+    if (result?.success) {
+      const responseData = result?.data || {}
+      const primary = resolvePrimaryReportBlob(result)
+      let wordBlob = primary.blob
+      if (!wordBlob) {
+        wordBlob = extractAcceptanceReportBlob(responseData)
+      }
+      if (!wordBlob && result && result !== responseData) {
+        wordBlob = extractAcceptanceReportBlob(result)
+      }
+      if (!wordBlob) {
+        logAcceptanceReportDebug('parse-failed', {
+          ...responseData,
+          __rawResult: result
+        })
+        if (primary.reason === 'no_file_content') {
+          showToast('获取验收报告失败: 无文件内容', false)
+        } else if (primary.reason === 'invalid_base64') {
+          showToast('获取验收报告失败: Base64 文件流无效', false)
+        } else {
+          showToast('获取验收报告失败: 文件写入失败', false)
+        }
+        return
+      }
+      const filename = buildReportDownloadName(result, chatId.value)
+      triggerReportDownload(wordBlob, filename)
+      logAcceptanceReportDebug('download-success', responseData)
+      showToast('验收报告获取成功，已下载 Word', true)
+      return
+    }
+    showToast(result?.message || result?.errmsg || '获取验收报告失败', false)
+  } catch (error) {
+    showToast('获取验收报告失败: ' + (error?.message || error), false)
+  } finally {
+    toolReportSubmitting.value = false
+  }
+}
+
 
 const generateNonceStr = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
@@ -916,6 +1919,7 @@ const registerWxWork = async () => {
 }
 
 const getCustomerData = async (extChatId) => {
+  customerDataLoading.value = true
   try {
     const res = await docApi.getCustomerData(extChatId)
     if (res.success) {
@@ -927,6 +1931,8 @@ const getCustomerData = async (extChatId) => {
   } catch (err) {
     showToast('获取客户数据异常：' + (err.message || err), false)
     customerData.value = {}
+  } finally {
+    customerDataLoading.value = false
   }
 }
 
@@ -1257,18 +2263,72 @@ const translateDeploymentMethod = (method) => {
   return methodMap[method?.toLowerCase()] || method || '-'
 }
 
-const latestVersion = computed(() => {
-  if (maintenanceRecords.value.length === 0) return ''
-  const latest = maintenanceRecords.value[0]
-  const version = latest?.version || ''
-  if (!version) return ''
+const parseRecordTimestamp = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return Number.NaN
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return Number.NaN
+    }
+    // 兼容秒级/毫秒级时间戳
+    return value < 1e12 ? value * 1000 : value
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) {
+      return Number.NaN
+    }
+    if (/^\d+$/.test(text)) {
+      const numeric = Number(text)
+      if (!Number.isFinite(numeric)) {
+        return Number.NaN
+      }
+      return numeric < 1e12 ? numeric * 1000 : numeric
+    }
+    const parsed = Date.parse(text)
+    return Number.isNaN(parsed) ? Number.NaN : parsed
+  }
+  return Number.NaN
+}
+
+const getLatestTimestampFromRecord = (record, fields = []) => {
+  for (const field of fields) {
+    const timestamp = parseRecordTimestamp(record?.[field])
+    if (Number.isFinite(timestamp)) {
+      return timestamp
+    }
+  }
+  return 0
+}
+
+const compareVersionCore = (leftVersion, rightVersion) => {
+  const left = (leftVersion || '').match(/v?(\d+)\.(\d+)\.(\d+)/i)
+  const right = (rightVersion || '').match(/v?(\d+)\.(\d+)\.(\d+)/i)
+
+  if (!left && !right) return 0
+  if (left && !right) return 1
+  if (!left && right) return -1
+
+  const leftParts = [Number(left[1]), Number(left[2]), Number(left[3])]
+  const rightParts = [Number(right[1]), Number(right[2]), Number(right[3])]
+  for (let i = 0; i < leftParts.length; i += 1) {
+    if (leftParts[i] > rightParts[i]) return 1
+    if (leftParts[i] < rightParts[i]) return -1
+  }
+  return 0
+}
+
+const formatBadgeVersion = (version) => {
+  const text = version || ''
+  if (!text) return ''
 
   // 提取纯版本号 (如 v3.5.7 或 3.5.7)
-  const versionMatch = version.match(/v?(\d+\.\d+\.\d+)/)
-  const versionNum = versionMatch ? `v${versionMatch[1]}` : version
+  const versionMatch = text.match(/v?(\d+\.\d+\.\d+)/i)
+  const versionNum = versionMatch ? `v${versionMatch[1]}` : text
 
   // 判断架构类型
-  const lowerVersion = version.toLowerCase()
+  const lowerVersion = text.toLowerCase()
   if (lowerVersion.includes('arm')) {
     return `${versionNum}-arm64`
   } else if (lowerVersion.includes('x86') || lowerVersion.includes('amd')) {
@@ -1276,6 +2336,66 @@ const latestVersion = computed(() => {
   }
   // 纯版本号，不加架构后缀
   return versionNum
+}
+
+const latestVersion = computed(() => {
+  const candidates = []
+
+  maintenanceRecords.value.forEach((record, index) => {
+    if (!record?.version) return
+    candidates.push({
+      version: record.version,
+      timestamp: getLatestTimestampFromRecord(record, ['deploymentTime', 'createTime']),
+      order: index
+    })
+  })
+
+  const baseOrder = candidates.length
+  serviceRecords.value.forEach((record, index) => {
+    if (!record?.maintenanceVersion) return
+    candidates.push({
+      version: record.maintenanceVersion,
+      timestamp: getLatestTimestampFromRecord(record, ['maintenanceTime', 'createTime']),
+      order: baseOrder + index
+    })
+  })
+
+  if (candidates.length === 0) return ''
+
+  const latest = candidates.reduce((best, current) => {
+    if (!best) return current
+    if (current.timestamp > best.timestamp) return current
+    if (current.timestamp < best.timestamp) return best
+
+    const versionCompare = compareVersionCore(current.version, best.version)
+    if (versionCompare > 0) return current
+    if (versionCompare < 0) return best
+
+    return current.order < best.order ? current : best
+  }, null)
+
+  return formatBadgeVersion(latest?.version || '')
+})
+
+const versionBadgeText = computed(() => {
+  if (latestVersion.value) {
+    return latestVersion.value
+  }
+  if (maintenanceLoading.value || serviceLoading.value) {
+    return ''
+  }
+  return '请补充实施'
+})
+
+const customerDisplayName = computed(() => {
+  if (customerDataLoading.value) {
+    return '-'
+  }
+  return customerData.value?.name || '客户信息待补全'
+})
+
+const showCustomerDataCompletionGuide = computed(() => {
+  return chatId.value && !customerDataLoading.value && !customerData.value?.name
 })
 
 const ticketStatusMap = {
@@ -1439,14 +2559,11 @@ const getLogActionClass = (action) => {
   return ''
 }
 
-// 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
-const LOCAL_DEBUG_CHAT = false
-const DEBUG_CHAT_ID = 'wrVkCUDAAAUhda0surI_P9YfNkbCoEvw'
-
 const loadChatData = async (targetChatId) => {
   resetTicketViewState()
   await getCustomerData(targetChatId)
   await Promise.all([
+    loadToolMailDefaultCc(targetChatId),
     getMaintenanceRecords(targetChatId),
     getServiceRecords(targetChatId),
     getTickets(targetChatId),
@@ -1455,6 +2572,16 @@ const loadChatData = async (targetChatId) => {
   ])
   // 群聊加载时即预取版本，避免打开新增维护才开始请求
   prefetchProductVersions()
+}
+
+const loadDebugChatFallback = async (messagePrefix = '企业微信 chatID 获取失败') => {
+  const debugChatId = (DEBUG_CHAT_ID || '').trim()
+  if (!debugChatId) {
+    throw new Error(messagePrefix + '，且未配置 DEBUG_CHAT_ID')
+  }
+  chatId.value = debugChatId
+  showToast(`${messagePrefix}，已回退到调试 chatID`, false)
+  await loadChatData(chatId.value)
 }
 
 const getCurExternalChat = () => {
@@ -1481,8 +2608,12 @@ const getCurExternalChat = () => {
       async success(result) {
         try {
           // 成功回调，result.errMsg 固定格式为"方法名:ok"
-          chatId.value = result.chatId
-          await loadChatData(chatId.value)
+          chatId.value = (result.chatId || '').trim()
+          if (!chatId.value) {
+            await loadDebugChatFallback('企业微信返回的 chatID 为空')
+          } else {
+            await loadChatData(chatId.value)
+          }
         } catch (err) {
           showToast('异常：' + (err.message || err), false)
           console.error('异常:', err)
@@ -1492,28 +2623,32 @@ const getCurExternalChat = () => {
       },
       fail(result) {
         // 失败回调，通过 result.errMsg 查看失败详情
-        showToast('获取群聊 chatID 失败！' + result.errMsg, false)
-        console.error('调用失败:', result)
-        loading.value = false
+        ;(async () => {
+          try {
+            await loadDebugChatFallback('获取群聊 chatID 失败！' + result.errMsg)
+          } catch (err) {
+            showToast('获取群聊 chatID 失败！' + result.errMsg, false)
+            console.error('调用失败:', result)
+          } finally {
+            loading.value = false
+          }
+        })()
       }
     })
   } catch (err) {
-    showToast('异常：' + (err.message || err), false)
-    console.error('异常:', err)
-    loading.value = false
+    ;(async () => {
+      try {
+        await loadDebugChatFallback('获取群聊 chatID 异常')
+      } catch (fallbackErr) {
+        showToast('异常：' + (err.message || err), false)
+        console.error('异常:', err)
+      } finally {
+        loading.value = false
+      }
+    })()
   }
 }
 
-
-const copyChatId = () => {
-  if (chatId.value) {
-    navigator.clipboard.writeText(chatId.value).then(() => {
-      showToast('已复制到剪贴板', true)
-    }).catch(() => {
-      showToast('复制失败', false)
-    })
-  }
-}
 
 const userStore = useUserStore()
 
@@ -1918,6 +3053,15 @@ const submitUpdateTicket = async (action) => {
 onMounted(() => {
   userStore.checkLogin()
   registerWxWork()
+  window.addEventListener('resize', adjustToolCcTextarea)
+  adjustToolCcTextarea()
+})
 
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', adjustToolCcTextarea)
+})
+
+watch(toolCcEmails, () => {
+  adjustToolCcTextarea()
 })
 </script>

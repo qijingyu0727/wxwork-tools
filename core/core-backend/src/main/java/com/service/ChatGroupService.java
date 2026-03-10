@@ -3,6 +3,7 @@ package com.service;
 import org.springframework.stereotype.Service;
 import com.model.CustomerData;
 import com.model.MaintenanceRecord;
+import com.model.ProductVersionSnapshot;
 import com.model.ServiceRecord;
 import com.model.Ticket;
 import com.model.TicketLog;
@@ -14,6 +15,9 @@ import com.util.HttpClientUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -24,11 +28,13 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.net.UnknownHostException;
+import jakarta.annotation.Resource;
 
 @Service
 public class ChatGroupService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ChatGroupService.class);
+    private static final ZoneId ZONE_SHANGHAI = ZoneId.of("Asia/Shanghai");
 
     @Value("${cscrm.base.url:http://democenter.fit2cloud.cn:24916}")
     private String cscrmBaseUrl;
@@ -57,9 +63,16 @@ public class ChatGroupService {
     private static final List<Long> MAXKB_PRODUCT_IDS = Arrays.asList(2009L, 2013L);
     private static final List<Long> DATAEASE_PRODUCT_IDS = Arrays.asList(2003L, 2008L);
 
+    @Resource
+    private FinanceLedgerService financeLedgerService;
+
+    private static final String ACCEPTANCE_REPORT_REQUIRED_ID = "ID01lceprWXBrp";
+    private static final LocalDate ACCEPTANCE_DATE_THRESHOLD = LocalDate.of(2020, 1, 1);
+
     public CustomerData getCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
+            long totalStartNs = System.nanoTime();
             String sql = "with ticket_count as ( " +
                     "     select room_id, " +
                     "            sum(if(resolved, 0, 1)) not_resolved_ticket_count, " +
@@ -95,6 +108,7 @@ public class ChatGroupService {
                     " ) " +
                     " " +
                     " select support_client.name, " +
+                    "        group_chat.name as chat_name, " +
                     "        subscription_info.client_id, " +
                     "        subscription_info.subscription_end_date, " +
                     "        ticket_count.not_resolved_ticket_count, " +
@@ -112,23 +126,44 @@ public class ChatGroupService {
                     " left join bug_count on bug_count.room_id = group_chat.ext_chat_id " +
                     " where ext_chat_id = ?";
 
+            long baseQueryStartNs = System.nanoTime();
             var result = com.util.JdbcUtils.query(sql, extChatId);
+            long baseQueryCostMs = (System.nanoTime() - baseQueryStartNs) / 1_000_000;
             CustomerData data = new CustomerData();
 
             if (!result.isEmpty()) {
                 Object[] row = result.get(0);
-                data.setName(row[0] != null ? row[0].toString() : null);
-                data.setClientId(row[1] != null ? Long.parseLong(row[1].toString()) : null);
-                data.setSubscriptionEndDate(row[2] != null ? row[2].toString() : null);
-                data.setIsAccepted("无需验收");
-                data.setNotResolvedTicketCount(row[3] != null ? Integer.parseInt(row[3].toString()) : 0);
-                data.setAllTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
-                data.setCriticalTicketCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
-                data.setAllIssueCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
-                data.setNotResolvedIssueCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
-                data.setAllBugCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
-                data.setNotResolvedBugCount(row[9] != null ? Integer.parseInt(row[9].toString()) : 0);
+                String clientName = row[0] != null ? row[0].toString() : null;
+                data.setName(resolveCustomerName(clientName, extChatId));
+                data.setClientId(row[2] != null ? Long.parseLong(row[2].toString()) : null);
+                data.setSubscriptionEndDate(row[3] != null ? row[3].toString() : null);
+                data.setNotResolvedTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
+                data.setAllTicketCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
+                data.setCriticalTicketCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
+                data.setAllIssueCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
+                data.setNotResolvedIssueCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
+                data.setAllBugCount(row[9] != null ? Integer.parseInt(row[9].toString()) : 0);
+                data.setNotResolvedBugCount(row[10] != null ? Integer.parseInt(row[10].toString()) : 0);
+                long productMetaStartNs = System.nanoTime();
                 fillCustomerProductMeta(extChatId, data);
+                long productMetaCostMs = (System.nanoTime() - productMetaStartNs) / 1_000_000;
+
+                long acceptanceStartNs = System.nanoTime();
+                fillAcceptanceStatus(extChatId, data);
+                long acceptanceCostMs = (System.nanoTime() - acceptanceStartNs) / 1_000_000;
+
+                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, acceptanceMs={}, totalMs={}",
+                        extChatId,
+                        baseQueryCostMs,
+                        productMetaCostMs,
+                        acceptanceCostMs,
+                        (System.nanoTime() - totalStartNs) / 1_000_000);
+            } else {
+                data.setName("未知客户");
+                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs=0, acceptanceMs=0, totalMs={}",
+                        extChatId,
+                        baseQueryCostMs,
+                        (System.nanoTime() - totalStartNs) / 1_000_000);
             }
 
             return data;
@@ -137,15 +172,122 @@ public class ChatGroupService {
         }
     }
 
+    private String resolveCustomerName(String clientName, String extChatId) {
+        String resolvedClientName = sanitizeCustomerName(clientName);
+        if (resolvedClientName != null) {
+            return resolvedClientName;
+        }
+        LOGGER.warn("getCustomerData customer name missing, extChatId={}", extChatId);
+        return null;
+    }
+
+    private String sanitizeCustomerName(String rawName) {
+        if (rawName == null) {
+            return null;
+        }
+        String value = rawName.trim();
+        if (value.isEmpty() || "-".equals(value) || "--".equals(value) || "—".equals(value)) {
+            return null;
+        }
+        return value;
+    }
+
+    private void fillAcceptanceStatus(String extChatId, CustomerData data) {
+        if (data == null) {
+            return;
+        }
+        long startNs = System.nanoTime();
+        try {
+            FinanceLedgerService.LedgerRecord ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatId(extChatId);
+            if (ledgerRecord == null) {
+                LOGGER.warn("fillAcceptanceStatus ledger not found extChatId={}, clientId={}", extChatId, data.getClientId());
+                return;
+            }
+
+            String needAcceptanceReport = ACCEPTANCE_REPORT_REQUIRED_ID.equals(trim(ledgerRecord.getCheckAcceptReport())) ? "是" : "否";
+            String accepted = isAcceptanceDatePassed(ledgerRecord.getCheckAcceptDate()) ? "是" : "否";
+            String acceptanceStatusCode;
+            String acceptanceLabel;
+
+            if ("否".equals(needAcceptanceReport)) {
+                acceptanceStatusCode = "not_required";
+                acceptanceLabel = "无需验收";
+            } else if ("是".equals(accepted)) {
+                acceptanceStatusCode = "accepted";
+                acceptanceLabel = "已验收";
+            } else {
+                acceptanceStatusCode = "pending";
+                acceptanceLabel = "待验收";
+            }
+
+            data.setNeedAcceptanceReport(needAcceptanceReport);
+            data.setAccepted(accepted);
+            data.setAcceptanceStatusCode(acceptanceStatusCode);
+            data.setIsAccepted(acceptanceLabel);
+
+            LOGGER.info("fillAcceptanceStatus success extChatId={}, clientId={}, contractCode={}, needAcceptanceReport={}, accepted={}, acceptanceStatusCode={}",
+                    extChatId,
+                    data.getClientId(),
+                    ledgerRecord.getCode(),
+                    needAcceptanceReport,
+                    accepted,
+                    acceptanceStatusCode);
+        } catch (Exception e) {
+            LOGGER.warn("fillAcceptanceStatus failed extChatId={}, clientId={}, err={}",
+                    extChatId, data.getClientId(), e.getMessage());
+        } finally {
+            LOGGER.info("fillAcceptanceStatus timing extChatId={}, costMs={}",
+                    extChatId, (System.nanoTime() - startNs) / 1_000_000);
+        }
+    }
+
+    private boolean isAcceptanceDatePassed(Object checkAcceptDate) {
+        LocalDate date = toLocalDate(checkAcceptDate);
+        return date != null && date.isAfter(ACCEPTANCE_DATE_THRESHOLD);
+    }
+
+    private LocalDate toLocalDate(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toLocalDateTime().toLocalDate();
+        }
+        if (value instanceof java.sql.Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        if (value instanceof java.util.Date utilDate) {
+            return Instant.ofEpochMilli(utilDate.getTime()).atZone(ZONE_SHANGHAI).toLocalDate();
+        }
+        String text = trim(String.valueOf(value));
+        if (text.isEmpty()) {
+            return null;
+        }
+        if (text.length() >= 10) {
+            text = text.substring(0, 10);
+        }
+        try {
+            return LocalDate.parse(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     // 补齐客户产品/区域信息（优先订阅数据，次选群聊产品映射，再次选维护记录）
     private void fillCustomerProductMeta(String extChatId, CustomerData data) {
         if (data == null) {
             return;
         }
+        long startNs = System.nanoTime();
         LOGGER.info("fillCustomerProductMeta start extChatId={}, clientId={}", extChatId, data.getClientId());
 
         // 1) 如果 productId 为空，按群聊名称映射产品再去 support_product_service 取 product_id
         if (data.getProductId() == null) {
+            long stepStartNs = System.nanoTime();
             try {
                 String productSql = "WITH chat_product AS ( " +
                         "    SELECT CASE " +
@@ -170,11 +312,15 @@ public class ChatGroupService {
                 }
             } catch (Exception ignored) {
                 // 忽略并继续兜底
+            } finally {
+                LOGGER.info("fillCustomerProductMeta timing extChatId={}, step=chatNameProduct, costMs={}",
+                        extChatId, (System.nanoTime() - stepStartNs) / 1_000_000);
             }
         }
 
         // 2) 如果 productId 仍为空，从该群实时工单记录里的 product 名称反查 product_id
         if (data.getProductId() == null) {
+            long stepStartNs = System.nanoTime();
             try {
                 String ticketProductSql = "SELECT cat.product " +
                         "FROM chat_analysis_tickets cat " +
@@ -201,11 +347,15 @@ public class ChatGroupService {
                 }
             } catch (Exception ignored) {
                 // 忽略并继续兜底
+            } finally {
+                LOGGER.info("fillCustomerProductMeta timing extChatId={}, step=ticketProduct, costMs={}",
+                        extChatId, (System.nanoTime() - stepStartNs) / 1_000_000);
             }
         }
 
         // 3) regionId 兜底取最近维护记录
         if ((data.getRegionId() == null || data.getRegionId().isEmpty()) && data.getClientId() != null) {
+            long stepStartNs = System.nanoTime();
             try {
                 String regionSql = "SELECT smr.region_id " +
                         "FROM support_maintenance_record smr " +
@@ -218,10 +368,13 @@ public class ChatGroupService {
                 }
             } catch (Exception ignored) {
                 // 忽略兜底失败
+            } finally {
+                LOGGER.info("fillCustomerProductMeta timing extChatId={}, step=regionFallback, costMs={}",
+                        extChatId, (System.nanoTime() - stepStartNs) / 1_000_000);
             }
         }
-        LOGGER.info("fillCustomerProductMeta done extChatId={}, productId={}, regionId={}",
-                extChatId, data.getProductId(), data.getRegionId());
+        LOGGER.info("fillCustomerProductMeta done extChatId={}, productId={}, regionId={}, totalMs={}",
+                extChatId, data.getProductId(), data.getRegionId(), (System.nanoTime() - startNs) / 1_000_000);
     }
 
     // 通用的获取工单方法
@@ -1017,6 +1170,194 @@ public class ChatGroupService {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    public ProductVersionSnapshot getProductVersionSnapshot(String extChatId) {
+        ProductVersionSnapshot snapshot = new ProductVersionSnapshot();
+        if (extChatId == null || extChatId.isEmpty()) {
+            return snapshot;
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String aliasCode = getProductAliasByExtChatId(extChatId);
+            String productAlias = toStandardProductAlias(aliasCode);
+            snapshot.setProductAlias(productAlias);
+
+            VersionCandidate implementationCandidate = getLatestImplementationVersion(extChatId);
+            VersionCandidate serviceCandidate = getLatestServiceVersion(extChatId);
+
+            VersionCandidate selected = pickVersionCandidate(serviceCandidate, implementationCandidate);
+            String selectedSource = selected == serviceCandidate ? "service" : "implementation";
+            if (selected == null) {
+                selectedSource = null;
+            }
+
+            if (selected != null) {
+                snapshot.setVersion(selected.version);
+                snapshot.setVersionTs(selected.versionTs);
+                snapshot.setSource(selectedSource);
+            }
+            return snapshot;
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private String toStandardProductAlias(String aliasCode) {
+        if (aliasCode == null || aliasCode.isEmpty()) {
+            return null;
+        }
+        return switch (aliasCode) {
+            case "JS" -> "JumpServer";
+            case "MK" -> "MaxKB";
+            case "DE" -> "DataEase";
+            case "SQLBOT" -> "SQLBot";
+            default -> null;
+        };
+    }
+
+    private VersionCandidate pickVersionCandidate(VersionCandidate serviceCandidate, VersionCandidate implementationCandidate) {
+        if (serviceCandidate == null || serviceCandidate.versionTs == null) {
+            return implementationCandidate;
+        }
+        if (implementationCandidate == null || implementationCandidate.versionTs == null) {
+            return serviceCandidate;
+        }
+        if (isSameDay(serviceCandidate.versionTs, implementationCandidate.versionTs)) {
+            return serviceCandidate;
+        }
+        return implementationCandidate.versionTs > serviceCandidate.versionTs ? implementationCandidate : serviceCandidate;
+    }
+
+    private boolean isSameDay(Long a, Long b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        LocalDate ad = Instant.ofEpochMilli(a).atZone(ZONE_SHANGHAI).toLocalDate();
+        LocalDate bd = Instant.ofEpochMilli(b).atZone(ZONE_SHANGHAI).toLocalDate();
+        return ad.equals(bd);
+    }
+
+    private VersionCandidate getLatestImplementationVersion(String extChatId) {
+        String sql = "WITH chat_product AS ( " +
+                "    SELECT gc.name, " +
+                "           CASE " +
+                "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
+                "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
+                "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
+                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBOT' " +
+                "               ELSE NULL " +
+                "           END AS product " +
+                "    FROM group_chat gc " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "SELECT sm.version, COALESCE(sm.deployment_time, sm.create_time) AS version_ts " +
+                "FROM support_maintenance sm " +
+                "INNER JOIN support_subscription ss ON sm.subscription_id = ss.id " +
+                "CROSS JOIN chat_product cp " +
+                "WHERE ss.client_id IN ( " +
+                "    SELECT DISTINCT ss2.client_id " +
+                "    FROM group_chat gc " +
+                "    INNER JOIN support_subscription ss2 ON gc.name = ss2.group_chat_name " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "AND (cp.product IS NULL OR UPPER(sm.template) LIKE CONCAT('%', UPPER(cp.product), '%')) " +
+                "AND sm.version IS NOT NULL AND sm.version != '' " +
+                "ORDER BY version_ts DESC, sm.create_time DESC LIMIT 1";
+
+        var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
+        if (result.isEmpty()) {
+            return null;
+        }
+        Object[] row = result.get(0);
+        if (row[0] == null || row[1] == null) {
+            return null;
+        }
+        VersionCandidate candidate = new VersionCandidate();
+        candidate.version = row[0].toString();
+        candidate.versionTs = toLong(row[1]);
+        if (candidate.versionTs == null) {
+            return null;
+        }
+        return candidate;
+    }
+
+    private VersionCandidate getLatestServiceVersion(String extChatId) {
+        String sql = "WITH chat_product AS ( " +
+                "    SELECT gc.name, " +
+                "           CASE " +
+                "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
+                "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
+                "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
+                "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBot' " +
+                "               ELSE NULL " +
+                "           END AS product " +
+                "    FROM group_chat gc " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "SELECT smr.maintenance_version, smr.maintenance_time " +
+                "FROM support_maintenance_record smr " +
+                "CROSS JOIN chat_product cp " +
+                "WHERE smr.client_id IN ( " +
+                "    SELECT DISTINCT ss.client_id " +
+                "    FROM group_chat gc " +
+                "    INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                "    WHERE gc.ext_chat_id = ? " +
+                ") " +
+                "AND ( " +
+                "    (cp.product = 'MaxKB' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id FROM support_product_service WHERE UPPER(name) LIKE '%MAXKB%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'JumpServer' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id FROM support_product_service WHERE UPPER(name) LIKE '%JUMPSERVER%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'DataEase' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id FROM support_product_service WHERE UPPER(name) LIKE '%DATAEASE%' " +
+                "    )) " +
+                "    OR " +
+                "    (cp.product = 'SQLBot' AND smr.product_id IN ( " +
+                "        SELECT DISTINCT product_id FROM support_product_service WHERE UPPER(name) LIKE '%SQLBOT%' " +
+                "    )) " +
+                "    OR " +
+                "    smr.product_id IS NULL OR smr.product_id = 0 " +
+                ") " +
+                "AND smr.maintenance_version IS NOT NULL AND smr.maintenance_version != '' " +
+                "ORDER BY smr.maintenance_time DESC, smr.create_time DESC LIMIT 1";
+
+        var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
+        if (result.isEmpty()) {
+            return null;
+        }
+        Object[] row = result.get(0);
+        if (row[0] == null || row[1] == null) {
+            return null;
+        }
+        VersionCandidate candidate = new VersionCandidate();
+        candidate.version = row[0].toString();
+        candidate.versionTs = toLong(row[1]);
+        if (candidate.versionTs == null) {
+            return null;
+        }
+        return candidate;
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.toString());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static class VersionCandidate {
+        private String version;
+        private Long versionTs;
     }
 
     private static class VersionDescComparator implements Comparator<String> {

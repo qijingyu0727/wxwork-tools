@@ -2,14 +2,19 @@ package com.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JdbcUtils {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(JdbcUtils.class);
     private static final Properties props;
     private static final ConcurrentHashMap<String, SshTunnel> sshTunnels = new ConcurrentHashMap<>();
     private static final ThreadLocal<DatabaseConfig> currentConfig = new ThreadLocal<>();
@@ -25,6 +30,10 @@ public class JdbcUtils {
 
     public static void setCscrmConfig() {
         currentConfig.set(getCscrmDatabaseConfig());
+    }
+
+    public static void setLocalConfig() {
+        currentConfig.set(getLocalDatabaseConfig());
     }
 
     public static void setCordyscrmConfig() {
@@ -57,6 +66,16 @@ public class JdbcUtils {
         return config;
     }
 
+    public static DatabaseConfig getLocalDatabaseConfig() {
+        DatabaseConfig config = new DatabaseConfig();
+        config.setDriverClassName(props.getProperty("spring.datasource.driver-class-name"));
+        config.setUrl(props.getProperty("spring.datasource.url"));
+        config.setUsername(props.getProperty("spring.datasource.username"));
+        config.setPassword(props.getProperty("spring.datasource.password"));
+        config.setUseSshTunnel(false);
+        return config;
+    }
+
     public static DatabaseConfig getCordyscrmDatabaseConfig() {
         DatabaseConfig config = new DatabaseConfig();
         config.setDriverClassName(props.getProperty("cordyscrm.datasource.driver-class-name"));
@@ -82,6 +101,7 @@ public class JdbcUtils {
     }
 
     public static Connection getConnection(DatabaseConfig config) throws SQLException {
+        long totalStartNs = System.nanoTime();
         try {
             Class.forName(config.getDriverClassName());
         } catch (ClassNotFoundException e) {
@@ -89,28 +109,87 @@ public class JdbcUtils {
         }
 
         String url = config.getUrl();
-        
+        long tunnelCostMs = 0L;
+        boolean reusedExistingForward = false;
+
         if (config.isUseSshTunnel()) {
+            long tunnelStartNs = System.nanoTime();
             String tunnelKey = config.getSshHost() + ":" + config.getSshPort() + "->" + 
                               config.getSshLocalHost() + ":" + config.getSshLocalPort();
-            
-            SshTunnel tunnel = sshTunnels.computeIfAbsent(tunnelKey, k -> {
-                return new SshTunnel(
-                    config.getSshHost(),
-                    config.getSshPort(),
-                    config.getSshUsername(),
-                    config.getSshPrivateKeyPath(),
-                    config.getSshLocalHost(),
-                    config.getSshLocalPort(),
-                    config.getSshRemoteHost(),
-                    config.getSshRemotePort()
-                );
-            });
-            
-            url = tunnel.getTunnelUrl(url);
+            String localEndpoint = config.getSshLocalHost() + ":" + config.getSshLocalPort();
+            String originalUrl = url;
+            SshTunnel tunnel = null;
+            boolean tunnelExistsBefore = sshTunnels.containsKey(tunnelKey);
+            boolean localEndpointReachable = isPortReachable(config.getSshLocalHost(), config.getSshLocalPort(), 200);
+
+            if (localEndpointReachable) {
+                reusedExistingForward = true;
+            } else {
+                try {
+                    tunnel = sshTunnels.computeIfAbsent(tunnelKey, k -> new SshTunnel(
+                            config.getSshHost(),
+                            config.getSshPort(),
+                            config.getSshUsername(),
+                            config.getSshPrivateKeyPath(),
+                            config.getSshLocalHost(),
+                            config.getSshLocalPort(),
+                            config.getSshRemoteHost(),
+                            config.getSshRemotePort()
+                    ));
+                } catch (RuntimeException e) {
+                    if (isAddressInUseError(e) && isPortReachable(config.getSshLocalHost(), config.getSshLocalPort(), 600)) {
+                        reusedExistingForward = true;
+                        LOGGER.warn("SSH tunnel bind failed but local endpoint is reachable, reuse existing forwarding endpoint={}", localEndpoint);
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            if (tunnel != null) {
+                url = tunnel.getTunnelUrl(url);
+            }
+            if (url.equals(originalUrl)) {
+                url = originalUrl.replaceFirst("jdbc:mysql://[^/]+", "jdbc:mysql://" + localEndpoint);
+            }
+            tunnelCostMs = (System.nanoTime() - tunnelStartNs) / 1_000_000;
+            LOGGER.info("jdbc ssh timing endpoint={}, tunnelExistsBefore={}, localEndpointReachable={}, reusedExistingForward={}, tunnelMs={}",
+                    localEndpoint, tunnelExistsBefore, localEndpointReachable, reusedExistingForward, tunnelCostMs);
         }
 
-        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+        long connectStartNs = System.nanoTime();
+        Connection connection = DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+        long connectCostMs = (System.nanoTime() - connectStartNs) / 1_000_000;
+        LOGGER.info("jdbc getConnection timing useSshTunnel={}, connectMs={}, totalMs={}, url={}",
+                config.isUseSshTunnel(),
+                connectCostMs,
+                (System.nanoTime() - totalStartNs) / 1_000_000,
+                maskJdbcUrl(url));
+        return connection;
+    }
+
+    private static boolean isAddressInUseError(Throwable t) {
+        Throwable cur = t;
+        while (cur != null) {
+            String msg = cur.getMessage();
+            if (msg != null) {
+                String text = msg.toLowerCase();
+                if (text.contains("address already in use") || text.contains("cannot be bound")) {
+                    return true;
+                }
+            }
+            cur = cur.getCause();
+        }
+        return false;
+    }
+
+    private static boolean isPortReachable(String host, int port, int timeoutMs) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     public static void close(Connection conn, Statement stmt, ResultSet rs) {
@@ -142,6 +221,7 @@ public class JdbcUtils {
     }
 
     public static List<Object[]> query(DatabaseConfig config, String sql, Object... params) {
+        long startNs = System.nanoTime();
         Connection conn = null;
         PreparedStatement pstmt = null;
         ResultSet rs = null;
@@ -166,6 +246,11 @@ public class JdbcUtils {
             throw new RuntimeException("查询失败", e);
         } finally {
             close(conn, pstmt, rs);
+            LOGGER.info("jdbc query timing useSshTunnel={}, rows={}, costMs={}, sql={}",
+                    config.isUseSshTunnel(),
+                    result.size(),
+                    (System.nanoTime() - startNs) / 1_000_000,
+                    summarizeSql(sql));
         }
 
         return result;
@@ -173,6 +258,21 @@ public class JdbcUtils {
 
     public static Object queryForObject(String sql, Object... params) {
         return queryForObject(getCurrentConfig(), sql, params);
+    }
+
+    private static String summarizeSql(String sql) {
+        if (sql == null) {
+            return "";
+        }
+        String normalized = sql.replaceAll("\\s+", " ").trim();
+        return normalized.length() > 180 ? normalized.substring(0, 180) + "...(truncated)" : normalized;
+    }
+
+    private static String maskJdbcUrl(String url) {
+        if (url == null) {
+            return "";
+        }
+        return url.replaceAll("(//)([^/@]+@)?([^/?]+)", "$1***@$3");
     }
 
     public static Object queryForObject(DatabaseConfig config, String sql, Object... params) {

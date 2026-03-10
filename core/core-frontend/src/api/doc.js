@@ -61,6 +61,21 @@ export const docApi = {
   // 获取产品版本列表
   getProductVersions: (productId, extChatId) => {
     return request.get('/api/chat-group/product-versions', { params: { productId, extChatId } })
+  },
+
+  // 工具模块-发送邮件
+  sendToolMail: (data) => {
+    return request.post('/api/tools/send-mail', data)
+  },
+
+  // 工具模块-获取默认抄送邮箱
+  getMailDefaultCc: (extChatId) => {
+    return request.get('/api/tools/mail-default-cc', { params: { extChatId } })
+  },
+
+  // 工具模块-获取验收报告
+  getAcceptanceReport: (data) => {
+    return request.post('/api/tools/acceptance-report', data)
   }
 }
 
