@@ -275,7 +275,7 @@
                         ref="toolCcTextareaRef"
                         v-model.trim="toolCcEmails"
                         class="tool-email-input tool-cc-textarea"
-                        rows="1"
+                        rows="2"
                         placeholder="多个邮箱用分号 ; 隔开"
                         @input="adjustToolCcTextarea"
                       ></textarea>
@@ -850,7 +850,7 @@ import '@/styles/home.css'
 
 // 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
 const LOCAL_DEBUG_CHAT = false
-const DEBUG_CHAT_ID = 'wrVkCUDAAANWaxa2nTWPJPwOZPu2Y_IQ'
+const DEBUG_CHAT_ID = 'wrVkCUDAAATNLvGGYQM9p7PtNgJAobgQ'
 const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
 
 const corpId = ref('')
@@ -859,6 +859,7 @@ const chatId = ref('')
 const loading = ref(false)
 const customerData = ref({})
 const customerDataLoading = ref(false)
+const acceptanceStatusLoading = ref(false)
 const maintenanceRecords = ref([])
 const maintenanceLoading = ref(false)
 const serviceRecords = ref([])
@@ -884,6 +885,8 @@ const toolCcEmails = ref(DEFAULT_TOOL_MAIL_CC)
 const toolCcTextareaRef = ref(null)
 const toolMailSubmitting = ref(false)
 const toolReportSubmitting = ref(false)
+let acceptanceStatusRequestToken = 0
+let acceptanceStatusRefreshTimers = []
 
 // 需求和缺陷工单相关状态
 const issueTickets = ref([])
@@ -1029,7 +1032,8 @@ const doAdjustToolCcTextarea = () => {
   if (!textarea) return
   textarea.style.height = 'auto'
   const borderHeight = textarea.offsetHeight - textarea.clientHeight
-  textarea.style.height = `${Math.max(textarea.scrollHeight + borderHeight, 48)}px`
+  const minHeight = Number.parseFloat(window.getComputedStyle(textarea).minHeight) || 56
+  textarea.style.height = `${Math.max(textarea.scrollHeight + borderHeight, minHeight)}px`
 }
 
 const adjustToolCcTextarea = async () => {
@@ -1923,7 +1927,10 @@ const getCustomerData = async (extChatId) => {
   try {
     const res = await docApi.getCustomerData(extChatId)
     if (res.success) {
-      customerData.value = res.data
+      customerData.value = {
+        ...(customerData.value || {}),
+        ...(res.data || {})
+      }
     } else {
       showToast('获取客户数据失败：' + res.message, false)
       customerData.value = {}
@@ -1934,6 +1941,101 @@ const getCustomerData = async (extChatId) => {
   } finally {
     customerDataLoading.value = false
   }
+}
+
+const clearAcceptanceStatusFields = () => {
+  customerData.value = {
+    ...(customerData.value || {}),
+    isAccepted: '',
+    acceptanceStatusCode: '',
+    needAcceptanceReport: '',
+    accepted: ''
+  }
+}
+
+const clearAcceptanceStatusRefreshTimers = () => {
+  acceptanceStatusRefreshTimers.forEach(timer => clearTimeout(timer))
+  acceptanceStatusRefreshTimers = []
+}
+
+const hasAcceptanceStatusValue = (data) => {
+  return ['isAccepted', 'acceptanceStatusCode', 'needAcceptanceReport', 'accepted']
+    .some(key => String(data?.[key] || '').trim() !== '')
+}
+
+const isActiveAcceptanceStatusTarget = (extChatId, token) => {
+  return acceptanceStatusRequestToken === token && chatId.value === extChatId
+}
+
+const fetchAcceptanceStatus = async (extChatId, options = {}) => {
+  const {
+    preserveCurrent = false,
+    markLoading = false,
+    token = acceptanceStatusRequestToken
+  } = options
+
+  if (markLoading) {
+    acceptanceStatusLoading.value = true
+  }
+  if (!preserveCurrent) {
+    clearAcceptanceStatusFields()
+  }
+
+  try {
+    const res = await docApi.getAcceptanceStatus(extChatId)
+    if (!isActiveAcceptanceStatusTarget(extChatId, token)) {
+      return false
+    }
+    if (res.success && res.data) {
+      customerData.value = {
+        ...(customerData.value || {}),
+        ...res.data
+      }
+      return hasAcceptanceStatusValue(res.data)
+    }
+  } catch (err) {
+    // 验收状态异步加载，失败时静默降级，不阻塞首页
+    return false
+  } finally {
+    if (markLoading && isActiveAcceptanceStatusTarget(extChatId, token)) {
+      acceptanceStatusLoading.value = false
+    }
+  }
+
+  return false
+}
+
+const scheduleAcceptanceStatusFollowUp = (extChatId, token, delayMs, remainingRetries = 0) => {
+  const timer = setTimeout(async () => {
+    acceptanceStatusRefreshTimers = acceptanceStatusRefreshTimers.filter(item => item !== timer)
+    if (!isActiveAcceptanceStatusTarget(extChatId, token)) {
+      return
+    }
+    const hasStatus = await fetchAcceptanceStatus(extChatId, {
+      preserveCurrent: true,
+      markLoading: false,
+      token
+    })
+    if (!hasStatus && remainingRetries > 0 && isActiveAcceptanceStatusTarget(extChatId, token)) {
+      scheduleAcceptanceStatusFollowUp(extChatId, token, 3200, remainingRetries - 1)
+    }
+  }, delayMs)
+  acceptanceStatusRefreshTimers.push(timer)
+}
+
+const getAcceptanceStatus = async (extChatId) => {
+  acceptanceStatusRequestToken += 1
+  const token = acceptanceStatusRequestToken
+  clearAcceptanceStatusRefreshTimers()
+  const hasStatus = await fetchAcceptanceStatus(extChatId, {
+    preserveCurrent: false,
+    markLoading: true,
+    token
+  })
+  if (!isActiveAcceptanceStatusTarget(extChatId, token)) {
+    return
+  }
+  scheduleAcceptanceStatusFollowUp(extChatId, token, hasStatus ? 1500 : 1200, hasStatus ? 0 : 1)
 }
 
 const getMaintenanceRecords = async (extChatId) => {
@@ -2561,17 +2663,29 @@ const getLogActionClass = (action) => {
 
 const loadChatData = async (targetChatId) => {
   resetTicketViewState()
+  clearAcceptanceStatusFields()
+
+  const runInBackground = (task) => {
+    Promise.resolve(task).catch(() => {
+      // 后台任务的错误各自处理，这里仅避免未捕获 Promise。
+    })
+  }
+
+  runInBackground(getAcceptanceStatus(targetChatId))
+  runInBackground(loadToolMailDefaultCc(targetChatId))
+  runInBackground(getMaintenanceRecords(targetChatId))
+  runInBackground(getServiceRecords(targetChatId))
+  runInBackground((async () => {
+    await getTickets(targetChatId)
+    await Promise.all([
+      getIssueTickets(targetChatId),
+      getBugTickets(targetChatId)
+    ])
+  })())
+
   await getCustomerData(targetChatId)
-  await Promise.all([
-    loadToolMailDefaultCc(targetChatId),
-    getMaintenanceRecords(targetChatId),
-    getServiceRecords(targetChatId),
-    getTickets(targetChatId),
-    getIssueTickets(targetChatId),
-    getBugTickets(targetChatId)
-  ])
   // 群聊加载时即预取版本，避免打开新增维护才开始请求
-  prefetchProductVersions()
+  runInBackground(prefetchProductVersions())
 }
 
 const loadDebugChatFallback = async (messagePrefix = '企业微信 chatID 获取失败') => {
@@ -3059,6 +3173,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', adjustToolCcTextarea)
+  clearAcceptanceStatusRefreshTimers()
 })
 
 watch(toolCcEmails, () => {

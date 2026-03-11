@@ -13,6 +13,10 @@ export const docApi = {
     return request.get('/api/chat-group/customer-data', { params: { extChatId } })
   },
 
+  getAcceptanceStatus: (extChatId) => {
+    return request.get('/api/chat-group/acceptance-status', { params: { extChatId } })
+  },
+
   getMaintenanceRecords: (extChatId) => {
     return request.get('/api/chat-group/maintenance-records', { params: { extChatId } })
   },

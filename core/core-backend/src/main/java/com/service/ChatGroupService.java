@@ -1,6 +1,7 @@
 package com.service;
 
 import org.springframework.stereotype.Service;
+import com.model.AcceptanceStatusData;
 import com.model.CustomerData;
 import com.model.MaintenanceRecord;
 import com.model.ProductVersionSnapshot;
@@ -148,15 +149,10 @@ public class ChatGroupService {
                 fillCustomerProductMeta(extChatId, data);
                 long productMetaCostMs = (System.nanoTime() - productMetaStartNs) / 1_000_000;
 
-                long acceptanceStartNs = System.nanoTime();
-                fillAcceptanceStatus(extChatId, data);
-                long acceptanceCostMs = (System.nanoTime() - acceptanceStartNs) / 1_000_000;
-
-                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, acceptanceMs={}, totalMs={}",
+                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, acceptanceMs=0, totalMs={}",
                         extChatId,
                         baseQueryCostMs,
                         productMetaCostMs,
-                        acceptanceCostMs,
                         (System.nanoTime() - totalStartNs) / 1_000_000);
             } else {
                 data.setName("未知客户");
@@ -203,35 +199,19 @@ public class ChatGroupService {
                 LOGGER.warn("fillAcceptanceStatus ledger not found extChatId={}, clientId={}", extChatId, data.getClientId());
                 return;
             }
-
-            String needAcceptanceReport = ACCEPTANCE_REPORT_REQUIRED_ID.equals(trim(ledgerRecord.getCheckAcceptReport())) ? "是" : "否";
-            String accepted = isAcceptanceDatePassed(ledgerRecord.getCheckAcceptDate()) ? "是" : "否";
-            String acceptanceStatusCode;
-            String acceptanceLabel;
-
-            if ("否".equals(needAcceptanceReport)) {
-                acceptanceStatusCode = "not_required";
-                acceptanceLabel = "无需验收";
-            } else if ("是".equals(accepted)) {
-                acceptanceStatusCode = "accepted";
-                acceptanceLabel = "已验收";
-            } else {
-                acceptanceStatusCode = "pending";
-                acceptanceLabel = "待验收";
-            }
-
-            data.setNeedAcceptanceReport(needAcceptanceReport);
-            data.setAccepted(accepted);
-            data.setAcceptanceStatusCode(acceptanceStatusCode);
-            data.setIsAccepted(acceptanceLabel);
+            AcceptanceStatusData acceptanceStatusData = buildAcceptanceStatusData(ledgerRecord);
+            data.setNeedAcceptanceReport(acceptanceStatusData.getNeedAcceptanceReport());
+            data.setAccepted(acceptanceStatusData.getAccepted());
+            data.setAcceptanceStatusCode(acceptanceStatusData.getAcceptanceStatusCode());
+            data.setIsAccepted(acceptanceStatusData.getIsAccepted());
 
             LOGGER.info("fillAcceptanceStatus success extChatId={}, clientId={}, contractCode={}, needAcceptanceReport={}, accepted={}, acceptanceStatusCode={}",
                     extChatId,
                     data.getClientId(),
                     ledgerRecord.getCode(),
-                    needAcceptanceReport,
-                    accepted,
-                    acceptanceStatusCode);
+                    acceptanceStatusData.getNeedAcceptanceReport(),
+                    acceptanceStatusData.getAccepted(),
+                    acceptanceStatusData.getAcceptanceStatusCode());
         } catch (Exception e) {
             LOGGER.warn("fillAcceptanceStatus failed extChatId={}, clientId={}, err={}",
                     extChatId, data.getClientId(), e.getMessage());
@@ -239,6 +219,53 @@ public class ChatGroupService {
             LOGGER.info("fillAcceptanceStatus timing extChatId={}, costMs={}",
                     extChatId, (System.nanoTime() - startNs) / 1_000_000);
         }
+    }
+
+    public AcceptanceStatusData getAcceptanceStatus(String extChatId) {
+        long startNs = System.nanoTime();
+        try {
+            FinanceLedgerService.LedgerRecord ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatIdFast(extChatId);
+            AcceptanceStatusData data = buildAcceptanceStatusData(ledgerRecord);
+            LOGGER.info("getAcceptanceStatus timing extChatId={}, found={}, costMs={}",
+                    extChatId,
+                    ledgerRecord != null,
+                    (System.nanoTime() - startNs) / 1_000_000);
+            return data;
+        } catch (Exception e) {
+            LOGGER.warn("getAcceptanceStatus failed extChatId={}, costMs={}, err={}",
+                    extChatId,
+                    (System.nanoTime() - startNs) / 1_000_000,
+                    e.getMessage());
+            return new AcceptanceStatusData();
+        }
+    }
+
+    private AcceptanceStatusData buildAcceptanceStatusData(FinanceLedgerService.LedgerRecord ledgerRecord) {
+        AcceptanceStatusData data = new AcceptanceStatusData();
+        if (ledgerRecord == null) {
+            return data;
+        }
+        String needAcceptanceReport = ACCEPTANCE_REPORT_REQUIRED_ID.equals(trim(ledgerRecord.getCheckAcceptReport())) ? "是" : "否";
+        String accepted = isAcceptanceDatePassed(ledgerRecord.getCheckAcceptDate()) ? "是" : "否";
+        String acceptanceStatusCode;
+        String acceptanceLabel;
+
+        if ("否".equals(needAcceptanceReport)) {
+            acceptanceStatusCode = "not_required";
+            acceptanceLabel = "无需验收";
+        } else if ("是".equals(accepted)) {
+            acceptanceStatusCode = "accepted";
+            acceptanceLabel = "已验收";
+        } else {
+            acceptanceStatusCode = "pending";
+            acceptanceLabel = "待验收";
+        }
+
+        data.setNeedAcceptanceReport(needAcceptanceReport);
+        data.setAccepted(accepted);
+        data.setAcceptanceStatusCode(acceptanceStatusCode);
+        data.setIsAccepted(acceptanceLabel);
+        return data;
     }
 
     private boolean isAcceptanceDatePassed(Object checkAcceptDate) {

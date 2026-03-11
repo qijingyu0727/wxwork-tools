@@ -5,6 +5,10 @@ public class DatabaseConfig {
     private String url;
     private String username;
     private String password;
+    private int connectTimeoutMs;
+    private int socketTimeoutMs;
+    private int queryTimeoutSec;
+    private int sshReconnectRetryTimes;
     private boolean useSshTunnel;
     private String sshHost;
     private int sshPort;
@@ -64,6 +68,38 @@ public class DatabaseConfig {
 
     public void setUseSshTunnel(boolean useSshTunnel) {
         this.useSshTunnel = useSshTunnel;
+    }
+
+    public int getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(int connectTimeoutMs) {
+        this.connectTimeoutMs = connectTimeoutMs;
+    }
+
+    public int getSocketTimeoutMs() {
+        return socketTimeoutMs;
+    }
+
+    public void setSocketTimeoutMs(int socketTimeoutMs) {
+        this.socketTimeoutMs = socketTimeoutMs;
+    }
+
+    public int getQueryTimeoutSec() {
+        return queryTimeoutSec;
+    }
+
+    public void setQueryTimeoutSec(int queryTimeoutSec) {
+        this.queryTimeoutSec = queryTimeoutSec;
+    }
+
+    public int getSshReconnectRetryTimes() {
+        return sshReconnectRetryTimes;
+    }
+
+    public void setSshReconnectRetryTimes(int sshReconnectRetryTimes) {
+        this.sshReconnectRetryTimes = sshReconnectRetryTimes;
     }
 
     public String getSshHost() {

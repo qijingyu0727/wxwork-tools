@@ -1,8 +1,10 @@
 package com.service;
 
 import com.util.JdbcUtils;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -11,29 +13,221 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class FinanceLedgerService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FinanceLedgerService.class);
+    private final ConcurrentHashMap<String, FreshCacheEntry> freshCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LastKnownGoodCacheEntry> lastKnownGoodCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<LookupExecutionResult>> inFlightLookups = new ConcurrentHashMap<>();
+    private final ExecutorService refreshExecutor = Executors.newFixedThreadPool(2, new RefreshThreadFactory());
+
+    @Value("${cordyscrm.lookup.cache-ttl-sec:300}")
+    private long ledgerCacheTtlSec;
+
+    @Value("${cordyscrm.lookup.negative-cache-ttl-sec:30}")
+    private long negativeLedgerCacheTtlSec;
+
+    @Value("${cordyscrm.lookup.last-known-good-ttl-sec:1800}")
+    private long lastKnownGoodTtlSec;
 
     public LedgerRecord resolveLedgerRecordByExtChatId(String extChatId) {
+        return resolveLedgerRecordByExtChatId(extChatId, LookupMode.FULL);
+    }
+
+    public LedgerRecord resolveLedgerRecordByExtChatIdFast(String extChatId) {
+        return resolveLedgerRecordByExtChatId(extChatId, LookupMode.FAST);
+    }
+
+    private LedgerRecord resolveLedgerRecordByExtChatId(String extChatId, LookupMode lookupMode) {
         long startNs = System.nanoTime();
+        String cacheKey = trim(extChatId);
+        FreshCacheEntry freshEntry = getFreshCacheEntry(cacheKey);
+        LastKnownGoodCacheEntry lastKnownGoodEntry = lookupMode == LookupMode.FAST ? getLastKnownGoodCacheEntry(cacheKey) : null;
+
+        if (freshEntry != null && freshEntry.record != null && freshEntry.canServe(lookupMode)) {
+            logLookupInfo("cache_hit", cacheKey, lookupMode, startNs, freshEntry.record != null);
+            return copyLedgerRecord(freshEntry.record);
+        }
+
+        if (lookupMode == LookupMode.FAST && lastKnownGoodEntry != null) {
+            logLookupInfo("cache_stale_served", cacheKey, lookupMode, startNs, true);
+            if (freshEntry == null || freshEntry.record == null) {
+                refreshFastLookupInBackground(cacheKey, extChatId);
+            }
+            return copyLedgerRecord(lastKnownGoodEntry.record);
+        }
+
+        if (freshEntry != null && freshEntry.canServe(lookupMode)) {
+            logLookupInfo("cache_hit", cacheKey, lookupMode, startNs, false);
+            return null;
+        }
+
         try {
-            ChatFinanceContext context = resolveChatFinanceContext(extChatId);
-            LedgerRecord record = resolveLedgerRecord(context);
-            LOGGER.info("resolveLedgerRecordByExtChatId timing extChatId={}, totalMs={}, found={}",
-                    extChatId,
-                    (System.nanoTime() - startNs) / 1_000_000,
-                    record != null);
-            return record;
+            LookupExecutionResult result = executeLookupWithSingleFlight(cacheKey, extChatId, lookupMode);
+            if (lookupMode == LookupMode.FAST && result.record == null) {
+                refreshFastLookupInBackground(cacheKey, extChatId);
+                logLookupInfo("fast_lookup_miss", cacheKey, lookupMode, startNs, false);
+            } else {
+                logLookupInfo("lookup_done", cacheKey, lookupMode, startNs, result.record != null);
+            }
+            return copyLedgerRecord(result.record);
         } catch (RuntimeException e) {
-            LOGGER.warn("resolveLedgerRecordByExtChatId failed extChatId={}, totalMs={}, err={}",
-                    extChatId,
-                    (System.nanoTime() - startNs) / 1_000_000,
-                    e.getMessage());
+            if (lookupMode == LookupMode.FAST && lastKnownGoodEntry != null) {
+                logLookupWarn("cache_stale_served", cacheKey, lookupMode, startNs, e);
+                return copyLedgerRecord(lastKnownGoodEntry.record);
+            }
+            logLookupWarn(classifyLookupFailure(e, lookupMode), cacheKey, lookupMode, startNs, e);
             throw e;
         }
+    }
+
+    private FreshCacheEntry getFreshCacheEntry(String extChatId) {
+        if (extChatId.isEmpty()) {
+            return null;
+        }
+        FreshCacheEntry entry = freshCache.get(extChatId);
+        if (entry == null) {
+            return null;
+        }
+        if (entry.isExpired()) {
+            freshCache.remove(extChatId, entry);
+            return null;
+        }
+        return entry;
+    }
+
+    private LastKnownGoodCacheEntry getLastKnownGoodCacheEntry(String extChatId) {
+        if (extChatId.isEmpty()) {
+            return null;
+        }
+        LastKnownGoodCacheEntry entry = lastKnownGoodCache.get(extChatId);
+        if (entry == null) {
+            return null;
+        }
+        if (entry.isExpired()) {
+            lastKnownGoodCache.remove(extChatId, entry);
+            return null;
+        }
+        return entry;
+    }
+
+    private void putFreshCacheEntry(String extChatId, LedgerRecord record, LookupMode lookupMode) {
+        if (extChatId.isEmpty()) {
+            return;
+        }
+        if (record == null && lookupMode == LookupMode.FULL) {
+            return;
+        }
+        long ttlSec = record == null ? negativeLedgerCacheTtlSec : ledgerCacheTtlSec;
+        long ttlMs = Math.max(ttlSec, 0) * 1000L;
+        if (ttlMs <= 0) {
+            freshCache.remove(extChatId);
+            return;
+        }
+        freshCache.put(extChatId, new FreshCacheEntry(copyLedgerRecord(record), System.currentTimeMillis() + ttlMs, lookupMode));
+    }
+
+    private void putLastKnownGoodCacheEntry(String extChatId, LedgerRecord record) {
+        if (extChatId.isEmpty() || record == null) {
+            return;
+        }
+        long ttlMs = Math.max(lastKnownGoodTtlSec, 0) * 1000L;
+        if (ttlMs <= 0) {
+            lastKnownGoodCache.remove(extChatId);
+            return;
+        }
+        lastKnownGoodCache.put(extChatId, new LastKnownGoodCacheEntry(copyLedgerRecord(record), System.currentTimeMillis() + ttlMs));
+    }
+
+    private LookupExecutionResult executeLookupWithSingleFlight(String cacheKey, String extChatId, LookupMode lookupMode) {
+        String inFlightKey = cacheKey + ":" + lookupMode.name();
+        CompletableFuture<LookupExecutionResult> created = new CompletableFuture<>();
+        CompletableFuture<LookupExecutionResult> existing = inFlightLookups.putIfAbsent(inFlightKey, created);
+        if (existing != null) {
+            return joinLookupFuture(existing);
+        }
+
+        try {
+            LookupExecutionResult result = executeLookup(extChatId, lookupMode);
+            created.complete(result);
+            return result;
+        } catch (Throwable t) {
+            created.completeExceptionally(t);
+            if (t instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException("查询失败", t);
+        } finally {
+            inFlightLookups.remove(inFlightKey, created);
+        }
+    }
+
+    private LookupExecutionResult joinLookupFuture(CompletableFuture<LookupExecutionResult> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException("查询失败", cause != null ? cause : e);
+        }
+    }
+
+    private LookupExecutionResult executeLookup(String extChatId, LookupMode lookupMode) {
+        ChatFinanceContext context = resolveChatFinanceContext(extChatId);
+        LedgerRecord record = resolveLedgerRecord(context, lookupMode);
+        putFreshCacheEntry(trim(extChatId), record, lookupMode);
+        if (record != null) {
+            putLastKnownGoodCacheEntry(trim(extChatId), record);
+        }
+        return new LookupExecutionResult(copyLedgerRecord(record));
+    }
+
+    private void refreshFastLookupInBackground(String cacheKey, String extChatId) {
+        String inFlightKey = cacheKey + ":" + LookupMode.FAST.name();
+        if (inFlightLookups.containsKey(inFlightKey)) {
+            return;
+        }
+        refreshExecutor.execute(() -> {
+            try {
+                LookupExecutionResult result = executeLookupWithSingleFlight(cacheKey, extChatId, LookupMode.FAST);
+                LOGGER.info("ledger_lookup event=refresh_done extChatId={}, mode={}, found={}",
+                        cacheKey,
+                        LookupMode.FAST.name().toLowerCase(),
+                        result.record != null);
+            } catch (RuntimeException e) {
+                LOGGER.warn("ledger_lookup event=ledger_query_failed extChatId={}, mode={}, err={}",
+                        cacheKey,
+                        LookupMode.FAST.name().toLowerCase(),
+                        e.getMessage());
+            }
+        });
+    }
+
+    private LedgerRecord copyLedgerRecord(LedgerRecord source) {
+        if (source == null) {
+            return null;
+        }
+        LedgerRecord copy = new LedgerRecord();
+        copy.code = source.code;
+        copy.contractedCustomer = source.contractedCustomer;
+        copy.endCustomer = source.endCustomer;
+        copy.sku = source.sku;
+        copy.startDate = source.startDate;
+        copy.checkAcceptDate = source.checkAcceptDate;
+        copy.checkAcceptReport = source.checkAcceptReport;
+        return copy;
     }
 
     private ChatFinanceContext resolveChatFinanceContext(String extChatId) {
@@ -134,15 +328,21 @@ public class FinanceLedgerService {
         return new ArrayList<>(names);
     }
 
-    private LedgerRecord resolveLedgerRecord(ChatFinanceContext context) {
+    private LedgerRecord resolveLedgerRecord(ChatFinanceContext context, LookupMode lookupMode) {
         long startNs = System.nanoTime();
-        JdbcUtils.setCordyscrmConfig();
+        boolean allowFuzzy = lookupMode == LookupMode.FULL;
+        JdbcUtils.setConfig(lookupMode == LookupMode.FAST
+                ? JdbcUtils.getCordyscrmFastLookupDatabaseConfig()
+                : JdbcUtils.getCordyscrmDatabaseConfig());
         try {
             for (String contractNumber : context.contractNumbers) {
                 LedgerRecord byContract = queryLedgerByContractNumber(contractNumber);
                 if (byContract != null) {
-                    LOGGER.info("resolveLedgerRecord stage=contractNumber hit contractNumber={}, contractCode={}, totalMs={}",
-                            contractNumber, byContract.getCode(), (System.nanoTime() - startNs) / 1_000_000);
+                    LOGGER.info("resolveLedgerRecord stage=contractNumber hit lookupMode={}, contractNumber={}, contractCode={}, totalMs={}",
+                            lookupMode.name().toLowerCase(),
+                            contractNumber,
+                            byContract.getCode(),
+                            (System.nanoTime() - startNs) / 1_000_000);
                     return byContract;
                 }
             }
@@ -150,7 +350,8 @@ public class FinanceLedgerService {
             if (!trim(context.productAliasCode).isEmpty()) {
                 LedgerMatch exactWithProduct = queryLedgerByCustomerNames(context.customerNames, false, context.productAliasCode);
                 if (exactWithProduct != null) {
-                    LOGGER.info("resolveLedgerRecord stage=customerExactWithProduct hit customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
+                    LOGGER.info("resolveLedgerRecord stage=customerExactWithProduct hit lookupMode={}, customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
+                            lookupMode.name().toLowerCase(),
                             exactWithProduct.matchedCustomerName,
                             context.productAliasCode,
                             exactWithProduct.record.getCode(),
@@ -158,36 +359,48 @@ public class FinanceLedgerService {
                     return exactWithProduct.record;
                 }
 
-                LedgerMatch fuzzyWithProduct = queryLedgerByCustomerNames(context.customerNames, true, context.productAliasCode);
-                if (fuzzyWithProduct != null) {
-                    LOGGER.info("resolveLedgerRecord stage=customerFuzzyWithProduct hit customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
-                            fuzzyWithProduct.matchedCustomerName,
-                            context.productAliasCode,
-                            fuzzyWithProduct.record.getCode(),
-                            (System.nanoTime() - startNs) / 1_000_000);
-                    return fuzzyWithProduct.record;
+                if (allowFuzzy) {
+                    LedgerMatch fuzzyWithProduct = queryLedgerByCustomerNames(context.customerNames, true, context.productAliasCode);
+                    if (fuzzyWithProduct != null) {
+                        LOGGER.info("resolveLedgerRecord stage=customerFuzzyWithProduct hit lookupMode={}, customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
+                                lookupMode.name().toLowerCase(),
+                                fuzzyWithProduct.matchedCustomerName,
+                                context.productAliasCode,
+                                fuzzyWithProduct.record.getCode(),
+                                (System.nanoTime() - startNs) / 1_000_000);
+                        return fuzzyWithProduct.record;
+                    }
                 }
             }
 
             LedgerMatch exactFallback = queryLedgerByCustomerNames(context.customerNames, false, "");
             if (exactFallback != null) {
-                LOGGER.info("resolveLedgerRecord stage=customerExactFallback hit customerName={}, contractCode={}, totalMs={}",
+                LOGGER.info("resolveLedgerRecord stage=customerExactFallback hit lookupMode={}, customerName={}, contractCode={}, totalMs={}",
+                        lookupMode.name().toLowerCase(),
                         exactFallback.matchedCustomerName,
                         exactFallback.record.getCode(),
                         (System.nanoTime() - startNs) / 1_000_000);
                 return exactFallback.record;
             }
 
-            LedgerMatch fuzzyFallback = queryLedgerByCustomerNames(context.customerNames, true, "");
-            if (fuzzyFallback != null) {
-                LOGGER.info("resolveLedgerRecord stage=customerFuzzyFallback hit customerName={}, contractCode={}, totalMs={}",
-                        fuzzyFallback.matchedCustomerName,
-                        fuzzyFallback.record.getCode(),
-                        (System.nanoTime() - startNs) / 1_000_000);
-                return fuzzyFallback.record;
+            if (allowFuzzy) {
+                LedgerMatch fuzzyFallback = queryLedgerByCustomerNames(context.customerNames, true, "");
+                if (fuzzyFallback != null) {
+                    LOGGER.info("resolveLedgerRecord stage=customerFuzzyFallback hit lookupMode={}, customerName={}, contractCode={}, totalMs={}",
+                            lookupMode.name().toLowerCase(),
+                            fuzzyFallback.matchedCustomerName,
+                            fuzzyFallback.record.getCode(),
+                            (System.nanoTime() - startNs) / 1_000_000);
+                    return fuzzyFallback.record;
+                }
             }
-            LOGGER.warn("resolveLedgerRecord stage=miss chatName={}, contractCount={}, customerNameCount={}, productAliasCode={}, totalMs={}",
-                    context.chatName, context.contractNumbers.size(), context.customerNames.size(), context.productAliasCode,
+            LOGGER.warn("resolveLedgerRecord stage=miss chatName={}, lookupMode={}, contractCount={}, customerNameCount={}, productAliasCode={}, allowFuzzy={}, totalMs={}",
+                    context.chatName,
+                    lookupMode.name().toLowerCase(),
+                    context.contractNumbers.size(),
+                    context.customerNames.size(),
+                    context.productAliasCode,
+                    allowFuzzy,
                     (System.nanoTime() - startNs) / 1_000_000);
             return null;
         } finally {
@@ -348,6 +561,57 @@ public class FinanceLedgerService {
         };
     }
 
+    private void logLookupInfo(String event, String extChatId, LookupMode lookupMode, long startNs, boolean found) {
+        LOGGER.info("ledger_lookup event={} extChatId={}, mode={}, totalMs={}, found={}",
+                event,
+                extChatId,
+                lookupMode.name().toLowerCase(),
+                (System.nanoTime() - startNs) / 1_000_000,
+                found);
+    }
+
+    private void logLookupWarn(String event, String extChatId, LookupMode lookupMode, long startNs, Throwable error) {
+        LOGGER.warn("ledger_lookup event={} extChatId={}, mode={}, totalMs={}, err={}",
+                event,
+                extChatId,
+                lookupMode.name().toLowerCase(),
+                (System.nanoTime() - startNs) / 1_000_000,
+                error != null ? error.getMessage() : "");
+    }
+
+    private String classifyLookupFailure(Throwable error, LookupMode lookupMode) {
+        if (lookupMode == LookupMode.FAST && containsIgnoreCase(error, "timeout")) {
+            return "fast_lookup_timeout";
+        }
+        return "ledger_query_failed";
+    }
+
+    private boolean containsIgnoreCase(Throwable error, String keyword) {
+        Throwable current = error;
+        String expected = trim(keyword).toLowerCase();
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase().contains(expected)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    @PreDestroy
+    public void shutdownRefreshExecutor() {
+        refreshExecutor.shutdown();
+        try {
+            if (!refreshExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                refreshExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     private static class ChatFinanceContext {
         private String chatName;
         private List<String> contractNumbers;
@@ -363,6 +627,56 @@ public class FinanceLedgerService {
             this.record = record;
             this.matchedCustomerName = matchedCustomerName;
         }
+    }
+
+    private static class FreshCacheEntry {
+        private final LedgerRecord record;
+        private final long expiresAtMs;
+        private final LookupMode coverageMode;
+
+        private FreshCacheEntry(LedgerRecord record, long expiresAtMs, LookupMode coverageMode) {
+            this.record = record;
+            this.expiresAtMs = expiresAtMs;
+            this.coverageMode = coverageMode;
+        }
+
+        private boolean isExpired() {
+            return System.currentTimeMillis() > expiresAtMs;
+        }
+
+        private boolean canServe(LookupMode lookupMode) {
+            if (record != null) {
+                return true;
+            }
+            return lookupMode == LookupMode.FAST;
+        }
+    }
+
+    private static class LastKnownGoodCacheEntry {
+        private final LedgerRecord record;
+        private final long expiresAtMs;
+
+        private LastKnownGoodCacheEntry(LedgerRecord record, long expiresAtMs) {
+            this.record = record;
+            this.expiresAtMs = expiresAtMs;
+        }
+
+        private boolean isExpired() {
+            return System.currentTimeMillis() > expiresAtMs;
+        }
+    }
+
+    private static class LookupExecutionResult {
+        private final LedgerRecord record;
+
+        private LookupExecutionResult(LedgerRecord record) {
+            this.record = record;
+        }
+    }
+
+    private enum LookupMode {
+        FAST,
+        FULL
     }
 
     public static class LedgerRecord {
@@ -400,6 +714,17 @@ public class FinanceLedgerService {
 
         public String getCheckAcceptReport() {
             return checkAcceptReport;
+        }
+    }
+
+    private static class RefreshThreadFactory implements ThreadFactory {
+        private final AtomicInteger sequence = new AtomicInteger(1);
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "finance-ledger-refresh-" + sequence.getAndIncrement());
+            thread.setDaemon(true);
+            return thread;
         }
     }
 }

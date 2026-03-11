@@ -1,6 +1,7 @@
 package com.controller;
 
 import com.alibaba.fastjson.JSONObject;
+import com.model.AcceptanceStatusData;
 import com.model.ApiResponse;
 import com.model.CustomerData;
 import com.model.MaintenanceRecord;
@@ -56,6 +57,15 @@ public class ChatGroupController {
             return ApiResponse.success(data);
         } catch (Exception e) {
             return ApiResponse.error("获取客户数据失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/acceptance-status")
+    public ApiResponse<AcceptanceStatusData> getAcceptanceStatus(@RequestParam String extChatId) {
+        try {
+            return ApiResponse.success(chatGroupService.getAcceptanceStatus(extChatId));
+        } catch (Exception e) {
+            return ApiResponse.error("获取验收状态失败: " + e.getMessage());
         }
     }
 
