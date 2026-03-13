@@ -8,20 +8,19 @@ export const useUserStore = defineStore('user', () => {
   const isAdmin = ref(false)
 
   const checkLogin = async () => {
-    // try {
-    //   const response = await request.get('/wechat/work/login/check-login')
-    //   if (response.success) {
-    //     isLoggedIn.value = true
-    //     userInfo.value = response.data
-    //     isAdmin.value = response.data.isAdmin || false
-    //     return true
-    //   }
-    //   return false
-    // } catch (error) {
-    //   console.error('Check login failed:', error)
-    //   return false
-    // }
-    return true
+    try {
+      const response = await request.get('/wechat/work/login/check-login')
+      if (response.success) {
+        isLoggedIn.value = true
+        userInfo.value = response.data
+        isAdmin.value = response.data.isAdmin || false
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('Check login failed:', error)
+      return false
+    }
   }
 
   const logout = () => {
