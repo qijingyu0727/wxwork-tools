@@ -181,7 +181,7 @@ public class ToolService {
                 trim(acceptanceApiKey).length());
     }
 
-    public Map<String, Object> sendToolMail(SendToolMailRequest request) throws Exception {
+    public Map<String, Object> sendToolMail(SendToolMailRequest request, String loginUserId) throws Exception {
         String toEmail = request != null ? trim(request.getToEmail()) : "";
         if (toEmail.isEmpty()) {
             throw new IllegalArgumentException("目标邮箱不能为空");
@@ -196,7 +196,7 @@ public class ToolService {
         if (extChatId.isEmpty()) {
             throw new IllegalArgumentException("extChatId 不能为空");
         }
-        CcResolution ccResolution = resolveEffectiveCcResolution(extChatId, request != null ? request.getCcEmails() : "");
+        CcResolution ccResolution = resolveEffectiveCcResolution(extChatId, request != null ? request.getCcEmails() : "", loginUserId);
         List<String> ccEmails = ccResolution.finalCcEmails;
 
         String sender = trim(fromAddress);
@@ -345,6 +345,9 @@ public class ToolService {
         result.put("clientId", ccResolution.clientId);
         result.put("salesUserIds", ccResolution.salesUserIds);
         result.put("excludedSalesUserIds", ccResolution.excludedSalesUserIds);
+        result.put("loginUserId", ccResolution.loginUserId);
+        result.put("loginUserEmail", ccResolution.loginUserEmail);
+        result.put("sameDeptEmails", ccResolution.sameDeptEmails);
         result.put("fromEmail", sender);
         result.put("subject", subject);
         result.put("resolvedProduct", resolvedProduct);
@@ -365,12 +368,12 @@ public class ToolService {
         return result;
     }
 
-    public Map<String, Object> getMailDefaultCc(String extChatId) {
+    public Map<String, Object> getMailDefaultCc(String extChatId, String loginUserId) {
         String normalizedExtChatId = trim(extChatId);
         if (normalizedExtChatId.isEmpty()) {
             throw new IllegalArgumentException("extChatId 不能为空");
         }
-        CcResolution resolution = buildDefaultCcResolution(normalizedExtChatId);
+        CcResolution resolution = buildDefaultCcResolution(normalizedExtChatId, loginUserId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("defaultCcText", String.join(";", resolution.defaultCcList));
         result.put("defaultCcList", resolution.defaultCcList);
@@ -378,6 +381,9 @@ public class ToolService {
         result.put("salesUserIds", resolution.salesUserIds);
         result.put("salesEmails", resolution.salesEmails);
         result.put("excludedSalesUserIds", resolution.excludedSalesUserIds);
+        result.put("loginUserId", resolution.loginUserId);
+        result.put("loginUserEmail", resolution.loginUserEmail);
+        result.put("sameDeptEmails", resolution.sameDeptEmails);
         return result;
     }
 
@@ -1638,11 +1644,13 @@ public class ToolService {
         return "客户";
     }
 
-    private CcResolution resolveEffectiveCcResolution(String extChatId, String requestCcEmails) {
-        CcResolution resolution = buildDefaultCcResolution(extChatId);
+    private CcResolution resolveEffectiveCcResolution(String extChatId, String requestCcEmails, String loginUserId) {
+        CcResolution resolution = buildDefaultCcResolution(extChatId, loginUserId);
         String manualCcText = trim(requestCcEmails);
         if (!manualCcText.isEmpty()) {
-            resolution.finalCcEmails = parseCcInputEmails(manualCcText, "抄送邮箱");
+            LinkedHashSet<String> finalCcSet = new LinkedHashSet<>(resolution.defaultCcList);
+            finalCcSet.addAll(parseCcInputEmails(manualCcText, "抄送邮箱"));
+            resolution.finalCcEmails = new ArrayList<>(finalCcSet);
             resolution.defaultCcApplied = false;
         } else {
             resolution.finalCcEmails = new ArrayList<>(resolution.defaultCcList);
@@ -1654,7 +1662,7 @@ public class ToolService {
         return resolution;
     }
 
-    private CcResolution buildDefaultCcResolution(String extChatId) {
+    private CcResolution buildDefaultCcResolution(String extChatId, String loginUserId) {
         CcResolution resolution = new CcResolution();
         LinkedHashSet<String> ccSet = new LinkedHashSet<>();
         if (!mailCcFixedDefault.isEmpty()) {
@@ -1670,6 +1678,7 @@ public class ToolService {
 
         JdbcUtils.setCscrmConfig();
         try {
+            enrichOperatorCc(resolution, ccSet, loginUserId);
             resolution.clientId = queryLatestClientIdByExtChatId(normalizedExtChatId);
             if (resolution.clientId == null) {
                 resolution.defaultCcList = new ArrayList<>(ccSet);
@@ -1700,11 +1709,13 @@ public class ToolService {
             ccSet.addAll(salesEmails);
             resolution.defaultCcList = new ArrayList<>(ccSet);
 
-            LOGGER.info("mail default cc resolved extChatId={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, resolvedCcCount={}",
+            LOGGER.info("mail default cc resolved extChatId={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, operatorEmailPresent={}, sameDeptEmailCount={}, resolvedCcCount={}",
                     normalizedExtChatId,
                     resolution.clientId,
                     salesUserIds.size(),
                     excludedSalesUserIds.size(),
+                    !trim(resolution.loginUserEmail).isEmpty(),
+                    resolution.sameDeptEmails.size(),
                     resolution.defaultCcList.size());
             return resolution;
         } catch (Exception e) {
@@ -1715,6 +1726,25 @@ public class ToolService {
         } finally {
             JdbcUtils.clearConfig();
         }
+    }
+
+    private void enrichOperatorCc(CcResolution resolution, LinkedHashSet<String> ccSet, String loginUserId) {
+        String normalizedLoginUserId = trim(loginUserId);
+        resolution.loginUserId = normalizedLoginUserId;
+        if (normalizedLoginUserId.isEmpty()) {
+            return;
+        }
+        StaffMailContext currentUser = queryStaffMailContextByExtId(normalizedLoginUserId);
+        if (currentUser == null) {
+            return;
+        }
+        resolution.loginUserEmail = currentUser.email;
+        if (!trim(currentUser.email).isEmpty()) {
+            ccSet.add(currentUser.email);
+        }
+        List<String> sameDeptEmails = queryStaffEmailsByDeptId(currentUser.deptId);
+        resolution.sameDeptEmails = sameDeptEmails;
+        ccSet.addAll(sameDeptEmails);
     }
 
     private Long queryLatestClientIdByExtChatId(String extChatId) {
@@ -1784,6 +1814,89 @@ public class ToolService {
             }
         }
         return new ArrayList<>(emails);
+    }
+
+    private StaffMailContext queryStaffMailContextByExtId(String extId) {
+        String normalizedExtId = trim(extId);
+        if (normalizedExtId.isEmpty()) {
+            return null;
+        }
+        String sql = "SELECT s.ext_id, s.email, s.dept_ids " +
+                "FROM staff s " +
+                "WHERE s.ext_id = ? " +
+                "LIMIT 1";
+        List<Object[]> result = JdbcUtils.query(sql, normalizedExtId);
+        if (result.isEmpty()) {
+            return null;
+        }
+        Object[] row = result.get(0);
+        StaffMailContext context = new StaffMailContext();
+        context.extId = normalizedExtId;
+        context.email = normalizeEmail(row.length > 1 && row[1] != null ? row[1].toString() : "");
+        context.deptId = parseDeptId(row.length > 2 && row[2] != null ? row[2].toString() : "");
+        return context;
+    }
+
+    private List<String> queryStaffEmailsByDeptId(Long deptId) {
+        if (deptId == null) {
+            return new ArrayList<>();
+        }
+        String sql = "SELECT s.email, s.dept_ids " +
+                "FROM staff s " +
+                "WHERE s.email IS NOT NULL AND s.email != '' " +
+                "AND s.dept_ids IS NOT NULL";
+        List<Object[]> result = JdbcUtils.query(sql);
+        LinkedHashSet<String> emails = new LinkedHashSet<>();
+        for (Object[] row : result) {
+            if (row == null || row.length < 2) {
+                continue;
+            }
+            String email = normalizeEmail(row[0] != null ? row[0].toString() : "");
+            if (email.isEmpty()) {
+                continue;
+            }
+            if (deptId.equals(parseDeptId(row[1] != null ? row[1].toString() : ""))) {
+                emails.add(email);
+            }
+        }
+        return new ArrayList<>(emails);
+    }
+
+    private Long parseDeptId(String raw) {
+        String value = trim(raw);
+        if (value.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONArray array = JSONArray.parseArray(value);
+            for (int i = 0; i < array.size(); i++) {
+                Object item = array.get(i);
+                if (item == null) {
+                    continue;
+                }
+                String itemValue = trim(String.valueOf(item));
+                if (itemValue.isEmpty()) {
+                    continue;
+                }
+                try {
+                    return Long.parseLong(itemValue);
+                } catch (NumberFormatException ignored) {
+                    // ignore invalid dept id
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            LOGGER.warn("parse dept_ids failed raw={}, err={}", value, e.getMessage());
+            return null;
+        }
+    }
+
+    private String normalizeEmail(String raw) {
+        String email = trim(raw).toLowerCase(Locale.ROOT);
+        if (email.isEmpty() || !EMAIL_PATTERN.matcher(email).matches()) {
+            return "";
+        }
+        return email;
     }
 
     private List<String> parseCcInputEmails(String raw, String fieldName) {
@@ -2438,6 +2551,15 @@ public class ToolService {
         private List<String> excludedSalesUserIds = new ArrayList<>();
         private List<String> salesEmails = new ArrayList<>();
         private boolean defaultCcApplied = true;
+        private String loginUserId = "";
+        private String loginUserEmail = "";
+        private List<String> sameDeptEmails = new ArrayList<>();
+    }
+
+    private static class StaffMailContext {
+        private String extId = "";
+        private String email = "";
+        private Long deptId;
     }
 
     private static class AttachmentRule {

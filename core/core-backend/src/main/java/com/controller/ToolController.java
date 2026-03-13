@@ -6,6 +6,7 @@ import com.model.request.MailDiagnoseRequest;
 import com.model.request.SendToolMailRequest;
 import com.service.ToolService;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,12 +28,12 @@ public class ToolController {
     private ToolService toolService;
 
     @PostMapping("/send-mail")
-    public ApiResponse<Map<String, Object>> sendMail(@RequestBody SendToolMailRequest request) {
+    public ApiResponse<Map<String, Object>> sendMail(@RequestBody SendToolMailRequest request, HttpSession session) {
         try {
             if (request == null) {
                 return ApiResponse.error("请求体不能为空");
             }
-            Map<String, Object> data = toolService.sendToolMail(request);
+            Map<String, Object> data = toolService.sendToolMail(request, getLoginUserId(session));
             return ApiResponse.success(data);
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(e.getMessage());
@@ -56,9 +57,9 @@ public class ToolController {
     }
 
     @GetMapping("/mail-default-cc")
-    public ApiResponse<Map<String, Object>> mailDefaultCc(@RequestParam String extChatId) {
+    public ApiResponse<Map<String, Object>> mailDefaultCc(@RequestParam String extChatId, HttpSession session) {
         try {
-            Map<String, Object> data = toolService.getMailDefaultCc(extChatId);
+            Map<String, Object> data = toolService.getMailDefaultCc(extChatId, getLoginUserId(session));
             return ApiResponse.success(data);
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(e.getMessage());
@@ -83,5 +84,23 @@ public class ToolController {
             LOGGER.error("get acceptance report failed: {}", e.getMessage(), e);
             return ApiResponse.error("获取验收报告失败: " + e.getMessage());
         }
+    }
+
+    private String getLoginUserId(HttpSession session) {
+        if (session == null) {
+            return "";
+        }
+        Object userObj = session.getAttribute("login_user");
+        if (!(userObj instanceof com.alibaba.fastjson.JSONObject userInfo)) {
+            return "";
+        }
+        String userId = userInfo.getString("userid");
+        if (userId == null) {
+            userId = userInfo.getString("UserId");
+        }
+        if (userId == null) {
+            userId = userInfo.getString("user_id");
+        }
+        return userId == null ? "" : userId.trim();
     }
 }

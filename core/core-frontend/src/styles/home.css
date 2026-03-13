@@ -753,13 +753,14 @@
 .tool-cc-textarea {
   height: auto;
   min-height: 56px;
+  max-height: 120px;
   box-sizing: border-box;
   padding: 0.5rem 0.8125rem;
   line-height: 1.375rem;
   text-align: left;
   resize: none;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
   overflow-wrap: anywhere;
   word-break: break-word;
   vertical-align: middle;

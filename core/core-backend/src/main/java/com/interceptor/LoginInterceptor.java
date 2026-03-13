@@ -61,7 +61,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             }
         }
 
-        已登录的请求，继续处理
+        // 已登录的请求，继续处理
         return true;
     }
 }

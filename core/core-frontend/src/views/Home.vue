@@ -1037,7 +1037,10 @@ const doAdjustToolCcTextarea = () => {
   textarea.style.height = 'auto'
   const borderHeight = textarea.offsetHeight - textarea.clientHeight
   const minHeight = Number.parseFloat(window.getComputedStyle(textarea).minHeight) || 56
-  textarea.style.height = `${Math.max(textarea.scrollHeight + borderHeight, minHeight)}px`
+  const maxHeight = Number.parseFloat(window.getComputedStyle(textarea).maxHeight) || Infinity
+  const nextHeight = Math.max(textarea.scrollHeight + borderHeight, minHeight)
+  textarea.style.height = `${Math.min(nextHeight, maxHeight)}px`
+  textarea.style.overflowY = nextHeight > maxHeight ? 'auto' : 'hidden'
 }
 
 const adjustToolCcTextarea = async () => {
