@@ -54,10 +54,14 @@ public class ToolService {
     private static final Logger LOGGER = LoggerFactory.getLogger(ToolService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(\\d+)");
+    private static final Pattern DETAILED_VERSION_PATTERN = Pattern.compile("(?i)v?(\\d+(?:\\.\\d+)+)");
     private static final Pattern CONTRACT_DATE_PATTERN = Pattern.compile("20\\d{6}");
     private static final String EXTERNAL_CONFIG_PATH = "/opt/wxwork-tools/wxwork-tools.properties";
     private static final String ATTACH_RULE_PREFIX = "tool.mail.auto-attach.rule.";
+    private static final String ATTACH_LINK_RULE_PREFIX = "tool.mail.attachment-link.rule.";
     private static final String NONE_ATTACHMENT = "NONE";
+    private static final String ATTACHMENT_DELIVERY_MODE_ATTACH = "attach";
+    private static final String ATTACHMENT_DELIVERY_MODE_LINK = "link";
     private static final String DEFAULT_TOOL_MAIL_CC = "ec_cssc@fit2cloud.com";
     private static final String ACCEPTANCE_DEFAULT_URL = "https://acid.fit2cloud.cn:67/chat/api/chat_message/019cbd20-4507-79d1-8920-d7ee49baf9f2";
     private static final String ACCEPTANCE_DEFAULT_DOCX_URL = "";
@@ -79,6 +83,7 @@ public class ToolService {
     private final String authCode;
     private final String fromDisplayName;
     private final String attachmentDir;
+    private final String attachmentDeliveryMode;
     private final boolean autoAttachEnabled;
     private final int retryTimes;
     private final int smtpConnectionTimeoutMs;
@@ -99,6 +104,7 @@ public class ToolService {
     private final boolean externalConfigExists;
     private final long externalConfigLastModified;
     private final List<AttachmentRule> attachmentRules;
+    private final Map<String, String> attachmentLinksByFileName;
 
     public ToolService() {
         MailPropsContext mailCtx = loadMailProps();
@@ -132,6 +138,7 @@ public class ToolService {
         authCode = getOrDefault(mailProps, "tool.mail.auth-code", "");
         fromDisplayName = getOrDefault(mailProps, "tool.mail.from-display-name", "Fit2Cloud Support");
         attachmentDir = getOrDefault(mailProps, "tool.mail.attachment-dir", "/opt/wxwork-tools/mail-attachments");
+        attachmentDeliveryMode = normalizeAttachmentDeliveryMode(getOrDefault(mailProps, "tool.mail.attachment-delivery-mode", ATTACHMENT_DELIVERY_MODE_LINK));
         autoAttachEnabled = Boolean.parseBoolean(getOrDefault(mailProps, "tool.mail.auto-attach.enabled", "true"));
         retryTimes = Math.max(parseIntOrDefault(getOrDefault(mailProps, "tool.mail.retry-times", "1"), 1), 0);
         smtpConnectionTimeoutMs = Math.max(parseIntOrDefault(getOrDefault(mailProps, "tool.mail.smtp-connection-timeout-ms", "30000"), 30000), 1000);
@@ -149,8 +156,9 @@ public class ToolService {
         acceptanceApiKey = getOrDefault(mailProps, "tool.acceptance.api.key", "");
         acceptanceLegacyFallbackEnabled = Boolean.parseBoolean(getOrDefault(mailProps, "tool.acceptance.legacy-fallback-enabled", "true"));
         attachmentRules = loadAttachRulesFromProperties(mailProps);
+        attachmentLinksByFileName = loadAttachmentLinksFromProperties(mailProps);
 
-        LOGGER.info("tool config loaded: activeConfigSource={}, externalConfigExists={}, externalConfigLastModified={}, debug={}, logVerbose={}, fallbackOnAuthFail={}, authMechanisms={}, fromAddress={}, authCodeLength={}, authCodeHashPrefix={}, retryTimes={}, ccFixedDefaultCount={}, ccExcludeSalesUserCount={}, profiles={}, acceptanceDocxApiUrl={}, acceptanceApiUrl={}, acceptanceLegacyFallbackEnabled={}, acceptanceApiKeyLength={}",
+        LOGGER.info("tool config loaded: activeConfigSource={}, externalConfigExists={}, externalConfigLastModified={}, debug={}, logVerbose={}, fallbackOnAuthFail={}, authMechanisms={}, fromAddress={}, authCodeLength={}, authCodeHashPrefix={}, retryTimes={}, ccFixedDefaultCount={}, ccExcludeSalesUserCount={}, profiles={}, attachmentDeliveryMode={}, attachmentLinkRuleCount={}, acceptanceDocxApiUrl={}, acceptanceApiUrl={}, acceptanceLegacyFallbackEnabled={}, acceptanceApiKeyLength={}",
                 activeConfigSource,
                 externalConfigExists,
                 externalConfigLastModified,
@@ -165,6 +173,8 @@ public class ToolService {
                 mailCcFixedDefault.size(),
                 mailCcExcludeSalesUserIds.size(),
                 buildProfileSummary(),
+                attachmentDeliveryMode,
+                attachmentLinksByFileName.size(),
                 acceptanceDocxApiUrl,
                 acceptanceApiUrl,
                 acceptanceLegacyFallbackEnabled,
@@ -176,9 +186,11 @@ public class ToolService {
         if (toEmail.isEmpty()) {
             throw new IllegalArgumentException("目标邮箱不能为空");
         }
-        if (!EMAIL_PATTERN.matcher(toEmail).matches()) {
-            throw new IllegalArgumentException("目标邮箱格式不正确");
+        List<String> toEmails = parseCcInputEmails(toEmail, "目标邮箱");
+        if (toEmails.isEmpty()) {
+            throw new IllegalArgumentException("目标邮箱不能为空");
         }
+        String toEmailText = String.join(";", toEmails);
 
         String extChatId = request != null ? trim(request.getExtChatId()) : "";
         if (extChatId.isEmpty()) {
@@ -212,6 +224,8 @@ public class ToolService {
 
         List<File> filesToAttach = new ArrayList<>();
         List<String> attachedAttachments = new ArrayList<>();
+        List<String> linkedAttachments = new ArrayList<>();
+        List<String> attachmentLinks = new ArrayList<>();
         List<String> skippedAttachments = new ArrayList<>();
         String warningMessage = null;
 
@@ -222,9 +236,16 @@ public class ToolService {
                 warningMessage = "当前产品无需附件";
             } else {
                 File file = resolveAttachmentFile(matchedRule.fileName);
-                if (file.exists() && file.isFile()) {
+                String attachmentLink = resolveAttachmentLink(matchedRule.fileName);
+                if (shouldDeliverAsLink(file, attachmentLink)) {
+                    linkedAttachments.add(matchedRule.fileName);
+                    attachmentLinks.add(attachmentLink);
+                } else if (file.exists() && file.isFile()) {
                     filesToAttach.add(file);
                     attachedAttachments.add(file.getName());
+                } else if (!attachmentLink.isEmpty()) {
+                    linkedAttachments.add(matchedRule.fileName);
+                    attachmentLinks.add(attachmentLink);
                 } else {
                     skippedAttachments.add(matchedRule.fileName);
                     warningMessage = "匹配附件不存在，已跳过：" + matchedRule.fileName;
@@ -234,11 +255,12 @@ public class ToolService {
 
         String customerName = resolveCustomerName(request, extChatId);
         String subject = (resolvedProduct.isEmpty() ? "产品" : resolvedProduct) + " 环境部署交付通知";
-        String content = buildMailContent(resolvedProduct, resolvedMajorVersion, customerName, resolvedVersion);
+        MailContent content = buildMailContent(resolvedProduct, resolvedMajorVersion, customerName, resolvedVersion, linkedAttachments, attachmentLinks);
 
         List<SmtpProfile> profilesToTry = resolveProfilesToTry();
-        LOGGER.info("send tool mail start: toEmail={}, ccCount={}, defaultCcApplied={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, fromEmail={}, attachments={}, product={}, resolvedVersion={}, majorVersion={}, activeConfigSource={}, authMechanisms={}, fallbackOnAuthFail={}, profiles={}",
-                toEmail,
+        LOGGER.info("send tool mail start: toCount={}, toEmail={}, ccCount={}, defaultCcApplied={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, fromEmail={}, attachments={}, linkedAttachments={}, product={}, resolvedVersion={}, majorVersion={}, activeConfigSource={}, authMechanisms={}, fallbackOnAuthFail={}, profiles={}",
+                toEmails.size(),
+                toEmailText,
                 ccEmails.size(),
                 ccResolution.defaultCcApplied,
                 ccResolution.clientId,
@@ -246,6 +268,7 @@ public class ToolService {
                 ccResolution.excludedSalesUserIds.size(),
                 maskEmail(sender),
                 filesToAttach.size(),
+                linkedAttachments.size(),
                 resolvedProduct,
                 resolvedVersion,
                 resolvedMajorVersion,
@@ -268,7 +291,7 @@ public class ToolService {
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    sendMailOnce(mailSender, profile, sender, toEmail, ccEmails, subject, content, filesToAttach);
+                    sendMailOnce(mailSender, profile, sender, toEmails, ccEmails, subject, content.content, content.html, filesToAttach);
                     retryCount += (attempt - 1);
                     usedProfile = profile;
                     lastError = null;
@@ -279,7 +302,7 @@ public class ToolService {
                         break;
                     }
                     LOGGER.warn("send tool mail failed, retrying. profile={}, attempt={}/{}, toEmail={}, errClass={}, errMsg={}, rootClass={}, rootMsg={}, hint={}",
-                            profile.name, attempt, maxAttempts, toEmail,
+                            profile.name, attempt, maxAttempts, toEmailText,
                             e.getClass().getName(), e.getMessage(),
                             rootCauseClassName(e), rootCauseMessage(e),
                             buildAuthHint(e));
@@ -310,11 +333,12 @@ public class ToolService {
             throw new Exception(buildSendMailFailureMessage(lastError, profileErrors), lastError);
         }
 
-        LOGGER.info("tool mail sent success, profile={}, fallbackUsed={}, toEmail={}, ccCount={}, subject={}, product={}, version={}, attachments={}",
-                usedProfile.name, fallbackUsed, toEmail, ccEmails.size(), subject, resolvedProduct, resolvedVersion, attachedAttachments);
+        LOGGER.info("tool mail sent success, profile={}, fallbackUsed={}, toCount={}, toEmail={}, ccCount={}, subject={}, product={}, version={}, attachments={}, linkedAttachments={}",
+                usedProfile.name, fallbackUsed, toEmails.size(), toEmailText, ccEmails.size(), subject, resolvedProduct, resolvedVersion, attachedAttachments, linkedAttachments);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("toEmail", toEmail);
+        result.put("toEmail", toEmailText);
+        result.put("toEmails", toEmails);
         result.put("ccEmails", ccEmails);
         result.put("ccText", String.join(";", ccEmails));
         result.put("defaultCcApplied", ccResolution.defaultCcApplied);
@@ -328,6 +352,8 @@ public class ToolService {
         result.put("resolvedMajorVersion", resolvedMajorVersion);
         result.put("matchedRule", matchedRuleValue);
         result.put("attachedAttachments", attachedAttachments);
+        result.put("linkedAttachments", linkedAttachments);
+        result.put("attachmentLinks", attachmentLinks);
         result.put("skippedAttachments", skippedAttachments);
         result.put("warningMessage", warningMessage);
         result.put("retryCount", retryCount);
@@ -1452,8 +1478,9 @@ public class ToolService {
         if (!dryRun && toEmail.isEmpty()) {
             throw new IllegalArgumentException("dryRun=false 时 toEmail 不能为空");
         }
-        if (!toEmail.isEmpty() && !EMAIL_PATTERN.matcher(toEmail).matches()) {
-            throw new IllegalArgumentException("toEmail 格式不正确");
+        List<String> diagnoseToEmails = Collections.emptyList();
+        if (!toEmail.isEmpty()) {
+            diagnoseToEmails = parseCcInputEmails(toEmail, "toEmail");
         }
 
         List<SmtpProfile> profiles = resolveProfilesToTry();
@@ -1476,7 +1503,7 @@ public class ToolService {
                 if (dryRun) {
                     mailSender.testConnection();
                 } else {
-                    sendMailOnce(mailSender, profile, sender, toEmail, Collections.emptyList(), "[diagnose] SMTP connection test", "diagnose", new ArrayList<>());
+                    sendMailOnce(mailSender, profile, sender, diagnoseToEmails, Collections.emptyList(), "[diagnose] SMTP connection test", "diagnose", false, new ArrayList<>());
                 }
                 item.put("authResult", "success");
                 item.put("failureStage", "");
@@ -1514,11 +1541,13 @@ public class ToolService {
     private void sendMailOnce(JavaMailSenderImpl mailSender,
                               SmtpProfile profile,
                               String sender,
-                              String toEmail,
+                              List<String> toEmails,
                               List<String> ccEmails,
                               String subject,
                               String content,
+                              boolean htmlContent,
                               List<File> filesToAttach) throws Exception {
+        String toEmailText = toEmails == null ? "" : String.join(";", toEmails);
         if (mailLogVerbose) {
             LOGGER.info("sendMailOnce prepare: profile={}, host={}, port={}, ssl={}, starttls={}, from={}, to={}, ccCount={}, subject={}, attachmentCount={}",
                     profile.name,
@@ -1527,13 +1556,13 @@ public class ToolService {
                     profile.sslEnable,
                     profile.starttlsEnable,
                     maskEmail(sender),
-                    toEmail,
+                    toEmailText,
                     ccEmails == null ? 0 : ccEmails.size(),
                     subject,
                     filesToAttach.size());
         } else {
             LOGGER.debug("sendMailOnce prepare: profile={}, host={}, port={}, to={}, ccCount={}, attachmentCount={}",
-                    profile.name, profile.host, profile.port, toEmail, ccEmails == null ? 0 : ccEmails.size(), filesToAttach.size());
+                    profile.name, profile.host, profile.port, toEmailText, ccEmails == null ? 0 : ccEmails.size(), filesToAttach.size());
         }
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, StandardCharsets.UTF_8.name());
@@ -1544,12 +1573,12 @@ public class ToolService {
         } else {
             helper.setFrom(new InternetAddress(sender, displayName, StandardCharsets.UTF_8.name()).toString());
         }
-        helper.setTo(toEmail);
+        helper.setTo(toEmails.toArray(new String[0]));
         if (ccEmails != null && !ccEmails.isEmpty()) {
             helper.setCc(ccEmails.toArray(new String[0]));
         }
         helper.setSubject(subject);
-        helper.setText(content, false);
+        helper.setText(content, htmlContent);
 
         for (File file : filesToAttach) {
             helper.addAttachment(file.getName(), new FileSystemResource(file));
@@ -1557,9 +1586,9 @@ public class ToolService {
 
         mailSender.send(mimeMessage);
         if (mailLogVerbose) {
-            LOGGER.info("sendMailOnce success: profile={}, to={}, attachmentCount={}", profile.name, toEmail, filesToAttach.size());
+            LOGGER.info("sendMailOnce success: profile={}, to={}, attachmentCount={}", profile.name, toEmailText, filesToAttach.size());
         } else {
-            LOGGER.debug("sendMailOnce success: profile={}, to={}, attachmentCount={}", profile.name, toEmail, filesToAttach.size());
+            LOGGER.debug("sendMailOnce success: profile={}, to={}, attachmentCount={}", profile.name, toEmailText, filesToAttach.size());
         }
     }
 
@@ -1824,10 +1853,23 @@ public class ToolService {
         return values;
     }
 
-    private String buildMailContent(String productAlias,
-                                    String majorVersion,
-                                    String customerName,
-                                    String resolvedVersion) {
+    private MailContent buildMailContent(String productAlias,
+                                         String majorVersion,
+                                         String customerName,
+                                         String resolvedVersion,
+                                         List<String> linkedAttachments,
+                                         List<String> attachmentLinks) {
+        String plainText = buildMailPlainText(productAlias, majorVersion, customerName, resolvedVersion);
+        if (linkedAttachments == null || linkedAttachments.isEmpty() || attachmentLinks == null || attachmentLinks.isEmpty()) {
+            return new MailContent(plainText, false);
+        }
+        return new MailContent(buildHtmlMailContent(plainText, linkedAttachments, attachmentLinks), true);
+    }
+
+    private String buildMailPlainText(String productAlias,
+                                      String majorVersion,
+                                      String customerName,
+                                      String resolvedVersion) {
         String version = normalizeVersionDisplay(resolvedVersion, majorVersion);
         String name = trim(customerName).isEmpty() ? "客户" : trim(customerName);
 
@@ -1857,17 +1899,18 @@ public class ToolService {
 
                     %s JumpServer 环境部署交付已经完成。目前交付版本：%s
 
-                    附件中包含：
-
-                    JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
-                    JumpServer运维手册、部署方案、交付文档
-
                     以下为堡垒机的一些相关链接：
 
                     JumpServer 官方知识库：https://kb.fit2cloud.com/
                     JumpServer 更新日志请关注飞致云官网信息：https://docs.jumpserver.org/zh/v3/change_log/
                     JumpServer 系统参数说明：https://docs.jumpserver.org/zh/v3/guide/env/
                     JumpServer 官方suport门户工单地址：https://support.fit2cloud.com。
+
+                    点击下方链接，即可下载交付资料，内容包含：
+
+                    JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
+                    JumpServer运维手册、部署方案、交付文档
+
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
                     感谢您信任飞致云的产品和服务，后续有问题可随时沟通！
@@ -1880,18 +1923,19 @@ public class ToolService {
 
                     %s JumpServer 环境部署交付已经完成。目前交付版本：%s
 
-                    附件中包含：
-
-                    JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
-                    JumpServer 运维手册、部署方案、交付文档
-                    JumpServer 资产导入模版
-
                     以下为堡垒机的一些相关链接：
 
                     JumpServer 官方知识库：https://kb.fit2cloud.com/
                     JumpServer 更新日志请关注飞致云官网信息：https://docs.jumpserver.org/zh/v4/change_log/
                     JumpServer 系统参数说明：https://docs.jumpserver.org/zh/v3/guide/env/
                     JumpServer 官方suport门户工单地址：https://support.fit2cloud.com。
+
+                    点击下方链接，即可下载交付资料，内容包含：
+
+                    JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
+                    JumpServer 运维手册、部署方案、交付文档
+                    JumpServer 资产导入模版
+
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
                     感谢您信任飞致云的产品和服务，后续有问题可随时沟通！
@@ -1903,19 +1947,20 @@ public class ToolService {
                     Dear all：
 
                     %s MaxKB 环境部署交付已经完成。目前交付版本：%s
-
-                    附件中包含：
-
-                    MaxKB 部署运维手册、测试文档、常见问题文档
-                    MaxKB 问答调优手册、高级编排案例、本地部署向量模型操作手册
-
+                    
                     以下为 MaxKB 的一些相关链接：
 
                     官方文档: https://maxkb.cn/docs
                     官方论坛：https://bbs.fit2cloud.com/c/mk/11
                     认证培训中心：https://edu.fit2cloud.com/
-                    MaxKB 学习视频：飞致云开源社区的个人空间-飞致云开源社区个人主页-哔哩哔哩视频
+                    MaxKB 学习视频：https://space.bilibili.com/510493147/lists/3590204?type=season
                     专业版升级流程：https://bbp5ress1o.feishu.cn/wiki/JGqxwv9FciGInLkp0bWcq5f2nRd
+
+                    点击下方链接，即可下载交付资料，内容包含：
+
+                    MaxKB 部署运维手册、测试文档、常见问题文档
+                    MaxKB 问答调优手册、高级编排案例、本地部署向量模型操作手册
+
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
                     感谢您信任飞致云的产品和服务，后续有问题可随时沟通！
@@ -1928,18 +1973,19 @@ public class ToolService {
 
                     %s MaxKB 环境部署交付已经完成。目前交付版本：%s
 
-                    附件中包含：
-
-                    MaxKB 部署运维手册、测试文档、常见问题文档
-                    MaxKB 问答调优手册、高级编排案例、本地部署向量模型操作手册
-
                     以下为 MaxKB 的一些相关链接：
 
                     官方文档: https://maxkb.cn/docs/v2/
                     官方论坛：https://bbs.fit2cloud.com/c/mk/11
                     认证培训中心：https://edu.fit2cloud.com/
-                    MaxKB 学习视频：飞致云开源社区的个人空间-飞致云开源社区个人主页-哔哩哔哩视频
+                    MaxKB 学习视频：https://space.bilibili.com/510493147/lists/3590204?type=season
                     专业版升级流程：https://bbp5ress1o.feishu.cn/wiki/JGqxwv9FciGInLkp0bWcq5f2nRd
+
+                    点击下方链接，即可下载交付资料，内容包含：
+
+                    MaxKB 部署运维手册、测试文档、常见问题文档
+                    MaxKB 问答调优手册、高级编排案例、本地部署向量模型操作手册
+
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
                     感谢您信任飞致云的产品和服务，后续有问题可随时沟通！
@@ -1957,6 +2003,27 @@ public class ToolService {
                 """.formatted(name, trim(productAlias).isEmpty() ? "产品" : productAlias, version);
     }
 
+    private String buildHtmlMailContent(String plainText, List<String> linkedAttachments, List<String> attachmentLinks) {
+        StringBuilder html = new StringBuilder();
+        html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;font-size:14px;\">");
+        html.append("<div style=\"white-space:pre-wrap;\">").append(escapeHtml(plainText)).append("</div>");
+        html.append("<div style=\"margin-top:20px;padding:16px 18px;border:1px solid #dbe4ff;background:#f6f8ff;border-radius:14px;\">");
+        html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:8px;\">交付资料下载</div>");
+        int size = Math.min(linkedAttachments.size(), attachmentLinks.size());
+        for (int i = 0; i < size; i++) {
+            html.append("<div style=\"margin:0 0 14px 0;\">");
+            html.append("<div style=\"font-size:13px;color:#111827;margin-bottom:6px;\">")
+                    .append(escapeHtml(linkedAttachments.get(i)))
+                    .append("</div>");
+            html.append("<a href=\"")
+                    .append(escapeHtmlAttribute(attachmentLinks.get(i)))
+                    .append("\" style=\"display:inline-block;padding:10px 16px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;font-size:13px;font-weight:600;\">下载附件</a>");
+            html.append("</div>");
+        }
+        html.append("</div></div>");
+        return html.toString();
+    }
+
     private String resolveFallbackVersion(String productAlias) {
         if ("DataEase".equalsIgnoreCase(productAlias)) {
             return trim(fallbackVersionDataEase);
@@ -1971,18 +2038,23 @@ public class ToolService {
     }
 
     private String normalizeVersionDisplay(String resolvedVersion, String majorVersion) {
+        String version = trim(resolvedVersion);
+        if (!version.isEmpty()) {
+            Matcher matcher = DETAILED_VERSION_PATTERN.matcher(version);
+            if (matcher.find()) {
+                return "v" + matcher.group(1);
+            }
+            if (version.toLowerCase().startsWith("v")) {
+                return version;
+            }
+            return "v" + version;
+        }
+
         String major = trim(majorVersion);
         if (!major.isEmpty()) {
             return "v" + major;
         }
-        String version = trim(resolvedVersion);
-        if (version.isEmpty()) {
-            return "待补充";
-        }
-        if (version.toLowerCase().startsWith("v")) {
-            return version;
-        }
-        return "v" + version;
+        return "待补充";
     }
 
     private AttachmentRule matchAttachmentRule(String productAlias, String majorVersion) {
@@ -2005,6 +2077,17 @@ public class ToolService {
             throw new IllegalArgumentException("附件文件名非法: " + fileName);
         }
         return Path.of(attachmentDir, fileName).toFile();
+    }
+
+    private String resolveAttachmentLink(String fileName) {
+        return trim(attachmentLinksByFileName.get(fileName));
+    }
+
+    private boolean shouldDeliverAsLink(File file, String attachmentLink) {
+        if (attachmentLink.isEmpty()) {
+            return false;
+        }
+        return ATTACHMENT_DELIVERY_MODE_LINK.equalsIgnoreCase(attachmentDeliveryMode);
     }
 
     private String extractMajorVersion(String version) {
@@ -2222,6 +2305,63 @@ public class ToolService {
         return rules;
     }
 
+    private Map<String, String> loadAttachmentLinksFromProperties(Properties props) {
+        Map<String, IndexedAttachmentLink> indexed = new LinkedHashMap<>();
+        for (String key : props.stringPropertyNames()) {
+            if (!key.startsWith(ATTACH_LINK_RULE_PREFIX)) {
+                continue;
+            }
+            String indexText = key.substring(ATTACH_LINK_RULE_PREFIX.length());
+            int index = parseIntOrDefault(indexText, Integer.MAX_VALUE);
+            String raw = trim(props.getProperty(key));
+            if (raw.isEmpty()) {
+                continue;
+            }
+            String[] parts = raw.split("\\|", 2);
+            if (parts.length != 2) {
+                LOGGER.warn("invalid attachment link rule: key={}, value={}", key, raw);
+                continue;
+            }
+            String fileName = trim(parts[0]);
+            String url = trim(parts[1]);
+            if (fileName.isEmpty() || url.isEmpty()) {
+                LOGGER.warn("invalid attachment link rule(empty part): key={}, value={}", key, raw);
+                continue;
+            }
+            indexed.put(fileName, new IndexedAttachmentLink(index, url));
+        }
+        List<Map.Entry<String, IndexedAttachmentLink>> entries = new ArrayList<>(indexed.entrySet());
+        entries.sort(Comparator.comparingInt(entry -> entry.getValue().index));
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, IndexedAttachmentLink> entry : entries) {
+            result.put(entry.getKey(), entry.getValue().url);
+        }
+        return result;
+    }
+
+    private String normalizeAttachmentDeliveryMode(String mode) {
+        String normalized = trim(mode).toLowerCase(Locale.ROOT);
+        if (ATTACHMENT_DELIVERY_MODE_LINK.equals(normalized)) {
+            return ATTACHMENT_DELIVERY_MODE_LINK;
+        }
+        return ATTACHMENT_DELIVERY_MODE_ATTACH;
+    }
+
+    private String escapeHtml(String text) {
+        return trim(text)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
+    private String escapeHtmlAttribute(String text) {
+        return trim(text)
+                .replace("&", "&amp;")
+                .replace("\"", "&quot;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
     private String trim(String text) {
         return text == null ? "" : text.trim();
     }
@@ -2306,6 +2446,26 @@ public class ToolService {
         private String majorVersion;
         private String fileName;
         private String raw;
+    }
+
+    private static class IndexedAttachmentLink {
+        private final int index;
+        private final String url;
+
+        private IndexedAttachmentLink(int index, String url) {
+            this.index = index;
+            this.url = url;
+        }
+    }
+
+    private static class MailContent {
+        private final String content;
+        private final boolean html;
+
+        private MailContent(String content, boolean html) {
+            this.content = content;
+            this.html = html;
+        }
     }
 
     private static class SmtpProfile {

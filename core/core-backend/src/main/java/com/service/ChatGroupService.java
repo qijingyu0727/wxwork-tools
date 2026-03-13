@@ -68,7 +68,6 @@ public class ChatGroupService {
     private FinanceLedgerService financeLedgerService;
 
     private static final String ACCEPTANCE_REPORT_REQUIRED_ID = "ID01lceprWXBrp";
-    private static final LocalDate ACCEPTANCE_DATE_THRESHOLD = LocalDate.of(2020, 1, 1);
 
     public CustomerData getCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
@@ -224,11 +223,26 @@ public class ChatGroupService {
     public AcceptanceStatusData getAcceptanceStatus(String extChatId) {
         long startNs = System.nanoTime();
         try {
-            FinanceLedgerService.LedgerRecord ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatIdFast(extChatId);
+            String resolveMode = "fast";
+            FinanceLedgerService.LedgerRecord ledgerRecord;
+            try {
+                ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatIdFast(extChatId);
+                if (ledgerRecord == null) {
+                    resolveMode = "full_after_fast_miss";
+                    ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatId(extChatId);
+                }
+            } catch (Exception fastLookupError) {
+                resolveMode = "full_after_fast_error";
+                LOGGER.warn("getAcceptanceStatus fast lookup failed extChatId={}, err={}",
+                        extChatId,
+                        fastLookupError.getMessage());
+                ledgerRecord = financeLedgerService.resolveLedgerRecordByExtChatId(extChatId);
+            }
             AcceptanceStatusData data = buildAcceptanceStatusData(ledgerRecord);
-            LOGGER.info("getAcceptanceStatus timing extChatId={}, found={}, costMs={}",
+            LOGGER.info("getAcceptanceStatus timing extChatId={}, found={}, resolveMode={}, costMs={}",
                     extChatId,
                     ledgerRecord != null,
+                    resolveMode,
                     (System.nanoTime() - startNs) / 1_000_000);
             return data;
         } catch (Exception e) {
@@ -246,7 +260,7 @@ public class ChatGroupService {
             return data;
         }
         String needAcceptanceReport = ACCEPTANCE_REPORT_REQUIRED_ID.equals(trim(ledgerRecord.getCheckAcceptReport())) ? "是" : "否";
-        String accepted = isAcceptanceDatePassed(ledgerRecord.getCheckAcceptDate()) ? "是" : "否";
+        String accepted = "是".equals(trim(ledgerRecord.getCheckAccept())) ? "是" : "否";
         String acceptanceStatusCode;
         String acceptanceLabel;
 
@@ -266,38 +280,6 @@ public class ChatGroupService {
         data.setAcceptanceStatusCode(acceptanceStatusCode);
         data.setIsAccepted(acceptanceLabel);
         return data;
-    }
-
-    private boolean isAcceptanceDatePassed(Object checkAcceptDate) {
-        LocalDate date = toLocalDate(checkAcceptDate);
-        return date != null && date.isAfter(ACCEPTANCE_DATE_THRESHOLD);
-    }
-
-    private LocalDate toLocalDate(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof java.sql.Timestamp timestamp) {
-            return timestamp.toLocalDateTime().toLocalDate();
-        }
-        if (value instanceof java.sql.Date sqlDate) {
-            return sqlDate.toLocalDate();
-        }
-        if (value instanceof java.util.Date utilDate) {
-            return Instant.ofEpochMilli(utilDate.getTime()).atZone(ZONE_SHANGHAI).toLocalDate();
-        }
-        String text = trim(String.valueOf(value));
-        if (text.isEmpty()) {
-            return null;
-        }
-        if (text.length() >= 10) {
-            text = text.substring(0, 10);
-        }
-        try {
-            return LocalDate.parse(text);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     private String trim(String value) {
@@ -1212,18 +1194,10 @@ public class ChatGroupService {
             snapshot.setProductAlias(productAlias);
 
             VersionCandidate implementationCandidate = getLatestImplementationVersion(extChatId);
-            VersionCandidate serviceCandidate = getLatestServiceVersion(extChatId);
-
-            VersionCandidate selected = pickVersionCandidate(serviceCandidate, implementationCandidate);
-            String selectedSource = selected == serviceCandidate ? "service" : "implementation";
-            if (selected == null) {
-                selectedSource = null;
-            }
-
-            if (selected != null) {
-                snapshot.setVersion(selected.version);
-                snapshot.setVersionTs(selected.versionTs);
-                snapshot.setSource(selectedSource);
+            if (implementationCandidate != null) {
+                snapshot.setVersion(implementationCandidate.version);
+                snapshot.setVersionTs(implementationCandidate.versionTs);
+                snapshot.setSource("implementation");
             }
             return snapshot;
         } finally {

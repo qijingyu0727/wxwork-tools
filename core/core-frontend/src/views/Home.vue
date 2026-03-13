@@ -264,9 +264,9 @@
                     <div class="tool-form-row">
                       <input
                         v-model.trim="toolEmail"
-                        type="email"
+                        type="text"
                         class="tool-email-input"
-                        placeholder="客户邮箱"
+                        placeholder="多个邮箱用分号 ; 或逗号 , 隔开"
                       />
                     </div>
 
@@ -850,7 +850,7 @@ import '@/styles/home.css'
 
 // 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
 const LOCAL_DEBUG_CHAT = false
-const DEBUG_CHAT_ID = 'wrVkCUDAAATNLvGGYQM9p7PtNgJAobgQ'
+const DEBUG_CHAT_ID = ''
 const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
 
 const corpId = ref('')
@@ -978,7 +978,7 @@ const splitEmailParts = (value) => {
     .filter(Boolean)
 }
 
-const normalizeCcEmailList = (emails) => {
+const normalizeEmailList = (emails) => {
   const deduped = []
   const seen = new Set()
   ;(emails || []).forEach((item) => {
@@ -991,20 +991,24 @@ const normalizeCcEmailList = (emails) => {
 }
 
 const formatCcEmailList = (emails) => {
-  return normalizeCcEmailList(emails).join(';')
+  return normalizeEmailList(emails).join(';')
 }
 
-const parseCcEmailsInput = (value, allowEmpty = true) => {
+const parseEmailInput = (value, fieldLabel, allowEmpty = true) => {
   const parts = splitEmailParts(value)
   if (parts.length === 0) {
     if (allowEmpty) return []
-    throw new Error('请输入抄送邮箱')
+    throw new Error(`请输入${fieldLabel}`)
   }
   const invalid = parts.find(item => !isValidEmail(item))
   if (invalid) {
-    throw new Error(`抄送邮箱格式不正确：${invalid}`)
+    throw new Error(`${fieldLabel}格式不正确：${invalid}`)
   }
-  return normalizeCcEmailList(parts)
+  return normalizeEmailList(parts)
+}
+
+const parseCcEmailsInput = (value, allowEmpty = true) => {
+  return parseEmailInput(value, '抄送邮箱', allowEmpty)
 }
 
 const loadToolMailDefaultCc = async (extChatId) => {
@@ -1738,6 +1742,7 @@ const buildToolMailErrorMessage = (rawMessage) => {
   }
   if (lower.includes('stage=connect')
     || lower.includes('timed out')
+    || lower.includes('timeout of')
     || lower.includes('connection refused')
     || lower.includes('unknownhost')
     || lower.includes('nodename nor servname')) {
@@ -1750,16 +1755,16 @@ const buildToolMailErrorMessage = (rawMessage) => {
 }
 
 const handleSendToolMail = async () => {
-  if (!toolEmail.value) {
-    showToast('请输入邮件地址', false)
-    return
-  }
-  if (!isValidEmail(toolEmail.value)) {
-    showToast('邮箱格式不正确，请重新输入', false)
-    return
-  }
   if (!chatId.value) {
     showToast('未获取到当前群聊ID，无法发送邮件', false)
+    return
+  }
+
+  let toList = []
+  try {
+    toList = parseEmailInput(toolEmail.value, '收件邮箱', false)
+  } catch (error) {
+    showToast(error?.message || '收件邮箱格式不正确', false)
     return
   }
 
@@ -1774,7 +1779,7 @@ const handleSendToolMail = async () => {
   toolMailSubmitting.value = true
   try {
     const payload = {
-      toEmail: toolEmail.value,
+      toEmail: formatCcEmailList(toList),
       ccEmails: formatCcEmailList(ccList),
       customerName: customerData.value?.name || '',
       latestVersion: latestVersion.value || '',
@@ -1784,14 +1789,21 @@ const handleSendToolMail = async () => {
     if (result?.success) {
       const data = result?.data || {}
       const attached = Array.isArray(data.attachedAttachments) ? data.attachedAttachments : []
+      const linked = Array.isArray(data.linkedAttachments) ? data.linkedAttachments : []
       const skipped = Array.isArray(data.skippedAttachments) ? data.skippedAttachments : []
       const warning = data.warningMessage || ''
       const resolvedProduct = data.resolvedProduct || ''
+      const appliedTo = Array.isArray(data.toEmails) ? data.toEmails : toList
       const appliedCc = Array.isArray(data.ccEmails) ? data.ccEmails : ccList
 
       let message = '邮件发送成功'
       if (attached.length > 0) {
         message = `邮件发送成功，已附带 ${attached.join('、')}`
+        if (linked.length > 0) {
+          message += `；已写入下载按钮 ${linked.join('、')}`
+        }
+      } else if (linked.length > 0) {
+        message = `邮件发送成功，已写入下载按钮 ${linked.join('、')}`
       } else if (resolvedProduct === 'DataEase') {
         message = '邮件发送成功（当前产品无需附件）'
       } else if (warning) {
@@ -1799,6 +1811,9 @@ const handleSendToolMail = async () => {
       }
       if (skipped.length > 0) {
         message += `；缺失已跳过：${skipped.join('、')}`
+      }
+      if (appliedTo.length > 1) {
+        message += `；收件 ${appliedTo.length} 个邮箱`
       }
       if (appliedCc.length > 0) {
         message += `；抄送 ${appliedCc.length} 个邮箱`

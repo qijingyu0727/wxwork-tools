@@ -69,7 +69,7 @@ export const docApi = {
 
   // 工具模块-发送邮件
   sendToolMail: (data) => {
-    return request.post('/api/tools/send-mail', data)
+    return request.post('/api/tools/send-mail', data, { timeout: 210000 })
   },
 
   // 工具模块-获取默认抄送邮箱
@@ -79,7 +79,7 @@ export const docApi = {
 
   // 工具模块-获取验收报告
   getAcceptanceReport: (data) => {
-    return request.post('/api/tools/acceptance-report', data)
+    return request.post('/api/tools/acceptance-report', data, { timeout: 210000 })
   }
 }
 

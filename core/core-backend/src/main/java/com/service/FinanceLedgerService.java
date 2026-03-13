@@ -8,9 +8,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
@@ -26,6 +30,41 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class FinanceLedgerService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FinanceLedgerService.class);
+    private static final Map<String, String> REGION_NAME_TO_FINANCE_CODE = new HashMap<>();
+    private static final List<String> EXCLUDED_CONTRACT_NAMES = Arrays.asList(
+            "东区未签单客户",
+            "南区未签单客户",
+            "公司内部会议",
+            "市场部专用",
+            "综合部专用",
+            "东区交付框架协议（交付多个项目-交付合同专用）",
+            "南区交付框架协议（交付多个项目-交付合同专用）",
+            "北区交付框架协议（交付多个项目-交付合同专用）",
+            "东区服务费多项目协议",
+            "北区服务费多项目协议",
+            "南区服务费多项目协议",
+            "研发中心专用",
+            "北区云服务",
+            "南区云服务",
+            "东区云服务",
+            "全公司使用",
+            "公司福利事项",
+            "北区预算类合同",
+            "南区团建2022年",
+            "北区未签单客户",
+            "CEO专用",
+            "员工述职培训",
+            "高校合作计划",
+            "部门内部会议-部门单独会议（招聘）",
+            "测试*11111234567890-*11",
+            "公司团建-车票、住宿（个人支付）"
+    );
+
+    static {
+        REGION_NAME_TO_FINANCE_CODE.put("东区", "CODE2");
+        REGION_NAME_TO_FINANCE_CODE.put("北区", "CODE1");
+        REGION_NAME_TO_FINANCE_CODE.put("南区", "CODE3");
+    }
     private final ConcurrentHashMap<String, FreshCacheEntry> freshCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LastKnownGoodCacheEntry> lastKnownGoodCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<LookupExecutionResult>> inFlightLookups = new ConcurrentHashMap<>();
@@ -223,10 +262,17 @@ public class FinanceLedgerService {
         copy.code = source.code;
         copy.contractedCustomer = source.contractedCustomer;
         copy.endCustomer = source.endCustomer;
+        copy.salfesforceName = source.salfesforceName;
         copy.sku = source.sku;
         copy.startDate = source.startDate;
+        copy.checkAccept = source.checkAccept;
         copy.checkAcceptDate = source.checkAcceptDate;
         copy.checkAcceptReport = source.checkAcceptReport;
+        copy.active = source.active;
+        copy.contractName = source.contractName;
+        copy.region = source.region;
+        copy.regionName = source.regionName;
+        copy.regionCode = source.regionCode;
         return copy;
     }
 
@@ -237,11 +283,15 @@ public class FinanceLedgerService {
             String sql = "SELECT gc.name AS chat_name, " +
                     "       ss.contract_number, " +
                     "       ss.client_id, " +
+                    "       ss.region_id, " +
+                    "       rg.name AS region_name, " +
+                    "       rg.code AS region_code, " +
                     "       sc.name AS client_name, " +
                     "       sc.abbreviated_name AS client_abbr, " +
                     "       sps.name AS product_service_name " +
                     "FROM group_chat gc " +
                     "LEFT JOIN support_subscription ss ON ss.group_chat_name = gc.name " +
+                    "LEFT JOIN region rg ON rg.id = ss.region_id " +
                     "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
                     "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
                     "WHERE gc.ext_chat_id = ? " +
@@ -255,26 +305,51 @@ public class FinanceLedgerService {
             context.chatName = trim(rows.get(0)[0] != null ? rows.get(0)[0].toString() : "");
             context.contractNumbers = new ArrayList<>();
             context.customerNames = new ArrayList<>();
+            context.regionId = "";
+            context.regionName = "";
+            context.regionCode = "";
+            context.financeRegionCode = "";
 
             Set<String> contractSet = new LinkedHashSet<>();
             Set<String> nameSet = new LinkedHashSet<>();
             String productAliasCode = "";
+            Long primaryClientId = null;
 
             for (Object[] row : rows) {
+                Long rowClientId = null;
+                if (row[2] != null && !trim(String.valueOf(row[2])).isEmpty()) {
+                    rowClientId = Long.parseLong(String.valueOf(row[2]));
+                }
+                if (primaryClientId == null && rowClientId != null) {
+                    primaryClientId = rowClientId;
+                    context.clientId = rowClientId;
+                }
+                if (context.regionId.isEmpty()) {
+                    context.regionId = trim(row[3] != null ? row[3].toString() : "");
+                }
+                if (context.regionName.isEmpty()) {
+                    context.regionName = trim(row[4] != null ? row[4].toString() : "");
+                }
+                if (context.regionCode.isEmpty()) {
+                    context.regionCode = trim(row[5] != null ? row[5].toString() : "");
+                }
+                if (productAliasCode.isEmpty()) {
+                    productAliasCode = inferProductAliasCode(row[8] != null ? row[8].toString() : "");
+                }
+                if (primaryClientId != null && rowClientId != null && !primaryClientId.equals(rowClientId)) {
+                    continue;
+                }
                 String contractNumber = trim(row[1] != null ? row[1].toString() : "");
                 if (!contractNumber.isEmpty()) {
                     contractSet.add(contractNumber);
                 }
-                String clientName = trim(row[3] != null ? row[3].toString() : "");
+                String clientName = trim(row[6] != null ? row[6].toString() : "");
                 if (!clientName.isEmpty()) {
                     nameSet.add(clientName);
                 }
-                String clientAbbr = trim(row[4] != null ? row[4].toString() : "");
+                String clientAbbr = trim(row[7] != null ? row[7].toString() : "");
                 if (!clientAbbr.isEmpty()) {
                     nameSet.add(clientAbbr);
-                }
-                if (productAliasCode.isEmpty()) {
-                    productAliasCode = inferProductAliasCode(row[5] != null ? row[5].toString() : "");
                 }
             }
 
@@ -282,12 +357,30 @@ public class FinanceLedgerService {
             context.contractNumbers.addAll(contractSet);
             context.customerNames.addAll(nameSet);
             context.productAliasCode = productAliasCode.isEmpty() ? inferProductAliasCode(context.chatName) : productAliasCode;
-            LOGGER.info("resolveChatFinanceContext timing extChatId={}, rowCount={}, contractCount={}, customerNameCount={}, productAliasCode={}, totalMs={}",
+            if (context.regionName.isEmpty() && !context.regionId.isEmpty()) {
+                RegionInfo regionInfo = resolveRegionInfo(context.regionId);
+                context.regionName = regionInfo.name;
+                context.regionCode = regionInfo.code;
+            }
+            if (context.regionId.isEmpty()) {
+                String fallbackRegionId = resolveFallbackRegionId(extChatId, context.clientId);
+                if (!fallbackRegionId.isEmpty()) {
+                    context.regionId = fallbackRegionId;
+                    RegionInfo regionInfo = resolveRegionInfo(fallbackRegionId);
+                    context.regionName = regionInfo.name;
+                    context.regionCode = regionInfo.code;
+                }
+            }
+            context.financeRegionCode = resolveFinanceRegionCode(context.regionName, context.regionCode);
+            LOGGER.info("resolveChatFinanceContext timing extChatId={}, rowCount={}, contractCount={}, customerNameCount={}, productAliasCode={}, regionId={}, regionName={}, financeRegionCode={}, totalMs={}",
                     extChatId,
                     rows.size(),
                     context.contractNumbers.size(),
                     context.customerNames.size(),
                     context.productAliasCode,
+                    context.regionId,
+                    context.regionName,
+                    context.financeRegionCode,
                     (System.nanoTime() - startNs) / 1_000_000);
             return context;
         } finally {
@@ -328,6 +421,69 @@ public class FinanceLedgerService {
         return new ArrayList<>(names);
     }
 
+    private String resolveFallbackRegionId(String extChatId, Long clientId) {
+        if (clientId != null) {
+            String regionSql = "SELECT smr.region_id " +
+                    "FROM support_maintenance_record smr " +
+                    "WHERE smr.client_id = ? AND smr.region_id IS NOT NULL AND smr.region_id != '' " +
+                    "ORDER BY smr.create_time DESC LIMIT 1";
+            List<Object[]> regionResult = JdbcUtils.query(regionSql, clientId);
+            if (!regionResult.isEmpty() && regionResult.get(0)[0] != null) {
+                return trim(regionResult.get(0)[0].toString());
+            }
+        }
+        if (!trim(extChatId).isEmpty()) {
+            String regionSqlByChat = "SELECT smr.region_id " +
+                    "FROM support_maintenance_record smr " +
+                    "WHERE smr.client_id IN ( " +
+                    "    SELECT DISTINCT ss.client_id " +
+                    "    FROM group_chat gc " +
+                    "    INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                    "    WHERE gc.ext_chat_id = ? " +
+                    ") " +
+                    "AND smr.region_id IS NOT NULL AND smr.region_id != '' " +
+                    "ORDER BY smr.create_time DESC LIMIT 1";
+            List<Object[]> regionResultByChat = JdbcUtils.query(regionSqlByChat, extChatId);
+            if (!regionResultByChat.isEmpty() && regionResultByChat.get(0)[0] != null) {
+                return trim(regionResultByChat.get(0)[0].toString());
+            }
+        }
+        return "";
+    }
+
+    private RegionInfo resolveRegionInfo(String regionId) {
+        String normalizedRegionId = trim(regionId);
+        if (normalizedRegionId.isEmpty()) {
+            return RegionInfo.empty();
+        }
+        String sql = "SELECT name, code FROM region WHERE id = ? LIMIT 1";
+        List<Object[]> rows = JdbcUtils.query(sql, normalizedRegionId);
+        if (rows.isEmpty()) {
+            return RegionInfo.empty();
+        }
+        return new RegionInfo(
+                trim(rows.get(0)[0] != null ? rows.get(0)[0].toString() : ""),
+                trim(rows.get(0)[1] != null ? rows.get(0)[1].toString() : "")
+        );
+    }
+
+    private String resolveFinanceRegionCode(String regionName, String regionCode) {
+        String normalizedName = trim(regionName);
+        if (!normalizedName.isEmpty()) {
+            String mapped = REGION_NAME_TO_FINANCE_CODE.get(normalizedName);
+            if (mapped != null) {
+                return mapped;
+            }
+        }
+        String normalizedCode = trim(regionCode).toLowerCase(Locale.ROOT);
+        return switch (normalizedCode) {
+            case "eastern" -> "CODE2";
+            case "northern" -> "CODE1";
+            case "southern" -> "CODE3";
+            default -> "";
+        };
+    }
+
     private LedgerRecord resolveLedgerRecord(ChatFinanceContext context, LookupMode lookupMode) {
         long startNs = System.nanoTime();
         boolean allowFuzzy = lookupMode == LookupMode.FULL;
@@ -336,19 +492,25 @@ public class FinanceLedgerService {
                 : JdbcUtils.getCordyscrmDatabaseConfig());
         try {
             for (String contractNumber : context.contractNumbers) {
-                LedgerRecord byContract = queryLedgerByContractNumber(contractNumber);
-                if (byContract != null) {
+                LedgerRecord byContract = queryLedgerByContractNumber(contractNumber, context);
+                if (byContract != null && isLedgerConsistentWithContext(byContract, context)) {
                     LOGGER.info("resolveLedgerRecord stage=contractNumber hit lookupMode={}, contractNumber={}, contractCode={}, totalMs={}",
                             lookupMode.name().toLowerCase(),
                             contractNumber,
                             byContract.getCode(),
                             (System.nanoTime() - startNs) / 1_000_000);
                     return byContract;
+                } else if (byContract != null) {
+                    LOGGER.warn("resolveLedgerRecord stage=contractNumber_mismatch skip lookupMode={}, contractNumber={}, contractCode={}, customers={}",
+                            lookupMode.name().toLowerCase(),
+                            contractNumber,
+                            byContract.getCode(),
+                            context.customerNames);
                 }
             }
 
             if (!trim(context.productAliasCode).isEmpty()) {
-                LedgerMatch exactWithProduct = queryLedgerByCustomerNames(context.customerNames, false, context.productAliasCode);
+                LedgerMatch exactWithProduct = queryLedgerByCustomerNames(context, context.customerNames, false, context.productAliasCode);
                 if (exactWithProduct != null) {
                     LOGGER.info("resolveLedgerRecord stage=customerExactWithProduct hit lookupMode={}, customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
                             lookupMode.name().toLowerCase(),
@@ -360,7 +522,7 @@ public class FinanceLedgerService {
                 }
 
                 if (allowFuzzy) {
-                    LedgerMatch fuzzyWithProduct = queryLedgerByCustomerNames(context.customerNames, true, context.productAliasCode);
+                    LedgerMatch fuzzyWithProduct = queryLedgerByCustomerNames(context, context.customerNames, true, context.productAliasCode);
                     if (fuzzyWithProduct != null) {
                         LOGGER.info("resolveLedgerRecord stage=customerFuzzyWithProduct hit lookupMode={}, customerName={}, productAliasCode={}, contractCode={}, totalMs={}",
                                 lookupMode.name().toLowerCase(),
@@ -373,7 +535,7 @@ public class FinanceLedgerService {
                 }
             }
 
-            LedgerMatch exactFallback = queryLedgerByCustomerNames(context.customerNames, false, "");
+            LedgerMatch exactFallback = queryLedgerByCustomerNames(context, context.customerNames, false, "");
             if (exactFallback != null) {
                 LOGGER.info("resolveLedgerRecord stage=customerExactFallback hit lookupMode={}, customerName={}, contractCode={}, totalMs={}",
                         lookupMode.name().toLowerCase(),
@@ -384,7 +546,7 @@ public class FinanceLedgerService {
             }
 
             if (allowFuzzy) {
-                LedgerMatch fuzzyFallback = queryLedgerByCustomerNames(context.customerNames, true, "");
+                LedgerMatch fuzzyFallback = queryLedgerByCustomerNames(context, context.customerNames, true, "");
                 if (fuzzyFallback != null) {
                     LOGGER.info("resolveLedgerRecord stage=customerFuzzyFallback hit lookupMode={}, customerName={}, contractCode={}, totalMs={}",
                             lookupMode.name().toLowerCase(),
@@ -408,17 +570,19 @@ public class FinanceLedgerService {
         }
     }
 
-    private LedgerRecord queryLedgerByContractNumber(String contractNumber) {
+    private LedgerRecord queryLedgerByContractNumber(String contractNumber, ChatFinanceContext context) {
         long startNs = System.nanoTime();
         String normalized = trim(contractNumber);
         if (normalized.isEmpty()) {
             return null;
         }
-        String sql = "SELECT code, contracted_customer, end_customer, sku, start_date, check_accept_date, check_accept_report " +
-                "FROM ekuaibao_contract_ledger " +
-                "WHERE code = ? " +
-                "ORDER BY id DESC LIMIT 1";
-        List<Object[]> rows = JdbcUtils.query(sql, normalized);
+        List<Object> params = new ArrayList<>();
+        String sql = buildLedgerSelectSql() +
+                "WHERE ecl.code = ? ";
+        params.add(normalized);
+        sql += appendCommonLedgerFilters(context, params, !trim(context.productAliasCode).isEmpty() ? context.productAliasCode : "");
+        sql += "ORDER BY ecl.check_accept_date DESC, ecl.id DESC LIMIT 1";
+        List<Object[]> rows = JdbcUtils.query(sql, params.toArray());
         LOGGER.info("queryLedgerByContractNumber contractNumber={}, rowCount={}, costMs={}",
                 normalized, rows.size(), (System.nanoTime() - startNs) / 1_000_000);
         if (rows.isEmpty()) {
@@ -427,16 +591,14 @@ public class FinanceLedgerService {
         return toLedgerRecord(rows.get(0));
     }
 
-    private LedgerMatch queryLedgerByCustomerNames(List<String> customerNames, boolean fuzzy, String productAliasCode) {
+    private LedgerMatch queryLedgerByCustomerNames(ChatFinanceContext context, List<String> customerNames, boolean fuzzy, String productAliasCode) {
         long startNs = System.nanoTime();
         List<String> normalizedNames = normalizeCustomerNames(customerNames);
         if (normalizedNames.isEmpty()) {
             return null;
         }
 
-        String productFilter = buildProductFilterSql(productAliasCode);
-        String sql = "SELECT code, contracted_customer, end_customer, sku, start_date, check_accept_date, check_accept_report " +
-                "FROM ekuaibao_contract_ledger WHERE ";
+        String sql = buildLedgerSelectSql() + "WHERE ";
         List<Object> params = new ArrayList<>();
 
         if (fuzzy) {
@@ -458,7 +620,8 @@ public class FinanceLedgerService {
             params.addAll(normalizedNames);
         }
 
-        sql += productFilter + "ORDER BY check_accept_date DESC, id DESC LIMIT 1";
+        sql += appendCommonLedgerFilters(context, params, productAliasCode);
+        sql += "ORDER BY ecl.check_accept_date DESC, ecl.id DESC LIMIT 1";
 
         List<Object[]> rows = JdbcUtils.query(sql, params.toArray());
         LOGGER.info("queryLedgerByCustomerNames customerNameCount={}, fuzzy={}, productAliasCode={}, rowCount={}, costMs={}, candidates={}",
@@ -473,6 +636,44 @@ public class FinanceLedgerService {
         }
         LedgerRecord record = toLedgerRecord(rows.get(0));
         return new LedgerMatch(record, resolveMatchedCustomerName(record, normalizedNames));
+    }
+
+    private String buildLedgerSelectSql() {
+        return "SELECT ecl.code, " +
+                "       ecl.contracted_customer, " +
+                "       ecl.end_customer, " +
+                "       ecl.salfesforce_name, " +
+                "       ecl.sku, " +
+                "       ecl.start_date, " +
+                "       ed_ca.name AS check_accept_name, " +
+                "       ecl.check_accept_date, " +
+                "       ecl.check_accept_report, " +
+                "       ecl.active, " +
+                "       ecl.name AS contract_name, " +
+                "       ecl.region, " +
+                "       ed_region.name AS region_name, " +
+                "       ed_region.code AS region_code " +
+                "FROM ekuaibao_contract_ledger ecl " +
+                "LEFT JOIN ekuaibao_dimensions ed_ca ON ed_ca.id = ecl.check_accept AND ed_ca.active = 1 " +
+                "LEFT JOIN ekuaibao_dimensions ed_region ON ed_region.id = ecl.region AND ed_region.active = 1 ";
+    }
+
+    private String appendCommonLedgerFilters(ChatFinanceContext context, List<Object> params, String productAliasCode) {
+        StringBuilder sql = new StringBuilder();
+        sql.append("AND ecl.active = true ");
+        if (!EXCLUDED_CONTRACT_NAMES.isEmpty()) {
+            sql.append("AND ecl.name NOT IN (")
+                    .append(String.join(", ", Collections.nCopies(EXCLUDED_CONTRACT_NAMES.size(), "?")))
+                    .append(") ");
+            params.addAll(EXCLUDED_CONTRACT_NAMES);
+        }
+        String financeRegionCode = context != null ? trim(context.financeRegionCode) : "";
+        if (!financeRegionCode.isEmpty()) {
+            sql.append("AND ed_region.code = ? ");
+            params.add(financeRegionCode);
+        }
+        sql.append(buildProductFilterSql(productAliasCode));
+        return sql.toString();
     }
 
     private List<String> normalizeCustomerNames(List<String> customerNames) {
@@ -495,20 +696,59 @@ public class FinanceLedgerService {
         }
         String contractedCustomer = trim(record.getContractedCustomer());
         String endCustomer = trim(record.getEndCustomer());
+        String salesforceName = trim(record.getSalfesforceName());
         for (String candidate : normalizedNames) {
-            if (candidate.equals(contractedCustomer) || candidate.equals(endCustomer)) {
+            if (candidate.equals(contractedCustomer) || candidate.equals(endCustomer) || candidate.equals(salesforceName)) {
                 return candidate;
             }
         }
         for (String candidate : normalizedNames) {
             if ((!contractedCustomer.isEmpty() && contractedCustomer.contains(candidate)) ||
                     (!endCustomer.isEmpty() && endCustomer.contains(candidate)) ||
+                    (!salesforceName.isEmpty() && salesforceName.contains(candidate)) ||
                     candidate.contains(contractedCustomer) ||
-                    candidate.contains(endCustomer)) {
+                    candidate.contains(endCustomer) ||
+                    (!salesforceName.isEmpty() && candidate.contains(salesforceName))) {
                 return candidate;
             }
         }
         return normalizedNames.isEmpty() ? "" : normalizedNames.get(0);
+    }
+
+    private boolean isLedgerConsistentWithContext(LedgerRecord record, ChatFinanceContext context) {
+        if (record == null || context == null) {
+            return false;
+        }
+        String financeRegionCode = trim(context.financeRegionCode);
+        if (!financeRegionCode.isEmpty() && !financeRegionCode.equalsIgnoreCase(trim(record.getRegionCode()))) {
+            return false;
+        }
+        return matchesAnyCustomerName(record, normalizeCustomerNames(context.customerNames));
+    }
+
+    private boolean matchesAnyCustomerName(LedgerRecord record, List<String> normalizedNames) {
+        if (record == null || normalizedNames == null || normalizedNames.isEmpty()) {
+            return false;
+        }
+        String contractedCustomer = trim(record.getContractedCustomer());
+        String endCustomer = trim(record.getEndCustomer());
+        String salesforceName = trim(record.getSalfesforceName());
+        for (String candidate : normalizedNames) {
+            if (candidate.equals(contractedCustomer) || candidate.equals(endCustomer) || candidate.equals(salesforceName)) {
+                return true;
+            }
+        }
+        for (String candidate : normalizedNames) {
+            if ((!contractedCustomer.isEmpty() && contractedCustomer.contains(candidate)) ||
+                    (!endCustomer.isEmpty() && endCustomer.contains(candidate)) ||
+                    (!salesforceName.isEmpty() && salesforceName.contains(candidate)) ||
+                    candidate.contains(contractedCustomer) ||
+                    candidate.contains(endCustomer) ||
+                    (!salesforceName.isEmpty() && candidate.contains(salesforceName))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private LedgerRecord toLedgerRecord(Object[] row) {
@@ -516,10 +756,17 @@ public class FinanceLedgerService {
         record.code = row[0] != null ? row[0].toString() : "";
         record.contractedCustomer = row[1] != null ? row[1].toString() : "";
         record.endCustomer = row[2] != null ? row[2].toString() : "";
-        record.sku = row[3] != null ? row[3].toString() : "";
-        record.startDate = row[4];
-        record.checkAcceptDate = row[5];
-        record.checkAcceptReport = row[6] != null ? row[6].toString() : "";
+        record.salfesforceName = row[3] != null ? row[3].toString() : "";
+        record.sku = row[4] != null ? row[4].toString() : "";
+        record.startDate = row[5];
+        record.checkAccept = row[6] != null ? row[6].toString() : "";
+        record.checkAcceptDate = row[7];
+        record.checkAcceptReport = row[8] != null ? row[8].toString() : "";
+        record.active = row[9] != null && Boolean.parseBoolean(String.valueOf(row[9]));
+        record.contractName = row[10] != null ? row[10].toString() : "";
+        record.region = row[11] != null ? row[11].toString() : "";
+        record.regionName = row[12] != null ? row[12].toString() : "";
+        record.regionCode = row[13] != null ? row[13].toString() : "";
         return record;
     }
 
@@ -549,13 +796,17 @@ public class FinanceLedgerService {
 
     private String buildProductFilterSql(String productAliasCode) {
         return switch (trim(productAliasCode).toUpperCase()) {
-            case "JS" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ekuaibao_contract_ledger.sku " +
+            case "JS" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ecl.sku " +
+                    "AND ed.active = 1 " +
                     "AND (UPPER(COALESCE(ed.name, '')) LIKE '%-JS-%' OR UPPER(COALESCE(ed.name, '')) LIKE 'JS-%' OR UPPER(COALESCE(ed.name, '')) LIKE '%JUMPSERVER%'))";
-            case "MK" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ekuaibao_contract_ledger.sku " +
+            case "MK" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ecl.sku " +
+                    "AND ed.active = 1 " +
                     "AND (UPPER(COALESCE(ed.name, '')) LIKE '%-MK-%' OR UPPER(COALESCE(ed.name, '')) LIKE 'MK-%' OR UPPER(COALESCE(ed.name, '')) LIKE '%MAXKB%'))";
-            case "DE" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ekuaibao_contract_ledger.sku " +
+            case "DE" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ecl.sku " +
+                    "AND ed.active = 1 " +
                     "AND (UPPER(COALESCE(ed.name, '')) LIKE '%-DE-%' OR UPPER(COALESCE(ed.name, '')) LIKE 'DE-%' OR UPPER(COALESCE(ed.name, '')) LIKE '%DATAEASE%'))";
-            case "SQLBOT" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ekuaibao_contract_ledger.sku " +
+            case "SQLBOT" -> " AND EXISTS (SELECT 1 FROM ekuaibao_dimensions ed WHERE ed.id = ecl.sku " +
+                    "AND ed.active = 1 " +
                     "AND UPPER(COALESCE(ed.name, '')) LIKE '%SQLBOT%')";
             default -> "";
         };
@@ -614,9 +865,28 @@ public class FinanceLedgerService {
 
     private static class ChatFinanceContext {
         private String chatName;
+        private Long clientId;
         private List<String> contractNumbers;
         private List<String> customerNames;
         private String productAliasCode;
+        private String regionId;
+        private String regionName;
+        private String regionCode;
+        private String financeRegionCode;
+    }
+
+    private static class RegionInfo {
+        private final String name;
+        private final String code;
+
+        private RegionInfo(String name, String code) {
+            this.name = name;
+            this.code = code;
+        }
+
+        private static RegionInfo empty() {
+            return new RegionInfo("", "");
+        }
     }
 
     private static class LedgerMatch {
@@ -683,10 +953,17 @@ public class FinanceLedgerService {
         private String code;
         private String contractedCustomer;
         private String endCustomer;
+        private String salfesforceName;
         private String sku;
         private Object startDate;
+        private String checkAccept;
         private Object checkAcceptDate;
         private String checkAcceptReport;
+        private boolean active;
+        private String contractName;
+        private String region;
+        private String regionName;
+        private String regionCode;
 
         public String getCode() {
             return code;
@@ -708,12 +985,40 @@ public class FinanceLedgerService {
             return startDate;
         }
 
+        public String getCheckAccept() {
+            return checkAccept;
+        }
+
         public Object getCheckAcceptDate() {
             return checkAcceptDate;
         }
 
         public String getCheckAcceptReport() {
             return checkAcceptReport;
+        }
+
+        public String getSalfesforceName() {
+            return salfesforceName;
+        }
+
+        public boolean isActive() {
+            return active;
+        }
+
+        public String getContractName() {
+            return contractName;
+        }
+
+        public String getRegion() {
+            return region;
+        }
+
+        public String getRegionName() {
+            return regionName;
+        }
+
+        public String getRegionCode() {
+            return regionCode;
         }
     }
 
