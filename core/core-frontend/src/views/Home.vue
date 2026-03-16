@@ -266,7 +266,7 @@
                         v-model.trim="toolEmail"
                         type="text"
                         class="tool-email-input"
-                        placeholder="多个邮箱用分号 ; 或逗号 , 隔开"
+                        placeholder="填写客户邮箱，多个邮箱用分号 ; 或逗号 , 隔开"
                       />
                     </div>
 
@@ -276,7 +276,7 @@
                         v-model.trim="toolCcEmails"
                         class="tool-email-input tool-cc-textarea"
                         rows="2"
-                        placeholder="多个邮箱用分号 ; 隔开"
+                        placeholder="填写抄送邮箱，多个邮箱用分号 ; 隔开"
                         @input="adjustToolCcTextarea"
                       ></textarea>
                     </div>
@@ -1742,6 +1742,13 @@ const buildToolMailErrorMessage = (rawMessage) => {
   }
   if (lower.includes('stage=auth') || lower.includes('authentication failed') || lower.includes('535')) {
     return '邮件发送失败：邮箱认证失败，请检查客户端专用密码'
+  }
+  const invalidAddressMatch = message.match(/invalidAddresses=([^；]+)/)
+  if (invalidAddressMatch?.[1]) {
+    return `邮件发送失败：以下邮箱地址无效或不存在，请检查后重试：${invalidAddressMatch[1]}`
+  }
+  if (lower.includes('invalid addresses') || lower.includes('mailbox not found or access denied') || lower.includes('550 mailbox')) {
+    return '邮件发送失败：存在无效邮箱地址，请检查收件人或抄送邮箱是否填写正确'
   }
   if (lower.includes('stage=connect')
     || lower.includes('timed out')

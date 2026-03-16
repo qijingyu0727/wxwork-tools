@@ -11,6 +11,8 @@ import com.util.HttpClientUtil;
 import com.util.JdbcUtils;
 import jakarta.annotation.Resource;
 import jakarta.mail.AuthenticationFailedException;
+import jakarta.mail.SendFailedException;
+import jakarta.mail.Address;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -348,6 +351,8 @@ public class ToolService {
         result.put("loginUserId", ccResolution.loginUserId);
         result.put("loginUserEmail", ccResolution.loginUserEmail);
         result.put("sameDeptEmails", ccResolution.sameDeptEmails);
+        result.put("mandatoryCcList", ccResolution.mandatoryCcList);
+        result.put("optionalDefaultCcList", ccResolution.optionalDefaultCcList);
         result.put("fromEmail", sender);
         result.put("subject", subject);
         result.put("resolvedProduct", resolvedProduct);
@@ -384,6 +389,8 @@ public class ToolService {
         result.put("loginUserId", resolution.loginUserId);
         result.put("loginUserEmail", resolution.loginUserEmail);
         result.put("sameDeptEmails", resolution.sameDeptEmails);
+        result.put("mandatoryCcList", resolution.mandatoryCcList);
+        result.put("optionalDefaultCcList", resolution.optionalDefaultCcList);
         return result;
     }
 
@@ -1577,7 +1584,7 @@ public class ToolService {
         if (displayName.isEmpty()) {
             helper.setFrom(sender);
         } else {
-            helper.setFrom(new InternetAddress(sender, displayName, StandardCharsets.UTF_8.name()).toString());
+            helper.setFrom(sender, displayName);
         }
         helper.setTo(toEmails.toArray(new String[0]));
         if (ccEmails != null && !ccEmails.isEmpty()) {
@@ -1648,7 +1655,7 @@ public class ToolService {
         CcResolution resolution = buildDefaultCcResolution(extChatId, loginUserId);
         String manualCcText = trim(requestCcEmails);
         if (!manualCcText.isEmpty()) {
-            LinkedHashSet<String> finalCcSet = new LinkedHashSet<>(resolution.defaultCcList);
+            LinkedHashSet<String> finalCcSet = new LinkedHashSet<>(resolution.mandatoryCcList);
             finalCcSet.addAll(parseCcInputEmails(manualCcText, "抄送邮箱"));
             resolution.finalCcEmails = new ArrayList<>(finalCcSet);
             resolution.defaultCcApplied = false;
@@ -1664,24 +1671,28 @@ public class ToolService {
 
     private CcResolution buildDefaultCcResolution(String extChatId, String loginUserId) {
         CcResolution resolution = new CcResolution();
-        LinkedHashSet<String> ccSet = new LinkedHashSet<>();
+        LinkedHashSet<String> mandatoryCcSet = new LinkedHashSet<>();
+        LinkedHashSet<String> optionalCcSet = new LinkedHashSet<>();
         if (!mailCcFixedDefault.isEmpty()) {
-            ccSet.addAll(mailCcFixedDefault);
+            optionalCcSet.addAll(mailCcFixedDefault);
         } else {
-            ccSet.add(DEFAULT_TOOL_MAIL_CC);
+            optionalCcSet.add(DEFAULT_TOOL_MAIL_CC);
         }
         String normalizedExtChatId = trim(extChatId);
         if (normalizedExtChatId.isEmpty()) {
-            resolution.defaultCcList = new ArrayList<>(ccSet);
+            resolution.optionalDefaultCcList = new ArrayList<>(optionalCcSet);
+            resolution.defaultCcList = mergeCcLists(mandatoryCcSet, optionalCcSet);
             return resolution;
         }
 
         JdbcUtils.setCscrmConfig();
         try {
-            enrichOperatorCc(resolution, ccSet, loginUserId);
+            enrichOperatorCc(resolution, mandatoryCcSet, loginUserId);
+            resolution.mandatoryCcList = new ArrayList<>(mandatoryCcSet);
             resolution.clientId = queryLatestClientIdByExtChatId(normalizedExtChatId);
             if (resolution.clientId == null) {
-                resolution.defaultCcList = new ArrayList<>(ccSet);
+                resolution.optionalDefaultCcList = new ArrayList<>(optionalCcSet);
+                resolution.defaultCcList = mergeCcLists(mandatoryCcSet, optionalCcSet);
                 LOGGER.warn("mail default cc: client not found by extChatId={}, fallback fixedCc only", normalizedExtChatId);
                 return resolution;
             }
@@ -1689,7 +1700,8 @@ public class ToolService {
             List<String> salesUserIds = querySalesUserIdsByClientId(resolution.clientId);
             resolution.salesUserIds = new ArrayList<>(salesUserIds);
             if (salesUserIds.isEmpty()) {
-                resolution.defaultCcList = new ArrayList<>(ccSet);
+                resolution.optionalDefaultCcList = new ArrayList<>(optionalCcSet);
+                resolution.defaultCcList = mergeCcLists(mandatoryCcSet, optionalCcSet);
                 return resolution;
             }
 
@@ -1706,26 +1718,41 @@ public class ToolService {
             resolution.salesUserIds = filteredSalesUserIds;
             List<String> salesEmails = querySalesEmailsByUserIds(filteredSalesUserIds);
             resolution.salesEmails = salesEmails;
-            ccSet.addAll(salesEmails);
-            resolution.defaultCcList = new ArrayList<>(ccSet);
+            optionalCcSet.addAll(salesEmails);
+            resolution.optionalDefaultCcList = new ArrayList<>(optionalCcSet);
+            resolution.defaultCcList = mergeCcLists(mandatoryCcSet, optionalCcSet);
 
-            LOGGER.info("mail default cc resolved extChatId={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, operatorEmailPresent={}, sameDeptEmailCount={}, resolvedCcCount={}",
+            LOGGER.info("mail default cc resolved extChatId={}, clientId={}, salesUserCount={}, excludedSalesUserCount={}, operatorEmailPresent={}, sameDeptEmailCount={}, mandatoryCcCount={}, optionalCcCount={}, resolvedCcCount={}",
                     normalizedExtChatId,
                     resolution.clientId,
                     salesUserIds.size(),
                     excludedSalesUserIds.size(),
                     !trim(resolution.loginUserEmail).isEmpty(),
                     resolution.sameDeptEmails.size(),
+                    resolution.mandatoryCcList.size(),
+                    resolution.optionalDefaultCcList.size(),
                     resolution.defaultCcList.size());
             return resolution;
         } catch (Exception e) {
-            resolution.defaultCcList = new ArrayList<>(ccSet);
+            resolution.optionalDefaultCcList = new ArrayList<>(optionalCcSet);
+            resolution.defaultCcList = mergeCcLists(mandatoryCcSet, optionalCcSet);
             LOGGER.warn("mail default cc resolve failed extChatId={}, err={}, fallback fixedCc only",
                     normalizedExtChatId, e.getMessage());
             return resolution;
         } finally {
             JdbcUtils.clearConfig();
         }
+    }
+
+    private List<String> mergeCcLists(LinkedHashSet<String> mandatoryCcSet, LinkedHashSet<String> optionalCcSet) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (mandatoryCcSet != null) {
+            merged.addAll(mandatoryCcSet);
+        }
+        if (optionalCcSet != null) {
+            merged.addAll(optionalCcSet);
+        }
+        return new ArrayList<>(merged);
     }
 
     private void enrichOperatorCc(CcResolution resolution, LinkedHashSet<String> ccSet, String loginUserId) {
@@ -2022,7 +2049,7 @@ public class ToolService {
                     点击下方链接，即可下载交付资料，内容包含：
 
                     JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
-                    JumpServer运维手册、部署方案、交付文档
+                    JumpServer运维手册
 
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
@@ -2046,8 +2073,7 @@ public class ToolService {
                     点击下方链接，即可下载交付资料，内容包含：
 
                     JumpServer 使用手册 （管理员手册、审计员手册、普通用户）
-                    JumpServer 运维手册、部署方案、交付文档
-                    JumpServer 资产导入模版
+                    JumpServer 运维手册
 
                     当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
@@ -2354,10 +2380,42 @@ public class ToolService {
         if (root.isEmpty()) {
             root = "unknown";
         }
+        String invalidAddressText = buildInvalidAddressText(lastError);
         String profileText = profileErrors == null || profileErrors.isEmpty()
                 ? ""
                 : "；profiles=" + String.join("; ", profileErrors);
-        return "重试后仍发送失败(stage=" + stage + "): " + root + buildAuthHint(lastError) + profileText;
+        return "重试后仍发送失败(stage=" + stage + "): " + root + invalidAddressText + buildAuthHint(lastError) + profileText;
+    }
+
+    private String buildInvalidAddressText(Throwable t) {
+        List<String> invalidAddresses = extractInvalidAddresses(t);
+        if (invalidAddresses.isEmpty()) {
+            return "";
+        }
+        return "；invalidAddresses=" + String.join(",", invalidAddresses);
+    }
+
+    private List<String> extractInvalidAddresses(Throwable t) {
+        LinkedHashSet<String> invalidAddresses = new LinkedHashSet<>();
+        Throwable cur = t;
+        while (cur != null) {
+            if (cur instanceof SendFailedException sendFailedException) {
+                Address[] addresses = sendFailedException.getInvalidAddresses();
+                if (addresses != null) {
+                    for (Address address : addresses) {
+                        if (address == null) {
+                            continue;
+                        }
+                        String value = trim(address.toString()).toLowerCase(Locale.ROOT);
+                        if (!value.isEmpty()) {
+                            invalidAddresses.add(value);
+                        }
+                    }
+                }
+            }
+            cur = cur.getCause();
+        }
+        return new ArrayList<>(invalidAddresses);
     }
 
     private boolean isPlaceholderSecret(String secret) {
@@ -2502,7 +2560,7 @@ public class ToolService {
                 .getContextClassLoader()
                 .getResourceAsStream("wxwork-tools.properties")) {
             if (classpathInput != null) {
-                props.load(classpathInput);
+                props.load(new InputStreamReader(classpathInput, StandardCharsets.UTF_8));
                 classpathLoaded = true;
             }
         } catch (IOException e) {
@@ -2515,7 +2573,7 @@ public class ToolService {
         long externalLastModified = 0L;
         if (externalExists) {
             try (InputStream externalInput = Files.newInputStream(externalPath)) {
-                props.load(externalInput);
+                props.load(new InputStreamReader(externalInput, StandardCharsets.UTF_8));
                 externalLoaded = true;
                 FileTime lastModifiedTime = Files.getLastModifiedTime(externalPath);
                 externalLastModified = lastModifiedTime != null ? lastModifiedTime.toMillis() : 0L;
@@ -2545,6 +2603,8 @@ public class ToolService {
 
     private static class CcResolution {
         private List<String> defaultCcList = new ArrayList<>();
+        private List<String> mandatoryCcList = new ArrayList<>();
+        private List<String> optionalDefaultCcList = new ArrayList<>();
         private List<String> finalCcEmails = new ArrayList<>();
         private Long clientId;
         private List<String> salesUserIds = new ArrayList<>();
