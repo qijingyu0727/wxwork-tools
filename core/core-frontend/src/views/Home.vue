@@ -125,6 +125,12 @@
         <div class="tab-content">
           <!-- 实施 Tab -->
           <div v-if="activeTab === 'implementation'" class="tab-pane active">
+            <div v-if="maintenanceRecords.length === 0" class="add-maintenance-section">
+              <button class="btn-add-maintenance" @click="handleAddImplementation">
+                <span>+ 新增</span>
+              </button>
+            </div>
+
             <div v-if="maintenanceLoading" class="tab-placeholder">
               <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
               <p class="text-gray-500">加载中...</p>
@@ -232,7 +238,6 @@
                     </span>
                     <div class="tool-card-heading">
                       <h4 class="tool-card-title">获取验收报告</h4>
-                      <p class="tool-card-desc">根据当前群聊对应合同生成并下载验收报告。</p>
                     </div>
                   </div>
 
@@ -256,18 +261,19 @@
                     </span>
                     <div class="tool-card-heading">
                       <h4 class="tool-card-title">邮件发送</h4>
-                      <p class="tool-card-desc">输入客户邮箱后发送交付通知。</p>
                     </div>
                   </div>
 
                   <div class="tool-card-body">
                     <div class="tool-form-row">
-                      <input
+                      <textarea
+                        ref="toolEmailTextareaRef"
                         v-model.trim="toolEmail"
-                        type="text"
-                        class="tool-email-input"
-                        placeholder="填写客户邮箱，多个邮箱用分号 ; 或逗号 , 隔开"
-                      />
+                        class="tool-email-input tool-email-textarea tool-email-textarea-single"
+                        rows="1"
+                        placeholder="填写客户邮箱，多个邮箱用分号或逗号隔开"
+                        @input="adjustToolEmailTextarea"
+                      ></textarea>
                     </div>
 
                     <div class="tool-form-row tool-cc-row">
@@ -276,7 +282,7 @@
                         v-model.trim="toolCcEmails"
                         class="tool-email-input tool-cc-textarea"
                         rows="2"
-                        placeholder="填写抄送邮箱，多个邮箱用分号 ; 隔开"
+                        placeholder="填写抄送邮箱，多个邮箱用分号隔开"
                         @input="adjustToolCcTextarea"
                       ></textarea>
                     </div>
@@ -671,52 +677,490 @@
     </main>
 
     <!-- 新增维护弹窗 -->
+    <div v-if="showAddImplementationModal" class="modal-overlay" @click="closeAddImplementationModal">
+      <div class="modal-content implementation-modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>新增实施记录</h3>
+          <button class="modal-close" @click="closeAddImplementationModal">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body implementation-modal-body">
+          <div v-if="implementationContextLoading" class="implementation-loading-state">
+            <i class="fa fa-spinner fa-spin"></i>
+            <span>加载实施上下文中...</span>
+          </div>
+          <template v-else>
+            <section class="implementation-section">
+              <div class="implementation-section-header">
+                <h4>基本信息</h4>
+              </div>
+              <div class="form-group">
+                <label class="form-label">订阅（客户-产品-序列号）</label>
+                <input
+                  :value="implementationContext?.subscriptionDisplayText || '-'"
+                  type="text"
+                  class="form-input implementation-readonly-input"
+                  readonly
+                />
+              </div>
+              <div class="implementation-meta-grid">
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">客户全称</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.clientName || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">产品名称</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.productName || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">合同编号</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.contractNumber || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">服务类型</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.serviceTypeName || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">销售</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.salesName || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">区域</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.regionName || implementationContext?.regionId || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">订阅开始时间</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.subscriptionStartDate || '-' }}</span>
+                </div>
+                <div class="implementation-meta-item">
+                  <span class="implementation-meta-label">维保结束时间</span>
+                  <span class="implementation-meta-value">{{ implementationContext?.supportEndDate || '-' }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="implementation-section">
+              <div class="implementation-section-header">
+                <h4>部署信息</h4>
+              </div>
+              <div class="implementation-form-grid">
+                <div class="form-group">
+                  <label class="form-label">部署日期 <span class="required">*</span></label>
+                  <div class="maintenance-date-picker" @click.stop>
+                    <button
+                      type="button"
+                      class="form-input maintenance-date-input maintenance-date-trigger"
+                      @click="toggleImplementationCalendar"
+                    >
+                      <span :class="['maintenance-date-trigger-text', { 'is-placeholder': !addImplementationForm.deploymentDate }]">
+                        {{ addImplementationForm.deploymentDate || '请选择部署日期' }}
+                      </span>
+                      <i class="fa fa-calendar maintenance-date-trigger-icon"></i>
+                    </button>
+                    <div v-if="showImplementationCalendar" class="maintenance-calendar-popover">
+                      <div class="maintenance-calendar-toolbar">
+                        <button type="button" class="maintenance-calendar-nav" @click="changeImplementationCalendarMonth(-1)">
+                          <i class="fa fa-chevron-left"></i>
+                        </button>
+                        <div class="maintenance-calendar-title">{{ implementationCalendarTitle }}</div>
+                        <button type="button" class="maintenance-calendar-nav" @click="changeImplementationCalendarMonth(1)">
+                          <i class="fa fa-chevron-right"></i>
+                        </button>
+                      </div>
+                      <div class="maintenance-calendar-weekdays">
+                        <span v-for="day in maintenanceCalendarWeekdays" :key="day">{{ day }}</span>
+                      </div>
+                      <div class="maintenance-calendar-grid">
+                        <button
+                          v-for="day in implementationCalendarDays"
+                          :key="day.key"
+                          type="button"
+                          :class="[
+                            'maintenance-calendar-day',
+                            { 'is-outside': !day.inCurrentMonth, 'is-today': day.isToday, 'is-selected': day.isSelected }
+                          ]"
+                          @click="selectImplementationCalendarDate(day.value)"
+                        >
+                          {{ day.label }}
+                        </button>
+                      </div>
+                      <div class="maintenance-calendar-footer">
+                        <button type="button" class="maintenance-calendar-link" @click="selectImplementationCalendarToday">今天</button>
+                        <button type="button" class="maintenance-calendar-link" @click="closeImplementationCalendar">关闭</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">部署方式 <span class="required">*</span></label>
+                  <select v-model="addImplementationForm.deploymentMethod" class="form-input">
+                    <option value="" disabled>请选择部署方式</option>
+                    <option v-for="option in IMPLEMENTATION_DEPLOYMENT_METHOD_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                </div>
+                <div class="form-group implementation-form-span-2">
+                  <label class="form-label">软件版本 <span class="required">*</span></label>
+                  <select v-model="addImplementationForm.version" class="form-input">
+                    <option value="" disabled>请选择版本</option>
+                    <option v-for="version in implementationVersionOptions" :key="version" :value="version">{{ version }}</option>
+                  </select>
+                </div>
+                <template v-if="isJumpServerImplementation">
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">纳管资产类型 <span class="required">*</span></label>
+                    <div class="implementation-chip-group">
+                      <button
+                        v-for="option in IMPLEMENTATION_ASSET_TYPE_OPTIONS"
+                        :key="option"
+                        type="button"
+                        :class="['implementation-chip', addImplementationForm.assetTypes.includes(option) ? 'active' : '']"
+                        @click="toggleImplementationAssetType(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">管理资产数 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.assetCount" class="form-input">
+                      <option value="" disabled>请选择管理资产数</option>
+                      <option v-for="option in IMPLEMENTATION_ASSET_COUNT_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">虚拟化类型 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.virtualizationType" class="form-input">
+                      <option value="" disabled>请选择虚拟化类型</option>
+                      <option v-for="option in IMPLEMENTATION_VIRTUALIZATION_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">应用发布服务器 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.applicationServer" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_APPLICATION_SERVER_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">是否涉及到数据同步 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.databaseSync" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_DATABASE_SYNC_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">数据库是否外置 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.databaseExternal" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_DATABASE_EXTERNAL_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Redis是否外置部署 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.redisExternal" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_REDIS_EXTERNAL_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">共享存储NFS <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.sharedNfs" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_SHARED_NFS_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">客户核心关注点</label>
+                    <textarea
+                      ref="implementationCustomerFocusTextareaRef"
+                      v-model.trim="addImplementationForm.customerFocus"
+                      class="form-textarea implementation-customer-focus-textarea"
+                      placeholder="请输入客户核心关注点"
+                      rows="1"
+                      @input="adjustImplementationCustomerFocusTextarea"
+                    ></textarea>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">部署架构 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.deploymentArchitecture" class="form-input">
+                      <option value="" disabled>请选择部署架构</option>
+                      <option v-for="option in IMPLEMENTATION_ARCHITECTURE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                </template>
+                <template v-else-if="isMaxKbImplementation">
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">部署架构 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.deploymentArchitecture" class="form-input">
+                      <option value="" disabled>请选择部署架构</option>
+                      <option v-for="option in IMPLEMENTATION_ARCHITECTURE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">认证方式 <span class="required">*</span></label>
+                    <div class="implementation-chip-group">
+                      <button
+                        v-for="option in IMPLEMENTATION_MAXKB_AUTH_OPTIONS"
+                        :key="option"
+                        type="button"
+                        :class="['implementation-chip', addImplementationForm.authMethods.includes(option) ? 'active' : '']"
+                        @click="toggleImplementationAuthMethod(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">业务方向 <span class="required">*</span></label>
+                    <div class="implementation-chip-group">
+                      <button
+                        v-for="option in IMPLEMENTATION_MAXKB_DIRECTION_OPTIONS"
+                        :key="option"
+                        type="button"
+                        :class="['implementation-chip', addImplementationForm.businessDirections.includes(option) ? 'active' : '']"
+                        @click="toggleImplementationBusinessDirection(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <template v-else-if="isDataEaseImplementation">
+                  <div class="form-group">
+                    <label class="form-label">备份方式 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.backupMethod" type="text" class="form-input" placeholder="请输入备份方式" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">数据库配置 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.dataEaseDatabase" type="text" class="form-input" placeholder="请输入数据库配置" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Doris配置 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.dorisUsage" type="text" class="form-input" placeholder="请输入 Doris 配置" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">部署架构 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.deploymentArchitecture" class="form-input">
+                      <option value="" disabled>请选择部署架构</option>
+                      <option v-for="option in IMPLEMENTATION_ARCHITECTURE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">数据源类型 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.dataSourceType" type="text" class="form-input" placeholder="请输入数据源类型" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">数据量规模 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.dataScale" type="text" class="form-input" placeholder="请输入数据量规模" />
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">认证方式 <span class="required">*</span></label>
+                    <div class="implementation-chip-group">
+                      <button
+                        v-for="option in IMPLEMENTATION_DATAEASE_AUTH_OPTIONS"
+                        :key="option"
+                        type="button"
+                        :class="['implementation-chip', addImplementationForm.authMethods.includes(option) ? 'active' : '']"
+                        @click="toggleImplementationAuthMethod(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">嵌入方式 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.embeddedMode" type="text" class="form-input" placeholder="请输入嵌入方式" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">客户接入状态 <span class="required">*</span></label>
+                    <input v-model.trim="addImplementationForm.customerJoined" type="text" class="form-input" placeholder="请输入客户接入状态" />
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">分析及展示方向 <span class="required">*</span></label>
+                    <textarea
+                      v-model.trim="addImplementationForm.analysisDirection"
+                      class="form-textarea implementation-compact-textarea"
+                      placeholder="请输入分析及展示方向"
+                      rows="1"
+                    ></textarea>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">客户核心关注点 <span class="required">*</span></label>
+                    <textarea
+                      ref="implementationCustomerFocusTextareaRef"
+                      v-model.trim="addImplementationForm.customerFocus"
+                      class="form-textarea implementation-customer-focus-textarea"
+                      placeholder="请输入客户核心关注点"
+                      rows="1"
+                      @input="adjustImplementationCustomerFocusTextarea"
+                    ></textarea>
+                  </div>
+                </template>
+              </div>
+            </section>
+
+            <section v-if="isJumpServerImplementation" class="implementation-section">
+              <div class="implementation-section-header">
+                <h4>部署记录</h4>
+              </div>
+              <div class="form-group">
+                <label class="form-label">记录内容 <span class="required">*</span></label>
+                <textarea
+                  ref="implementationDeploymentRecordTextareaRef"
+                  v-model.trim="addImplementationForm.deploymentRecord"
+                  class="form-textarea implementation-record-textarea"
+                  placeholder="请输入部署记录内容"
+                  rows="2"
+                  @input="adjustImplementationDeploymentRecordTextarea"
+                ></textarea>
+              </div>
+            </section>
+
+            <section class="implementation-section">
+              <div class="implementation-section-header">
+                <h4>其他信息</h4>
+              </div>
+              <div class="form-group">
+                <label class="form-label">遗留问题</label>
+                <textarea
+                  ref="implementationRemainingIssuesTextareaRef"
+                  v-model.trim="addImplementationForm.remainingIssues"
+                  class="form-textarea implementation-compact-textarea"
+                  placeholder="请输入遗留问题"
+                  rows="1"
+                  @input="adjustImplementationRemainingIssuesTextarea"
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">备注</label>
+                <textarea
+                  ref="implementationRemarkTextareaRef"
+                  v-model.trim="addImplementationForm.remark"
+                  class="form-textarea implementation-compact-textarea"
+                  placeholder="请输入备注"
+                  rows="1"
+                  @input="adjustImplementationRemarkTextarea"
+                ></textarea>
+              </div>
+            </section>
+          </template>
+        </div>
+        <div class="modal-footer modal-footer-actions">
+          <button class="btn btn-secondary btn-uniform" @click="closeAddImplementationModal">取消</button>
+          <button
+            class="btn btn-primary btn-resolve btn-uniform"
+            :disabled="addImplementationSubmitting || implementationContextLoading"
+            @click="submitAddImplementation"
+          >
+            {{ addImplementationSubmitting ? '提交中...' : '提交' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增维护弹窗 -->
     <div v-if="showAddMaintenanceModal" class="modal-overlay" @click="closeAddMaintenanceModal">
-      <div class="modal-content" @click.stop>
+      <div class="modal-content maintenance-modal-content" @click.stop>
         <div class="modal-header">
           <h3>新增维护记录</h3>
           <button class="modal-close" @click="closeAddMaintenanceModal">
             <i class="fa fa-times"></i>
           </button>
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">维护日期 <span class="required">*</span></label>
-            <input type="date" v-model="addMaintenanceForm.maintenanceTime" class="form-input" required />
+        <div class="modal-body maintenance-modal-body">
+          <div class="maintenance-panel maintenance-panel-primary">
+            <div class="maintenance-panel-header">
+              <h4>基础信息</h4>
+            </div>
+            <div class="maintenance-form-grid">
+              <div class="form-group maintenance-primary-field">
+                <label class="form-label">维护日期 <span class="required">*</span></label>
+                <div class="maintenance-date-picker" @click.stop>
+                  <button
+                    type="button"
+                    class="form-input maintenance-date-input maintenance-date-trigger"
+                    @click="toggleMaintenanceCalendar"
+                  >
+                    <span :class="['maintenance-date-trigger-text', { 'is-placeholder': !addMaintenanceForm.maintenanceTime }]">
+                      {{ addMaintenanceForm.maintenanceTime || '请选择维护日期' }}
+                    </span>
+                    <i class="fa fa-calendar maintenance-date-trigger-icon"></i>
+                  </button>
+                  <div v-if="showMaintenanceCalendar" class="maintenance-calendar-popover">
+                    <div class="maintenance-calendar-toolbar">
+                      <button type="button" class="maintenance-calendar-nav" @click="changeMaintenanceCalendarMonth(-1)">
+                        <i class="fa fa-chevron-left"></i>
+                      </button>
+                      <div class="maintenance-calendar-title">{{ maintenanceCalendarTitle }}</div>
+                      <button type="button" class="maintenance-calendar-nav" @click="changeMaintenanceCalendarMonth(1)">
+                        <i class="fa fa-chevron-right"></i>
+                      </button>
+                    </div>
+                    <div class="maintenance-calendar-weekdays">
+                      <span v-for="day in maintenanceCalendarWeekdays" :key="day">{{ day }}</span>
+                    </div>
+                    <div class="maintenance-calendar-grid">
+                      <button
+                        v-for="day in maintenanceCalendarDays"
+                        :key="day.key"
+                        type="button"
+                        :class="[
+                          'maintenance-calendar-day',
+                          { 'is-outside': !day.inCurrentMonth, 'is-today': day.isToday, 'is-selected': day.isSelected }
+                        ]"
+                        @click="selectMaintenanceCalendarDate(day.value)"
+                      >
+                        {{ day.label }}
+                      </button>
+                    </div>
+                    <div class="maintenance-calendar-footer">
+                      <button type="button" class="maintenance-calendar-link" @click="selectMaintenanceCalendarToday">今天</button>
+                      <button type="button" class="maintenance-calendar-link" @click="closeMaintenanceCalendar">关闭</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">维护类型 <span class="required">*</span></label>
+                <select v-model="addMaintenanceForm.maintenanceTypes" class="form-input" required>
+                  <option value="升级">升级</option>
+                  <option value="巡检">巡检</option>
+                  <option value="需求变更">需求变更</option>
+                  <option value="问题处理">问题处理</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">维护类型 <span class="required">*</span></label>
-            <select v-model="addMaintenanceForm.maintenanceTypes" class="form-input" required>
-              <option value="升级">升级</option>
-              <option value="巡检">巡检</option>
-              <option value="需求变更">需求变更</option>
-              <option value="问题处理">问题处理</option>
-            </select>
-          </div>
+          <div class="maintenance-panel">
+            <div class="maintenance-panel-header">
+              <h4>维护内容</h4>
+            </div>
+            <div class="form-group">
+              <label class="form-label">概述 <span class="required">*</span></label>
+              <textarea
+                v-model="addMaintenanceForm.maintenanceTitle"
+                class="form-textarea maintenance-summary-textarea"
+                placeholder="请输入维护概述"
+                rows="2"
+                required
+              ></textarea>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">概述 <span class="required">*</span></label>
-            <textarea
-              v-model="addMaintenanceForm.maintenanceTitle"
-              class="form-textarea maintenance-summary-textarea"
-              placeholder="请输入维护概述"
-              rows="2"
-              required
-            ></textarea>
-          </div>
+            <div class="form-group">
+              <label class="form-label">选择版本 <span class="required">*</span></label>
+              <select v-model="addMaintenanceForm.maintenanceVersion" class="form-input" :disabled="versionsLoading" required>
+                <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
+              </select>
+              <div v-if="versionsLoading" class="text-gray-400 text-sm mt-2">版本加载中...</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">选择版本 <span class="required">*</span></label>
-            <select v-model="addMaintenanceForm.maintenanceVersion" class="form-input" :disabled="versionsLoading" required>
-              <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
-            </select>
-            <div v-if="versionsLoading" class="text-gray-400 text-sm mt-2">版本加载中...</div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">详细过程记录 <span class="required">*</span></label>
-            <textarea v-model="addMaintenanceForm.maintenanceContext" class="form-textarea" placeholder="请输入详细过程记录" rows="3" required></textarea>
+            <div class="form-group">
+              <label class="form-label">详细过程记录 <span class="required">*</span></label>
+              <textarea v-model="addMaintenanceForm.maintenanceContext" class="form-textarea maintenance-detail-textarea" placeholder="请输入详细过程记录" rows="3" required></textarea>
+            </div>
           </div>
         </div>
         <div class="modal-footer modal-footer-actions add-maintenance-footer">
@@ -851,6 +1295,7 @@ import '@/styles/home.css'
 // 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
 const LOCAL_DEBUG_CHAT = false
 const DEBUG_CHAT_ID = ''
+const DEBUG_EDITOR_USER_ID = ''
 const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
 
 const corpId = ref('')
@@ -882,7 +1327,12 @@ const tabs = ref([
 ])
 const toolEmail = ref('')
 const toolCcEmails = ref(DEFAULT_TOOL_MAIL_CC)
+const toolEmailTextareaRef = ref(null)
 const toolCcTextareaRef = ref(null)
+const implementationCustomerFocusTextareaRef = ref(null)
+const implementationDeploymentRecordTextareaRef = ref(null)
+const implementationRemainingIssuesTextareaRef = ref(null)
+const implementationRemarkTextareaRef = ref(null)
 const toolMailSubmitting = ref(false)
 const toolReportSubmitting = ref(false)
 let acceptanceStatusRequestToken = 0
@@ -917,6 +1367,10 @@ const updateForm = ref({
 })
 const showAddMaintenanceModal = ref(false)
 const addMaintenanceSubmitting = ref(false)
+const showMaintenanceCalendar = ref(false)
+const maintenanceCalendarCursor = ref(new Date())
+const showImplementationCalendar = ref(false)
+const implementationCalendarCursor = ref(new Date())
 const versionsLoading = ref(false)
 const productVersions = ref([])
 const versionsLoadedProductId = ref(null)
@@ -928,6 +1382,63 @@ const addMaintenanceForm = ref({
   maintenanceVersion: '',
   maintenanceContext: ''
 })
+const showAddImplementationModal = ref(false)
+const implementationContextLoading = ref(false)
+const addImplementationSubmitting = ref(false)
+const implementationContext = ref(null)
+const implementationVersionOptions = ref([])
+const implementationContextLoadedChatId = ref('')
+const implementationContextPreloadPromise = ref(null)
+const addImplementationForm = ref({
+  deploymentDate: '',
+  deploymentMethod: '远程部署',
+  version: '',
+  assetTypes: [],
+  assetCount: '',
+  virtualizationType: '',
+  applicationServer: '',
+  databaseSync: '',
+  databaseExternal: '',
+  redisExternal: '',
+  sharedNfs: '',
+  authMethods: [],
+  businessDirections: [],
+  backupMethod: '',
+  dataEaseDatabase: '',
+  dorisUsage: '',
+  dataSourceType: '',
+  dataScale: '',
+  embeddedMode: '',
+  customerJoined: '',
+  analysisDirection: '',
+  customerFocus: '',
+  deploymentArchitecture: '',
+  deploymentRecord: '',
+  remainingIssues: '',
+  remark: '',
+  submitterUserId: '',
+  submitterName: ''
+})
+
+const IMPLEMENTATION_DEPLOYMENT_METHOD_OPTIONS = ['远程部署', '客户自行部署', '现场部署', '代理商部署']
+const IMPLEMENTATION_ASSET_TYPE_OPTIONS = ['Linux', 'Windows', '交换机', '数据库', 'K8S']
+const IMPLEMENTATION_ASSET_COUNT_OPTIONS = ['50左右', '100', '500以下', '1000', '3000', '3000以上']
+const MAINTENANCE_CALENDAR_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
+const IMPLEMENTATION_VIRTUALIZATION_OPTIONS = ['Vmware', '公有阿里云', '私有华为云', '无']
+const IMPLEMENTATION_APPLICATION_SERVER_OPTIONS = ['是，多台', '是，单台', '否，不涉及']
+const IMPLEMENTATION_DATABASE_SYNC_OPTIONS = ['是，从云管同步', '是，从客户机程序推送', '是，从其他软件同步', '否，不涉及']
+const IMPLEMENTATION_DATABASE_EXTERNAL_OPTIONS = ['是，主备模式', '是，云上数据库', '是，客户内部提供', '是，部署主主模式', '是，部署PXC集群', '否，使用JumpServer自带数据库', '否，在应用服务器上部署数据库']
+const IMPLEMENTATION_REDIS_EXTERNAL_OPTIONS = ['是，云上Redis服务', '是，客户内部提供', '是，部署主备模式', '是，部署哨兵模式', '否，使用JumpServer自带的Redis']
+const IMPLEMENTATION_SHARED_NFS_OPTIONS = ['是，云上共享存储', '是，客户内部提供', '否，手动部署NFS', '否，使用rsync同步', '否，不使用NFS', '否，使用PV']
+const IMPLEMENTATION_ARCHITECTURE_OPTIONS = ['无', '主备模式', '单节点', '集群模式', '分布式模式', 'K8S部署']
+const IMPLEMENTATION_MAXKB_AUTH_OPTIONS = ['OIDC', 'CAS', 'LDAP', '企业微信', '钉钉', '飞书', '无']
+const IMPLEMENTATION_MAXKB_DIRECTION_OPTIONS = ['产品咨询', '客户引导', '售后服务', '智能办公', '知识管理', '文档助手', '流程自动化', '数据分析', '智能推荐', '业务系统+大模型', '内部问答', '智能客服', '未知']
+const IMPLEMENTATION_DATAEASE_AUTH_OPTIONS = ['OIDC', 'CAS', 'LDAP', '企业微信', '钉钉', '国际飞书', '飞书']
+
+const implementationProductAlias = computed(() => implementationContext.value?.productAlias || '')
+const isJumpServerImplementation = computed(() => implementationProductAlias.value === 'JS')
+const isMaxKbImplementation = computed(() => implementationProductAlias.value === 'MK')
+const isDataEaseImplementation = computed(() => implementationProductAlias.value === 'DE')
 
 const getCorpId = async () => {
   const res = await jsapiApi.getCorpId()
@@ -1031,8 +1542,7 @@ const loadToolMailDefaultCc = async (extChatId) => {
   toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
 }
 
-const doAdjustToolCcTextarea = () => {
-  const textarea = toolCcTextareaRef.value
+const doAdjustTextarea = (textarea) => {
   if (!textarea) return
   textarea.style.height = 'auto'
   const borderHeight = textarea.offsetHeight - textarea.clientHeight
@@ -1043,12 +1553,83 @@ const doAdjustToolCcTextarea = () => {
   textarea.style.overflowY = nextHeight > maxHeight ? 'auto' : 'hidden'
 }
 
+const doAdjustToolEmailTextarea = () => {
+  doAdjustTextarea(toolEmailTextareaRef.value)
+}
+
+const doAdjustToolCcTextarea = () => {
+  doAdjustTextarea(toolCcTextareaRef.value)
+}
+
+const adjustToolEmailTextarea = async () => {
+  await nextTick()
+  doAdjustToolEmailTextarea()
+  requestAnimationFrame(() => {
+    doAdjustToolEmailTextarea()
+  })
+}
+
 const adjustToolCcTextarea = async () => {
   await nextTick()
   doAdjustToolCcTextarea()
   requestAnimationFrame(() => {
     doAdjustToolCcTextarea()
   })
+}
+
+const doAdjustImplementationCustomerFocusTextarea = () => {
+  doAdjustTextarea(implementationCustomerFocusTextareaRef.value)
+}
+
+const adjustImplementationCustomerFocusTextarea = async () => {
+  await nextTick()
+  doAdjustImplementationCustomerFocusTextarea()
+  requestAnimationFrame(() => {
+    doAdjustImplementationCustomerFocusTextarea()
+  })
+}
+
+const doAdjustImplementationDeploymentRecordTextarea = () => {
+  doAdjustTextarea(implementationDeploymentRecordTextareaRef.value)
+}
+
+const adjustImplementationDeploymentRecordTextarea = async () => {
+  await nextTick()
+  doAdjustImplementationDeploymentRecordTextarea()
+  requestAnimationFrame(() => {
+    doAdjustImplementationDeploymentRecordTextarea()
+  })
+}
+
+const doAdjustImplementationRemainingIssuesTextarea = () => {
+  doAdjustTextarea(implementationRemainingIssuesTextareaRef.value)
+}
+
+const adjustImplementationRemainingIssuesTextarea = async () => {
+  await nextTick()
+  doAdjustImplementationRemainingIssuesTextarea()
+  requestAnimationFrame(() => {
+    doAdjustImplementationRemainingIssuesTextarea()
+  })
+}
+
+const doAdjustImplementationRemarkTextarea = () => {
+  doAdjustTextarea(implementationRemarkTextareaRef.value)
+}
+
+const adjustImplementationRemarkTextarea = async () => {
+  await nextTick()
+  doAdjustImplementationRemarkTextarea()
+  requestAnimationFrame(() => {
+    doAdjustImplementationRemarkTextarea()
+  })
+}
+
+const doAdjustImplementationTextareas = () => {
+  doAdjustImplementationCustomerFocusTextarea()
+  doAdjustImplementationDeploymentRecordTextarea()
+  doAdjustImplementationRemainingIssuesTextarea()
+  doAdjustImplementationRemarkTextarea()
 }
 
 const pad2 = (value) => String(value).padStart(2, '0')
@@ -2689,6 +3270,9 @@ const getLogActionClass = (action) => {
 const loadChatData = async (targetChatId) => {
   resetTicketViewState()
   clearAcceptanceStatusFields()
+  implementationContext.value = null
+  implementationVersionOptions.value = []
+  implementationContextLoadedChatId.value = ''
 
   const runInBackground = (task) => {
     Promise.resolve(task).catch(() => {
@@ -2711,6 +3295,7 @@ const loadChatData = async (targetChatId) => {
   await getCustomerData(targetChatId)
   // 群聊加载时即预取版本，避免打开新增维护才开始请求
   runInBackground(prefetchProductVersions())
+  runInBackground(prefetchImplementationCreateContext(targetChatId))
 }
 
 const loadDebugChatFallback = async (messagePrefix = '企业微信 chatID 获取失败') => {
@@ -2882,11 +3467,155 @@ const formatDateInputValue = (date = new Date()) => {
   return `${year}-${month}-${day}`
 }
 
+const parseDateInputValue = (value) => {
+  if (!value) return null
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day)
+}
+
+const startOfCalendarMonth = (date = new Date()) => new Date(date.getFullYear(), date.getMonth(), 1)
+
+const addCalendarMonths = (date, offset) => new Date(date.getFullYear(), date.getMonth() + offset, 1)
+
+const isSameCalendarDay = (left, right) => (
+  left &&
+  right &&
+  left.getFullYear() === right.getFullYear() &&
+  left.getMonth() === right.getMonth() &&
+  left.getDate() === right.getDate()
+)
+
+const maintenanceCalendarWeekdays = MAINTENANCE_CALENDAR_WEEKDAYS
+
+const maintenanceCalendarTitle = computed(() => {
+  const date = maintenanceCalendarCursor.value || new Date()
+  return `${date.getFullYear()}年 ${date.getMonth() + 1}月`
+})
+
+const maintenanceCalendarDays = computed(() => {
+  const cursor = startOfCalendarMonth(maintenanceCalendarCursor.value || new Date())
+  const firstDay = cursor.getDay()
+  const gridStart = new Date(cursor)
+  gridStart.setDate(cursor.getDate() - firstDay)
+  const selectedDate = parseDateInputValue(addMaintenanceForm.value.maintenanceTime)
+  const today = new Date()
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(gridStart)
+    current.setDate(gridStart.getDate() + index)
+    return {
+      key: `${current.getFullYear()}-${current.getMonth()}-${current.getDate()}`,
+      label: current.getDate(),
+      value: formatDateInputValue(current),
+      inCurrentMonth: current.getMonth() === cursor.getMonth(),
+      isToday: isSameCalendarDay(current, today),
+      isSelected: isSameCalendarDay(current, selectedDate)
+    }
+  })
+})
+
+const implementationCalendarTitle = computed(() => {
+  const date = implementationCalendarCursor.value || new Date()
+  return `${date.getFullYear()}年 ${date.getMonth() + 1}月`
+})
+
+const implementationCalendarDays = computed(() => {
+  const cursor = startOfCalendarMonth(implementationCalendarCursor.value || new Date())
+  const firstDay = cursor.getDay()
+  const gridStart = new Date(cursor)
+  gridStart.setDate(cursor.getDate() - firstDay)
+  const selectedDate = parseDateInputValue(addImplementationForm.value.deploymentDate)
+  const today = new Date()
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(gridStart)
+    current.setDate(gridStart.getDate() + index)
+    return {
+      key: `${current.getFullYear()}-${current.getMonth()}-${current.getDate()}`,
+      label: current.getDate(),
+      value: formatDateInputValue(current),
+      inCurrentMonth: current.getMonth() === cursor.getMonth(),
+      isToday: isSameCalendarDay(current, today),
+      isSelected: isSameCalendarDay(current, selectedDate)
+    }
+  })
+})
+
+const syncMaintenanceCalendarCursor = (value = addMaintenanceForm.value.maintenanceTime) => {
+  maintenanceCalendarCursor.value = startOfCalendarMonth(parseDateInputValue(value) || new Date())
+}
+
+const openMaintenanceCalendar = () => {
+  syncMaintenanceCalendarCursor()
+  showMaintenanceCalendar.value = true
+}
+
+const closeMaintenanceCalendar = () => {
+  showMaintenanceCalendar.value = false
+}
+
+const toggleMaintenanceCalendar = () => {
+  if (showMaintenanceCalendar.value) {
+    closeMaintenanceCalendar()
+  } else {
+    openMaintenanceCalendar()
+  }
+}
+
+const changeMaintenanceCalendarMonth = (offset) => {
+  maintenanceCalendarCursor.value = startOfCalendarMonth(addCalendarMonths(maintenanceCalendarCursor.value || new Date(), offset))
+}
+
+const selectMaintenanceCalendarDate = (value) => {
+  addMaintenanceForm.value.maintenanceTime = value
+  closeMaintenanceCalendar()
+}
+
+const selectMaintenanceCalendarToday = () => {
+  selectMaintenanceCalendarDate(formatDateInputValue(new Date()))
+}
+
+const syncImplementationCalendarCursor = (value = addImplementationForm.value.deploymentDate) => {
+  implementationCalendarCursor.value = startOfCalendarMonth(parseDateInputValue(value) || new Date())
+}
+
+const openImplementationCalendar = () => {
+  syncImplementationCalendarCursor()
+  showImplementationCalendar.value = true
+}
+
+const closeImplementationCalendar = () => {
+  showImplementationCalendar.value = false
+}
+
+const toggleImplementationCalendar = () => {
+  if (showImplementationCalendar.value) {
+    closeImplementationCalendar()
+  } else {
+    openImplementationCalendar()
+  }
+}
+
+const changeImplementationCalendarMonth = (offset) => {
+  implementationCalendarCursor.value = startOfCalendarMonth(addCalendarMonths(implementationCalendarCursor.value || new Date(), offset))
+}
+
+const selectImplementationCalendarDate = (value) => {
+  addImplementationForm.value.deploymentDate = value
+  closeImplementationCalendar()
+}
+
+const selectImplementationCalendarToday = () => {
+  selectImplementationCalendarDate(formatDateInputValue(new Date()))
+}
+
 const getCurrentProductId = () => {
   return customerData.value?.productId || null
 }
 
 const getEditorUserId = () => {
+  if (LOCAL_DEBUG_CHAT) {
+    return DEBUG_EDITOR_USER_ID
+  }
   return userStore.userInfo?.userid || userStore.userInfo?.UserId || userStore.userInfo?.user_id || ''
 }
 
@@ -2958,6 +3687,37 @@ const prefetchProductVersions = () => {
   return versionPreloadPromise.value
 }
 
+const prefetchImplementationCreateContext = (targetChatId = chatId.value) => {
+  if (!targetChatId) {
+    return Promise.resolve(null)
+  }
+  if (implementationContextLoadedChatId.value === targetChatId && implementationContext.value) {
+    return Promise.resolve(implementationContext.value)
+  }
+  if (implementationContextPreloadPromise.value) {
+    return implementationContextPreloadPromise.value
+  }
+  implementationContextPreloadPromise.value = (async () => {
+    const result = await docApi.getImplementationCreateContext(targetChatId)
+    if (!(result.success || result.code === 0)) {
+      throw new Error(result.message || result.msg || '获取新增实施上下文失败')
+    }
+    const context = result.data || {}
+    implementationContext.value = context
+    implementationVersionOptions.value = Array.isArray(context.availableVersions) ? context.availableVersions : []
+    implementationContextLoadedChatId.value = targetChatId
+    return context
+  })().catch((error) => {
+    implementationContext.value = null
+    implementationVersionOptions.value = []
+    implementationContextLoadedChatId.value = ''
+    throw error
+  }).finally(() => {
+    implementationContextPreloadPromise.value = null
+  })
+  return implementationContextPreloadPromise.value
+}
+
 const resetAddMaintenanceForm = () => {
   addMaintenanceForm.value = {
     maintenanceTime: formatDateInputValue(),
@@ -2966,11 +3726,111 @@ const resetAddMaintenanceForm = () => {
     maintenanceVersion: '',
     maintenanceContext: ''
   }
+  syncMaintenanceCalendarCursor(addMaintenanceForm.value.maintenanceTime)
 }
 
 const closeAddMaintenanceModal = () => {
   showAddMaintenanceModal.value = false
   addMaintenanceSubmitting.value = false
+  closeMaintenanceCalendar()
+}
+
+const resetAddImplementationForm = (context = null) => {
+  const submitterUserId = context?.defaultSubmitterUserId || getEditorUserId()
+  const submitterName = context?.defaultSubmitterName || userStore.userInfo?.name || userStore.userInfo?.UserId || submitterUserId || ''
+  addImplementationForm.value = {
+    deploymentDate: formatDateInputValue(),
+    deploymentMethod: '远程部署',
+    version: '',
+    assetTypes: [],
+    assetCount: '',
+    virtualizationType: '无',
+    applicationServer: '是，单台',
+    databaseSync: '否，不涉及',
+    databaseExternal: '否，在应用服务器上部署数据库',
+    redisExternal: '否，使用JumpServer自带的Redis',
+    sharedNfs: '否，不使用NFS',
+    authMethods: [],
+    businessDirections: [],
+    backupMethod: '',
+    dataEaseDatabase: '',
+    dorisUsage: '',
+    dataSourceType: '',
+    dataScale: '',
+    embeddedMode: '',
+    customerJoined: '',
+    analysisDirection: '',
+    customerFocus: '',
+    deploymentArchitecture: '',
+    deploymentRecord: '',
+    remainingIssues: '',
+    remark: '',
+    submitterUserId,
+    submitterName
+  }
+  syncImplementationCalendarCursor(addImplementationForm.value.deploymentDate)
+  nextTick(() => {
+    doAdjustImplementationTextareas()
+  })
+}
+
+const closeAddImplementationModal = () => {
+  showAddImplementationModal.value = false
+  implementationContextLoading.value = false
+  addImplementationSubmitting.value = false
+  closeImplementationCalendar()
+}
+
+const toggleImplementationAssetType = (option) => {
+  const current = new Set(addImplementationForm.value.assetTypes || [])
+  if (current.has(option)) {
+    current.delete(option)
+  } else {
+    current.add(option)
+  }
+  addImplementationForm.value.assetTypes = Array.from(current)
+}
+
+const toggleImplementationAuthMethod = (option) => {
+  const current = new Set(addImplementationForm.value.authMethods || [])
+  if (current.has(option)) {
+    current.delete(option)
+  } else {
+    current.add(option)
+  }
+  addImplementationForm.value.authMethods = Array.from(current)
+}
+
+const toggleImplementationBusinessDirection = (option) => {
+  const current = new Set(addImplementationForm.value.businessDirections || [])
+  if (current.has(option)) {
+    current.delete(option)
+  } else {
+    current.add(option)
+  }
+  addImplementationForm.value.businessDirections = Array.from(current)
+}
+
+const handleAddImplementation = async () => {
+  if (!chatId.value) {
+    showToast('未获取到当前群聊ID，无法新增实施记录', false)
+    return
+  }
+  implementationContextLoading.value = true
+  showAddImplementationModal.value = true
+  resetAddImplementationForm()
+  try {
+    const context = await prefetchImplementationCreateContext(chatId.value)
+    resetAddImplementationForm(context || {})
+    nextTick(() => {
+      doAdjustImplementationTextareas()
+    })
+  } catch (error) {
+    closeAddImplementationModal()
+    showToast('获取新增实施上下文失败: ' + (error.message || error), false)
+  } finally {
+    implementationContextLoading.value = false
+  }
 }
 
 const handleAddMaintenance = async () => {
@@ -3040,6 +3900,186 @@ const submitAddMaintenance = async () => {
     showToast('新增维护记录失败: ' + (error.message || error), false)
   } finally {
     addMaintenanceSubmitting.value = false
+  }
+}
+
+const resolveImplementationSubmitErrorMessage = (errorLike) => {
+  const message = String(
+    errorLike?.message ||
+    errorLike?.errmsg ||
+    errorLike?.msg ||
+    errorLike ||
+    ''
+  )
+  const normalized = message.toLowerCase()
+  if (
+    normalized.includes('already exists') ||
+    normalized.includes('status":409') ||
+    normalized.includes('conflict') ||
+    normalized.includes('maintenance of subscription id')
+  ) {
+    return '实施已存在'
+  }
+  return message || '新增实施记录失败'
+}
+
+const submitAddImplementation = async () => {
+  if (!implementationContext.value?.subscriptionId) {
+    showToast('缺少订阅信息，无法提交实施记录', false)
+    return
+  }
+  if (!implementationContext.value?.clientId) {
+    showToast('缺少客户信息，无法提交实施记录', false)
+    return
+  }
+  if (!implementationContext.value?.productId) {
+    showToast('缺少产品信息，无法提交实施记录', false)
+    return
+  }
+  const productAlias = implementationContext.value?.productAlias || ''
+  const missingFields = []
+  if (!addImplementationForm.value.deploymentDate) missingFields.push('部署日期')
+  if (!addImplementationForm.value.deploymentMethod) missingFields.push('部署方式')
+  if (!addImplementationForm.value.version) missingFields.push('软件版本')
+  if (productAlias === 'JS') {
+    if (!(addImplementationForm.value.assetTypes || []).length) missingFields.push('纳管资产类型')
+    if (!addImplementationForm.value.assetCount) missingFields.push('管理资产数')
+    if (!addImplementationForm.value.virtualizationType) missingFields.push('虚拟化类型')
+    if (!addImplementationForm.value.applicationServer) missingFields.push('应用发布服务器')
+    if (!addImplementationForm.value.databaseSync) missingFields.push('是否涉及到数据同步')
+    if (!addImplementationForm.value.databaseExternal) missingFields.push('数据库是否外置')
+    if (!addImplementationForm.value.redisExternal) missingFields.push('Redis是否外置部署')
+    if (!addImplementationForm.value.sharedNfs) missingFields.push('共享存储NFS')
+    if (!addImplementationForm.value.deploymentArchitecture) missingFields.push('部署架构')
+    if (!addImplementationForm.value.deploymentRecord) missingFields.push('记录内容')
+  } else if (productAlias === 'MK') {
+    if (!addImplementationForm.value.deploymentArchitecture) missingFields.push('部署架构')
+    if (!(addImplementationForm.value.authMethods || []).length) missingFields.push('认证方式')
+    if (!(addImplementationForm.value.businessDirections || []).length) missingFields.push('业务方向')
+  } else if (productAlias === 'DE') {
+    if (!addImplementationForm.value.backupMethod) missingFields.push('备份方式')
+    if (!addImplementationForm.value.dataEaseDatabase) missingFields.push('数据库配置')
+    if (!addImplementationForm.value.dorisUsage) missingFields.push('Doris配置')
+    if (!addImplementationForm.value.deploymentArchitecture) missingFields.push('部署架构')
+    if (!addImplementationForm.value.dataSourceType) missingFields.push('数据源类型')
+    if (!addImplementationForm.value.dataScale) missingFields.push('数据量规模')
+    if (!(addImplementationForm.value.authMethods || []).length) missingFields.push('认证方式')
+    if (!addImplementationForm.value.embeddedMode) missingFields.push('嵌入方式')
+    if (!addImplementationForm.value.customerJoined) missingFields.push('客户接入状态')
+    if (!addImplementationForm.value.analysisDirection) missingFields.push('分析及展示方向')
+    if (!addImplementationForm.value.customerFocus) missingFields.push('客户核心关注点')
+  }
+
+  if (missingFields.length > 0) {
+    showToast(`请完整填写必填项：${missingFields.join('、')}`, false)
+    return
+  }
+
+  addImplementationSubmitting.value = true
+  try {
+    const resolvedEditorUserId = addImplementationForm.value.submitterUserId || getEditorUserId()
+    if (!resolvedEditorUserId) {
+      showToast('缺少提交人ID，请先登录或开启本地调试提交人兜底', false)
+      return
+    }
+    const payload = {
+      extChatId: chatId.value,
+      subscriptionId: implementationContext.value.subscriptionId,
+      clientId: implementationContext.value.clientId,
+      productId: implementationContext.value.productId,
+      regionId: implementationContext.value.regionId,
+      editorUserId: resolvedEditorUserId,
+      deploymentDate: addImplementationForm.value.deploymentDate,
+      deploymentMethod: addImplementationForm.value.deploymentMethod,
+      version: addImplementationForm.value.version,
+      assetTypes: addImplementationForm.value.assetTypes,
+      assetCount: addImplementationForm.value.assetCount,
+      virtualizationType: addImplementationForm.value.virtualizationType,
+      applicationServer: addImplementationForm.value.applicationServer,
+      databaseSync: addImplementationForm.value.databaseSync,
+      databaseExternal: addImplementationForm.value.databaseExternal,
+      redisExternal: addImplementationForm.value.redisExternal,
+      sharedNfs: addImplementationForm.value.sharedNfs,
+      authMethods: addImplementationForm.value.authMethods,
+      businessDirections: addImplementationForm.value.businessDirections,
+      backupMethod: addImplementationForm.value.backupMethod.trim(),
+      dataEaseDatabase: addImplementationForm.value.dataEaseDatabase.trim(),
+      dorisUsage: addImplementationForm.value.dorisUsage.trim(),
+      dataSourceType: addImplementationForm.value.dataSourceType.trim(),
+      dataScale: addImplementationForm.value.dataScale.trim(),
+      embeddedMode: addImplementationForm.value.embeddedMode.trim(),
+      customerJoined: addImplementationForm.value.customerJoined.trim(),
+      analysisDirection: addImplementationForm.value.analysisDirection.trim(),
+      customerFocus: addImplementationForm.value.customerFocus.trim(),
+      deploymentArchitecture: addImplementationForm.value.deploymentArchitecture,
+      deploymentRecord: addImplementationForm.value.deploymentRecord.trim(),
+      remainingIssues: addImplementationForm.value.remainingIssues.trim(),
+      remark: addImplementationForm.value.remark.trim()
+    }
+    const result = await docApi.createImplementationRecord(payload)
+    if (result.success || result.code === 0) {
+      const optimisticRecord = {
+        id: result?.data?.id || `tmp-${Date.now()}`,
+        status: 'DEPLOYED',
+        deploymentTime: payload.deploymentDate,
+        deploymentMethod: payload.deploymentMethod,
+        template: productAlias === 'MK' ? 'MaxKBV2_PRO' : productAlias === 'DE' ? 'DataEaseV2' : 'JumpServer',
+        creatorName: userStore.userInfo?.name || userStore.userInfo?.UserId || payload.editorUserId || '-',
+        version: payload.version,
+        createTime: formatDateInputValue(new Date()),
+        content: productAlias === 'MK'
+          ? [
+              `部署架构：${payload.deploymentArchitecture}`,
+              payload.authMethods?.length ? `认证方式：${payload.authMethods.join('、')}` : '',
+              payload.businessDirections?.length ? `业务方向：${payload.businessDirections.join('、')}` : '',
+              payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
+              payload.remark ? `备注：\n${payload.remark}` : ''
+            ].filter(Boolean).join('\n\n')
+          : productAlias === 'DE'
+            ? [
+                `备份方式：${payload.backupMethod}`,
+                `数据库配置：${payload.dataEaseDatabase}`,
+                `Doris配置：${payload.dorisUsage}`,
+                `部署架构：${payload.deploymentArchitecture}`,
+                `数据源类型：${payload.dataSourceType}`,
+                `数据量规模：${payload.dataScale}`,
+                payload.authMethods?.length ? `认证方式：${payload.authMethods.join('、')}` : '',
+                `嵌入方式：${payload.embeddedMode}`,
+                `客户接入状态：${payload.customerJoined}`,
+                `分析及展示方向：${payload.analysisDirection}`,
+                `客户核心关注点：${payload.customerFocus}`,
+                payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
+                payload.remark ? `备注：\n${payload.remark}` : ''
+              ].filter(Boolean).join('\n\n')
+            : [
+                `纳管资产类型：${(payload.assetTypes || []).join(',')}`,
+                `管理资产数：${payload.assetCount}`,
+                `虚拟化类型：${payload.virtualizationType}`,
+                `应用发布服务器：${payload.applicationServer}`,
+                `是否涉及到数据同步：${payload.databaseSync}`,
+                `数据库是否外置：${payload.databaseExternal}`,
+                `Redis是否外置部署：${payload.redisExternal}`,
+                `共享存储NFS：${payload.sharedNfs}`,
+                payload.customerFocus ? `客户核心关注点：${payload.customerFocus}` : '',
+                `部署架构：${payload.deploymentArchitecture}`,
+                payload.deploymentRecord ? `记录内容：\n${payload.deploymentRecord}` : '',
+                payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
+                payload.remark ? `备注：\n${payload.remark}` : ''
+              ].filter(Boolean).join('\n\n')
+      }
+      maintenanceRecords.value = [optimisticRecord, ...(maintenanceRecords.value || []).filter(item => item.id !== optimisticRecord.id)]
+      showToast('新增实施记录成功', true)
+      closeAddImplementationModal()
+      if (chatId.value) {
+        await getMaintenanceRecords(chatId.value)
+      }
+      return
+    }
+    showToast(resolveImplementationSubmitErrorMessage(result), false)
+  } catch (error) {
+    showToast(resolveImplementationSubmitErrorMessage(error), false)
+  } finally {
+    addImplementationSubmitting.value = false
   }
 }
 
@@ -3192,13 +4232,20 @@ const submitUpdateTicket = async (action) => {
 onMounted(() => {
   userStore.checkLogin()
   registerWxWork()
+  window.addEventListener('resize', adjustToolEmailTextarea)
   window.addEventListener('resize', adjustToolCcTextarea)
+  adjustToolEmailTextarea()
   adjustToolCcTextarea()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', adjustToolEmailTextarea)
   window.removeEventListener('resize', adjustToolCcTextarea)
   clearAcceptanceStatusRefreshTimers()
+})
+
+watch(toolEmail, () => {
+  adjustToolEmailTextarea()
 })
 
 watch(toolCcEmails, () => {

@@ -3,6 +3,7 @@ package com.service;
 import org.springframework.stereotype.Service;
 import com.model.AcceptanceStatusData;
 import com.model.CustomerData;
+import com.model.ImplementationCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ProductVersionSnapshot;
 import com.model.ServiceRecord;
@@ -10,6 +11,7 @@ import com.model.Ticket;
 import com.model.TicketLog;
 import com.model.request.UpdateTicketRequest;
 import com.model.request.CreateMaintenanceRecordRequest;
+import com.model.request.CreateImplementationRecordRequest;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.JSONArray;
 import com.util.HttpClientUtil;
@@ -25,6 +27,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +71,7 @@ public class ChatGroupService {
     private FinanceLedgerService financeLedgerService;
 
     private static final String ACCEPTANCE_REPORT_REQUIRED_ID = "ID01lceprWXBrp";
+    private static final String IMPLEMENTATION_DEFAULT_VALIDATION_VALUE = "正常，满足客户使用";
 
     public CustomerData getCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
@@ -454,19 +458,14 @@ public class ChatGroupService {
     public List<MaintenanceRecord> getMaintenanceRecords(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            String sql = "WITH chat_product AS ( " +
-                    "    SELECT gc.name, " +
-                    "           CASE " +
-                    "               WHEN UPPER(gc.name) LIKE '%JS%' OR UPPER(gc.name) LIKE '%JUMPSERVER%' THEN 'JumpServer' " +
-                    "               WHEN UPPER(gc.name) LIKE '%MK%' OR UPPER(gc.name) LIKE '%MAXKB%' THEN 'MaxKB' " +
-                    "               WHEN UPPER(gc.name) LIKE '%DE%' OR UPPER(gc.name) LIKE '%DATAEASE%' THEN 'DataEase' " +
-                    "               WHEN UPPER(gc.name) LIKE '%SQLBOT%' THEN 'SQLBOT' " +
-                    "               ELSE NULL " +
-                    "           END AS product " +
-                    "    FROM group_chat gc " +
-                    "    WHERE gc.ext_chat_id = ? " +
-                    ") " +
-                    "SELECT sm.id, " +
+            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
+            Long subscriptionId = subscription != null ? subscription.subscriptionId : null;
+            if (subscriptionId == null) {
+                return new ArrayList<>();
+            }
+
+            String productAlias = getProductAliasByExtChatId(extChatId);
+            String sql = "SELECT sm.id, " +
                     "       sm.status, " +
                     "       FROM_UNIXTIME(sm.deployment_time/1000, '%Y-%m-%d') as deployment_time, " +
                     "       sm.deployment_method, " +
@@ -476,31 +475,44 @@ public class ChatGroupService {
                     "       sm.content, " +
                     "       FROM_UNIXTIME(sm.create_time/1000, '%Y-%m-%d') as create_time " +
                     "FROM support_maintenance sm " +
-                    "INNER JOIN support_subscription ss ON sm.subscription_id = ss.id " +
-                    "CROSS JOIN chat_product cp " +
-                    "WHERE ss.client_id IN ( " +
-                    "    SELECT DISTINCT ss2.client_id " +
-                    "    FROM group_chat gc " +
-                    "    INNER JOIN support_subscription ss2 ON gc.name = ss2.group_chat_name " +
-                    "    WHERE gc.ext_chat_id = ? " +
-                    ") " +
-                    "AND (cp.product IS NULL OR UPPER(sm.template) LIKE CONCAT('%', UPPER(cp.product), '%')) " +
-                    "ORDER BY sm.create_time DESC";
+                    "WHERE sm.subscription_id = ? " +
+                    "ORDER BY sm.id DESC";
 
-            var result = com.util.JdbcUtils.query(sql, extChatId, extChatId);
+            var result = com.util.JdbcUtils.query(sql, subscriptionId);
             List<MaintenanceRecord> records = new ArrayList<>();
 
             for (Object[] row : result) {
+                ImplementationContentSnapshot snapshot = parseImplementationContentSnapshot(row[7] != null ? row[7].toString() : null);
+                String resolvedTemplate = firstNonBlank(
+                        row[4] != null ? row[4].toString() : null,
+                        snapshot.template
+                );
+                if (productAlias != null && !matchesProductAlias(productAlias, resolvedTemplate)) {
+                    continue;
+                }
+
                 MaintenanceRecord record = new MaintenanceRecord();
                 record.setId(row[0] != null ? Long.parseLong(row[0].toString()) : null);
                 record.setStatus(row[1] != null ? row[1].toString() : null);
-                record.setDeploymentTime(row[2] != null ? row[2].toString() : null);
-                record.setDeploymentMethod(row[3] != null ? row[3].toString() : null);
-                record.setTemplate(row[4] != null ? row[4].toString() : null);
+                record.setDeploymentTime(firstNonBlank(
+                        normalizeLegacyDeploymentTime(row[2] != null ? row[2].toString() : null),
+                        snapshot.deploymentTime
+                ));
+                record.setDeploymentMethod(firstNonBlank(
+                        row[3] != null ? row[3].toString() : null,
+                        snapshot.deploymentMethod
+                ));
+                record.setTemplate(resolvedTemplate);
                 record.setCreatorName(row[5] != null ? row[5].toString() : null);
-                record.setVersion(row[6] != null ? row[6].toString() : null);
-                record.setContent(row[7] != null ? row[7].toString() : null);
-                record.setCreateTime(row[8] != null ? row[8].toString() : null);
+                record.setVersion(firstNonBlank(
+                        row[6] != null ? row[6].toString() : null,
+                        snapshot.version
+                ));
+                record.setContent(buildImplementationDisplayContent(snapshot, row[7] != null ? row[7].toString() : null));
+                record.setCreateTime(firstNonBlank(
+                        normalizeLegacyDeploymentTime(row[8] != null ? row[8].toString() : null),
+                        snapshot.deploymentTime
+                ));
                 records.add(record);
             }
 
@@ -779,6 +791,46 @@ public class ChatGroupService {
         return null;
     }
 
+    public ImplementationCreateContext getImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
+        if (extChatId == null || extChatId.isEmpty()) {
+            throw new Exception("缺少群聊ID");
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
+            if (subscription == null || subscription.subscriptionId == null) {
+                throw new Exception("未找到当前群聊对应的有效订阅");
+            }
+            String implementationProductAlias = resolveImplementationProductAlias(subscription, extChatId);
+            if (implementationProductAlias == null) {
+                throw new Exception("当前群聊暂不支持新增实施记录");
+            }
+
+            ImplementationCreateContext context = new ImplementationCreateContext();
+            context.setSubscriptionId(subscription.subscriptionId);
+            context.setClientId(subscription.clientId);
+            context.setClientName(subscription.clientName);
+            context.setContractNumber(subscription.contractNumber);
+            context.setProductId(subscription.productId);
+            context.setProductName(subscription.productName);
+            context.setServiceTypeName(subscription.serviceTypeName);
+            context.setSalesName(resolveSalesName(subscription.clientId));
+            context.setRegionId(subscription.regionId);
+            context.setRegionName(resolveRegionName(subscription.regionId));
+            context.setSubscriptionStartDate(subscription.subscriptionStartDate);
+            context.setSupportEndDate(subscription.supportEndDate);
+            context.setDefaultSubmitterUserId(loginUserId);
+            context.setDefaultSubmitterName(resolveSubmitterName(loginUserId));
+            context.setProductAlias(implementationProductAlias);
+            context.setSubscriptionDisplayText(buildSubscriptionDisplayText(subscription));
+            context.setAvailableVersions(getProductVersions(subscription.productId, extChatId));
+            return context;
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
     public JSONObject createMaintenanceRecord(CreateMaintenanceRecordRequest request, String loginUserId) throws Exception {
         if (request.getClientId() == null) {
             throw new Exception("缺少客户ID");
@@ -810,18 +862,34 @@ public class ChatGroupService {
             throw new Exception("缺少区域ID，无法提交维护记录");
         }
 
-        String ownerId = request.getOwnerId();
-        if (ownerId == null || ownerId.isEmpty()) {
-            ownerId = request.getEditorUserId();
+        String originalUserId = request.getOwnerId();
+        if (originalUserId == null || originalUserId.isEmpty()) {
+            originalUserId = request.getEditorUserId();
         }
-        if (ownerId == null || ownerId.isEmpty()) {
-            ownerId = loginUserId;
+        if (originalUserId == null || originalUserId.isEmpty()) {
+            originalUserId = loginUserId;
         }
-        if (ownerId == null || ownerId.isEmpty()) {
+        if (originalUserId == null || originalUserId.isEmpty()) {
             throw new Exception("缺少提交人ID");
         }
-        ownerId = resolveSupportUserId(ownerId);
-        LOGGER.info("createMaintenanceRecord resolved ownerId={}", ownerId);
+        SupportUserResolution resolution = resolveSupportUserIdDetails(originalUserId);
+        String ownerId = resolution.resolvedUserId;
+        LOGGER.info(
+                "createMaintenanceRecord owner resolution originalUserId={}, resolvedOwnerId={}, uuidCandidate={}, " +
+                        "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
+                        "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
+                resolution.originalCandidate,
+                resolution.resolvedUserId,
+                resolution.uuidCandidate,
+                resolution.staffHit,
+                resolution.staffName,
+                resolution.staffEmail,
+                resolution.directSupportUserHit,
+                resolution.directSupportUserId,
+                resolution.supportUserByStaffHit,
+                resolution.supportUserByStaffId,
+                resolution.fallbackToOriginal
+        );
 
         JSONObject payload = new JSONObject();
         payload.put("clientId", request.getClientId());
@@ -849,13 +917,199 @@ public class ChatGroupService {
         return responseJson.getJSONObject("data");
     }
 
+    public JSONObject createImplementationRecord(CreateImplementationRecordRequest request, String loginUserId) throws Exception {
+        if (request.getSubscriptionId() == null) {
+            throw new Exception("缺少订阅ID");
+        }
+        if (request.getClientId() == null) {
+            throw new Exception("缺少客户ID");
+        }
+        if (request.getProductId() == null) {
+            throw new Exception("缺少产品ID");
+        }
+        if (request.getDeploymentDate() == null || request.getDeploymentDate().isEmpty()) {
+            throw new Exception("缺少部署日期");
+        }
+        if (request.getDeploymentMethod() == null || request.getDeploymentMethod().isEmpty()) {
+            throw new Exception("缺少部署方式");
+        }
+        if (request.getVersion() == null || request.getVersion().isEmpty()) {
+            throw new Exception("缺少软件版本");
+        }
+        String implementationProductAlias = resolveImplementationProductAlias(resolvePrimarySubscriptionContext(request.getExtChatId()), request.getExtChatId());
+        if (implementationProductAlias == null) {
+            throw new Exception("当前群聊暂不支持新增实施记录");
+        }
+        validateImplementationRequestByProduct(implementationProductAlias, request);
+
+        String regionId = request.getRegionId();
+        if (regionId == null || regionId.isEmpty()) {
+            regionId = resolveRegionId(request.getClientId(), request.getExtChatId());
+        }
+        if (regionId == null || regionId.isEmpty()) {
+            throw new Exception("缺少区域ID，无法提交实施记录");
+        }
+
+        String originalUserId = request.getEditorUserId();
+        if (originalUserId == null || originalUserId.isEmpty()) {
+            originalUserId = loginUserId;
+        }
+        if (originalUserId == null || originalUserId.isEmpty()) {
+            throw new Exception("缺少提交人ID");
+        }
+
+        SupportUserResolution resolution = resolveSupportUserIdDetails(originalUserId);
+        String editorUserId = resolution.resolvedUserId;
+        LOGGER.info(
+                "createImplementationRecord owner resolution originalUserId={}, resolvedOwnerId={}, uuidCandidate={}, " +
+                        "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
+                        "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
+                resolution.originalCandidate,
+                resolution.resolvedUserId,
+                resolution.uuidCandidate,
+                resolution.staffHit,
+                resolution.staffName,
+                resolution.staffEmail,
+                resolution.directSupportUserHit,
+                resolution.directSupportUserId,
+                resolution.supportUserByStaffHit,
+                resolution.supportUserByStaffId,
+                resolution.fallbackToOriginal
+        );
+
+        JSONObject payload = new JSONObject();
+        payload.put("subscriptionId", request.getSubscriptionId());
+        payload.put("status", "DEPLOYED");
+        payload.put("editorUserId", editorUserId);
+        payload.put("regionId", regionId);
+        payload.put("content", buildImplementationContent(implementationProductAlias, request));
+
+        String url = cscrmBaseUrl + cscrmApiPath + "/support-info/maintenances";
+        LOGGER.info("createImplementationRecord request url={}, payload={}", url, payload.toJSONString());
+        String response = HttpClientUtil.postJSONWithApiKey(url, payload.toJSONString(), cscrmApiKey);
+        LOGGER.info("createImplementationRecord response={}", response);
+
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code != null && code != 0) {
+            String message = responseJson.getString("msg");
+            if (message == null || message.isEmpty()) {
+                message = responseJson.getString("message");
+            }
+            throw new Exception(message != null ? message : "新增实施记录失败");
+        }
+        return responseJson.getJSONObject("data");
+    }
+
+    private void validateImplementationRequestByProduct(String implementationProductAlias, CreateImplementationRecordRequest request) throws Exception {
+        switch (implementationProductAlias) {
+            case "JS" -> {
+                if (request.getAssetTypes() == null || request.getAssetTypes().isEmpty()) {
+                    throw new Exception("缺少纳管资产类型");
+                }
+                if (isBlank(request.getAssetCount())) {
+                    throw new Exception("缺少管理资产数");
+                }
+                if (isBlank(request.getVirtualizationType())) {
+                    throw new Exception("缺少虚拟化类型");
+                }
+                if (isBlank(request.getApplicationServer())) {
+                    throw new Exception("缺少应用发布服务器");
+                }
+                if (isBlank(request.getDatabaseSync())) {
+                    throw new Exception("缺少数据同步配置");
+                }
+                if (isBlank(request.getDatabaseExternal())) {
+                    throw new Exception("缺少数据库外置配置");
+                }
+                if (isBlank(request.getRedisExternal())) {
+                    throw new Exception("缺少 Redis 外置配置");
+                }
+                if (isBlank(request.getSharedNfs())) {
+                    throw new Exception("缺少共享存储配置");
+                }
+                if (isBlank(request.getDeploymentArchitecture())) {
+                    throw new Exception("缺少部署架构");
+                }
+                if (isBlank(request.getDeploymentRecord())) {
+                    throw new Exception("缺少记录内容");
+                }
+            }
+            case "MK" -> {
+                if (isBlank(request.getDeploymentArchitecture())) {
+                    throw new Exception("缺少部署架构");
+                }
+                if (request.getAuthMethods() == null || request.getAuthMethods().isEmpty()) {
+                    throw new Exception("缺少认证方式");
+                }
+                if (request.getBusinessDirections() == null || request.getBusinessDirections().isEmpty()) {
+                    throw new Exception("缺少应用方向");
+                }
+            }
+            case "DE" -> {
+                if (isBlank(request.getBackupMethod())) {
+                    throw new Exception("缺少备份方式");
+                }
+                if (isBlank(request.getDataEaseDatabase())) {
+                    throw new Exception("缺少数据库配置");
+                }
+                if (isBlank(request.getDorisUsage())) {
+                    throw new Exception("缺少 Doris 配置");
+                }
+                if (isBlank(request.getDeploymentArchitecture())) {
+                    throw new Exception("缺少部署架构");
+                }
+                if (isBlank(request.getDataSourceType())) {
+                    throw new Exception("缺少数据源类型");
+                }
+                if (isBlank(request.getDataScale())) {
+                    throw new Exception("缺少数据量规模");
+                }
+                if (request.getAuthMethods() == null || request.getAuthMethods().isEmpty()) {
+                    throw new Exception("缺少认证方式");
+                }
+                if (isBlank(request.getEmbeddedMode())) {
+                    throw new Exception("缺少嵌入配置");
+                }
+                if (isBlank(request.getCustomerJoined())) {
+                    throw new Exception("缺少客户接入状态");
+                }
+                if (isBlank(request.getAnalysisDirection())) {
+                    throw new Exception("缺少分析及展示方向");
+                }
+                if (isBlank(request.getCustomerFocus())) {
+                    throw new Exception("缺少客户核心关注点");
+                }
+            }
+            default -> throw new Exception("当前群聊暂不支持新增实施记录");
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private JSONObject buildImplementationContent(String implementationProductAlias, CreateImplementationRecordRequest request) throws Exception {
+        return switch (implementationProductAlias) {
+            case "JS" -> buildJumpServerImplementationContent(request);
+            case "MK" -> buildMaxKbImplementationContent(request);
+            case "DE" -> buildDataEaseImplementationContent(request);
+            default -> throw new Exception("当前群聊暂不支持新增实施记录");
+        };
+    }
+
     // 维护记录接口需要 support_user.user_id（UUID）。当前登录态常见为企业微信 userid（如 QiJingYu），这里做自动映射。
-    private String resolveSupportUserId(String candidate) {
+    private SupportUserResolution resolveSupportUserIdDetails(String candidate) {
+        SupportUserResolution resolution = new SupportUserResolution(candidate);
         if (candidate == null || candidate.isEmpty()) {
-            return candidate;
+            resolution.resolvedUserId = candidate;
+            resolution.fallbackToOriginal = true;
+            return resolution;
         }
         if (isUuid(candidate)) {
-            return candidate;
+            resolution.uuidCandidate = true;
+            resolution.resolvedUserId = candidate;
+            return resolution;
         }
 
         com.util.JdbcUtils.setCscrmConfig();
@@ -866,7 +1120,10 @@ public class ChatGroupService {
                         "WHERE su.username = ? OR su.name = ? OR su.email = ? LIMIT 1";
                 var result = com.util.JdbcUtils.query(sql, candidate, candidate, candidate);
                 if (!result.isEmpty() && result.get(0)[0] != null) {
-                    return result.get(0)[0].toString();
+                    resolution.directSupportUserHit = true;
+                    resolution.directSupportUserId = result.get(0)[0].toString();
+                    resolution.resolvedUserId = resolution.directSupportUserId;
+                    return resolution;
                 }
             } catch (Exception ignored) {
                 // ignore and fallback
@@ -877,8 +1134,11 @@ public class ChatGroupService {
                 String staffSql = "SELECT s.name, s.email FROM staff s WHERE s.ext_id = ? LIMIT 1";
                 var staffResult = com.util.JdbcUtils.query(staffSql, candidate);
                 if (!staffResult.isEmpty()) {
+                    resolution.staffHit = true;
                     String name = staffResult.get(0)[0] != null ? staffResult.get(0)[0].toString() : null;
                     String email = staffResult.get(0)[1] != null ? staffResult.get(0)[1].toString() : null;
+                    resolution.staffName = name;
+                    resolution.staffEmail = email;
 
                     String supportSql = "SELECT su.user_id FROM support_user su " +
                             "WHERE (? IS NOT NULL AND su.email = ?) " +
@@ -886,7 +1146,10 @@ public class ChatGroupService {
                             "LIMIT 1";
                     var supportResult = com.util.JdbcUtils.query(supportSql, email, email, name, name);
                     if (!supportResult.isEmpty() && supportResult.get(0)[0] != null) {
-                        return supportResult.get(0)[0].toString();
+                        resolution.supportUserByStaffHit = true;
+                        resolution.supportUserByStaffId = supportResult.get(0)[0].toString();
+                        resolution.resolvedUserId = resolution.supportUserByStaffId;
+                        return resolution;
                     }
                 }
             } catch (Exception ignored) {
@@ -895,7 +1158,641 @@ public class ChatGroupService {
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
-        return candidate;
+        resolution.resolvedUserId = candidate;
+        resolution.fallbackToOriginal = true;
+        return resolution;
+    }
+
+    private static final class SupportUserResolution {
+        private final String originalCandidate;
+        private String resolvedUserId;
+        private boolean uuidCandidate;
+        private boolean staffHit;
+        private String staffName;
+        private String staffEmail;
+        private boolean directSupportUserHit;
+        private String directSupportUserId;
+        private boolean supportUserByStaffHit;
+        private String supportUserByStaffId;
+        private boolean fallbackToOriginal;
+
+        private SupportUserResolution(String originalCandidate) {
+            this.originalCandidate = originalCandidate;
+        }
+    }
+
+    private SubscriptionContext resolvePrimarySubscriptionContext(String extChatId) {
+        String productAlias = getProductAliasByExtChatId(extChatId);
+        String directSql = "SELECT " +
+                "  ss.id, " +
+                "  ss.client_id, " +
+                "  sc.name, " +
+                "  ss.contract_number, " +
+                "  sps.product_id, " +
+                "  sps.name, " +
+                "  ss.region_id, " +
+                "  FROM_UNIXTIME(ss.start_date / 1000, '%Y-%m-%d') AS subscription_start_date, " +
+                "  FROM_UNIXTIME(ss.support_end_date / 1000, '%Y-%m-%d') AS support_end_date " +
+                "FROM group_chat gc " +
+                "INNER JOIN support_subscription ss ON ss.group_chat_name = gc.name " +
+                "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
+                "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
+                "WHERE gc.ext_chat_id = ? " +
+                "  AND ss.client_id IS NOT NULL " +
+                "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
+                "LIMIT 1";
+        var directResult = com.util.JdbcUtils.query(directSql, extChatId);
+        if (directResult.isEmpty()) {
+            Long clientId = resolvePrimaryClientId(extChatId);
+            if (clientId == null) {
+                return null;
+            }
+            String sql = "SELECT " +
+                    "  ss.id, " +
+                    "  ss.client_id, " +
+                    "  sc.name, " +
+                    "  ss.contract_number, " +
+                    "  sps.product_id, " +
+                    "  sps.name, " +
+                    "  ss.region_id, " +
+                    "  FROM_UNIXTIME(ss.start_date / 1000, '%Y-%m-%d') AS subscription_start_date, " +
+                    "  FROM_UNIXTIME(ss.support_end_date / 1000, '%Y-%m-%d') AS support_end_date " +
+                    "FROM support_subscription ss " +
+                    "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
+                    "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
+                    "WHERE ss.client_id = ? " +
+                    "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
+                    "LIMIT 20";
+            var result = com.util.JdbcUtils.query(sql, clientId);
+            SubscriptionContext fallback = null;
+            for (Object[] row : result) {
+                SubscriptionContext clientContext = toSubscriptionContext(row);
+                if (fallback == null) {
+                    fallback = clientContext;
+                }
+                if (matchesProductAlias(productAlias, clientContext.productName)) {
+                    LOGGER.info("resolvePrimarySubscriptionContext by client success extChatId={}, clientId={}, subscriptionId={}, productAlias={}, productName={}",
+                            extChatId, clientId, clientContext.subscriptionId, productAlias, clientContext.productName);
+                    return clientContext;
+                }
+            }
+            if (fallback != null) {
+                LOGGER.info("resolvePrimarySubscriptionContext by client fallback extChatId={}, clientId={}, subscriptionId={}, productAlias={}, productName={}",
+                        extChatId, clientId, fallback.subscriptionId, productAlias, fallback.productName);
+                return fallback;
+            }
+            return null;
+        }
+        SubscriptionContext context = toSubscriptionContext(directResult.get(0));
+        LOGGER.info("resolvePrimarySubscriptionContext by direct group success extChatId={}, subscriptionId={}, productAlias={}, productName={}",
+                extChatId, context.subscriptionId, productAlias, context.productName);
+        return context;
+    }
+
+    private Long resolvePrimaryClientId(String extChatId) {
+        String sql = "SELECT ss.client_id " +
+                "FROM group_chat gc " +
+                "INNER JOIN support_subscription ss ON ss.group_chat_name = gc.name " +
+                "WHERE gc.ext_chat_id = ? " +
+                "  AND ss.client_id IS NOT NULL " +
+                "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
+                "LIMIT 1";
+        var result = com.util.JdbcUtils.query(sql, extChatId);
+        if (result.isEmpty() || result.get(0)[0] == null) {
+            return null;
+        }
+        return toLong(result.get(0)[0]);
+    }
+
+    private SubscriptionContext toSubscriptionContext(Object[] row) {
+        SubscriptionContext context = new SubscriptionContext();
+        context.subscriptionId = toLong(row[0]);
+        context.clientId = toLong(row[1]);
+        context.clientName = toStringValue(row[2]);
+        context.contractNumber = toStringValue(row[3]);
+        context.productId = toLong(row[4]);
+        context.productName = toStringValue(row[5]);
+        context.regionId = toStringValue(row[6]);
+        context.subscriptionStartDate = toStringValue(row[7]);
+        context.supportEndDate = toStringValue(row[8]);
+        context.serviceTypeName = "授权服务";
+        return context;
+    }
+
+    private boolean matchesProductAlias(String productAlias, String productName) {
+        if (productAlias == null || productName == null) {
+            return false;
+        }
+        String value = productName.toUpperCase(Locale.ROOT);
+        return switch (productAlias) {
+            case "JS" -> value.contains("JUMPSERVER") || value.contains("JS");
+            case "MK" -> value.contains("MAXKB") || value.contains("MK");
+            case "DE" -> value.contains("DATAEASE") || value.contains("DE");
+            case "SQLBOT" -> value.contains("SQLBOT");
+            default -> false;
+        };
+    }
+
+    private boolean isJumpServerSubscription(SubscriptionContext subscription, String extChatId) {
+        if (subscription == null) {
+            return false;
+        }
+        if (matchesProductAlias("JS", subscription.productName)) {
+            return true;
+        }
+        String groupAlias = getProductAliasByExtChatId(extChatId);
+        return "JS".equals(groupAlias);
+    }
+
+    private String resolveImplementationProductAlias(SubscriptionContext subscription, String extChatId) {
+        if (subscription != null) {
+            if (matchesProductAlias("JS", subscription.productName)) {
+                return "JS";
+            }
+            if (matchesProductAlias("MK", subscription.productName)) {
+                return "MK";
+            }
+            if (matchesProductAlias("DE", subscription.productName)) {
+                return "DE";
+            }
+        }
+        String groupAlias = getProductAliasByExtChatId(extChatId);
+        if ("JS".equals(groupAlias) || "MK".equals(groupAlias) || "DE".equals(groupAlias)) {
+            return groupAlias;
+        }
+        return null;
+    }
+
+    private String resolveSalesName(Long clientId) {
+        if (clientId == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT su.name " +
+                    "FROM client_sales_users csu " +
+                    "INNER JOIN sales_user su ON su.user_id = csu.sales_user_user_id " +
+                    "WHERE csu.support_client_id = ? " +
+                    "AND su.name IS NOT NULL AND su.name != '' " +
+                    "ORDER BY su.name LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, clientId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return result.get(0)[0].toString();
+            }
+        } catch (Exception e) {
+            LOGGER.warn("resolveSalesName failed clientId={}, err={}", clientId, e.getMessage());
+        }
+        return null;
+    }
+
+    private String resolveSubmitterName(String loginUserId) {
+        String staffName = resolveStaffNameByExtId(loginUserId);
+        if (staffName != null && !staffName.isEmpty()) {
+            return staffName;
+        }
+        return loginUserId;
+    }
+
+    private String resolveRegionName(String regionId) {
+        if (regionId == null || regionId.isEmpty()) {
+            return null;
+        }
+        String[] candidates = {
+                "SELECT name FROM region WHERE id = ? LIMIT 1",
+                "SELECT name FROM support_region WHERE id = ? LIMIT 1",
+                "SELECT name FROM work_region WHERE id = ? LIMIT 1"
+        };
+        for (String sql : candidates) {
+            try {
+                var result = com.util.JdbcUtils.query(sql, regionId);
+                if (!result.isEmpty() && result.get(0)[0] != null) {
+                    return result.get(0)[0].toString();
+                }
+            } catch (Exception ignored) {
+                // ignore and continue fallback
+            }
+        }
+        return null;
+    }
+
+    private String buildSubscriptionDisplayText(SubscriptionContext subscription) {
+        List<String> parts = new ArrayList<>();
+        if (subscription.clientName != null && !subscription.clientName.isEmpty()) {
+            parts.add(subscription.clientName);
+        }
+        if (subscription.productName != null && !subscription.productName.isEmpty()) {
+            parts.add(subscription.productName);
+        }
+        if (subscription.contractNumber != null && !subscription.contractNumber.isEmpty()) {
+            parts.add(subscription.contractNumber);
+        }
+        return String.join(" - ", parts);
+    }
+
+    private JSONObject buildJumpServerImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+        JSONArray elements = new JSONArray();
+        addImplementationElement(elements, "template", "JumpServer");
+        addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
+        addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
+        addImplementationElement(elements, "version", request.getVersion());
+        addImplementationElement(elements, "form1prop4", request.getVirtualizationType());
+        addImplementationElement(elements, "form1prop11", request.getDeploymentArchitecture());
+        addImplementationElement(elements, "form1prop3", request.getAssetCount());
+        addImplementationElement(elements, "form1prop8", request.getApplicationServer());
+        addImplementationElement(elements, "form1prop5", request.getDatabaseExternal());
+        addImplementationElement(elements, "form1prop6", request.getRedisExternal());
+        addImplementationElement(elements, "form1prop9", request.getDatabaseSync());
+        addImplementationElement(elements, "form1prop7", request.getSharedNfs());
+        addImplementationMultiValueElement(elements, "form1prop1", request.getAssetTypes());
+        addImplementationElement(elements, "form1prop10", nullToEmpty(request.getCustomerFocus()));
+        addImplementationElement(elements, "deploymentRecord", nullToEmpty(trimToNull(request.getDeploymentRecord())));
+        addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
+        addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
+        for (int i = 1; i <= 9; i++) {
+            addImplementationElement(elements, "form2prop" + i, IMPLEMENTATION_DEFAULT_VALIDATION_VALUE);
+        }
+        JSONObject content = new JSONObject();
+        content.put("elements", elements);
+        return content;
+    }
+
+    private JSONObject buildMaxKbImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+        JSONArray elements = new JSONArray();
+        addImplementationElement(elements, "template", "MaxKBV2_PRO");
+        addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
+        addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
+        addImplementationElement(elements, "version", request.getVersion());
+        addImplementationElement(elements, "form1prop1", request.getDeploymentArchitecture());
+        addImplementationMultiValueElement(elements, "form4prop1", request.getAuthMethods());
+        addImplementationMultiValueElement(elements, "form4prop3", request.getBusinessDirections());
+        addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
+        addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
+        JSONObject content = new JSONObject();
+        content.put("elements", elements);
+        return content;
+    }
+
+    private JSONObject buildDataEaseImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+        JSONArray elements = new JSONArray();
+        addImplementationElement(elements, "template", "DataEaseV2");
+        addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
+        addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
+        addImplementationElement(elements, "version", request.getVersion());
+        addImplementationElement(elements, "backupMethod", request.getBackupMethod());
+        addImplementationElement(elements, "form1prop1", request.getDataEaseDatabase());
+        addImplementationElement(elements, "form1prop2", request.getDorisUsage());
+        addImplementationElement(elements, "form1prop3", request.getDeploymentArchitecture());
+        addImplementationElement(elements, "form4prop1", request.getDataSourceType());
+        addImplementationElement(elements, "form4prop2", request.getDataScale());
+        addImplementationMultiValueElement(elements, "form4prop5", request.getAuthMethods());
+        addImplementationElement(elements, "form4prop6", request.getEmbeddedMode());
+        addImplementationElement(elements, "form4prop7", request.getCustomerJoined());
+        addImplementationElement(elements, "form4prop3", request.getAnalysisDirection());
+        addImplementationElement(elements, "form4prop4", nullToEmpty(trimToNull(request.getCustomerFocus())));
+        addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
+        addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
+        JSONObject content = new JSONObject();
+        content.put("elements", elements);
+        return content;
+    }
+
+    private void addImplementationElement(JSONArray elements, String title, String value) {
+        JSONObject element = new JSONObject();
+        element.put("title", title);
+        JSONObject contentMap = new JSONObject();
+        contentMap.put("value1", nullToEmpty(value));
+        element.put("contentMap", contentMap);
+        elements.add(element);
+    }
+
+    private void addImplementationMultiValueElement(JSONArray elements, String title, List<String> values) {
+        JSONObject element = new JSONObject();
+        element.put("title", title);
+        JSONObject contentMap = new JSONObject();
+        int index = 1;
+        if (values != null) {
+            for (String value : values) {
+                String normalized = trimToNull(value);
+                if (normalized == null) {
+                    continue;
+                }
+                contentMap.put("value" + index, normalized);
+                index++;
+            }
+        }
+        if (contentMap.isEmpty()) {
+            contentMap.put("value1", "");
+        }
+        element.put("contentMap", contentMap);
+        elements.add(element);
+    }
+
+    private long parseDeploymentDateToEpochMillis(String deploymentDate) throws Exception {
+        try {
+            return LocalDate.parse(deploymentDate).atStartOfDay(ZONE_SHANGHAI).toInstant().toEpochMilli();
+        } catch (Exception e) {
+            throw new Exception("部署日期格式不正确");
+        }
+    }
+
+    private String toStringValue(Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String normalizeLegacyDeploymentTime(String value) {
+        String normalized = trimToNull(value);
+        if ("1970-01-01".equals(normalized)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        String firstTrimmed = trimToNull(first);
+        if (firstTrimmed != null) {
+            return firstTrimmed;
+        }
+        return trimToNull(second);
+    }
+
+    private ImplementationContentSnapshot parseImplementationContentSnapshot(String rawContent) {
+        ImplementationContentSnapshot snapshot = new ImplementationContentSnapshot();
+        if (rawContent == null || rawContent.isBlank()) {
+            return snapshot;
+        }
+        try {
+            JSONObject contentJson = JSONObject.parseObject(rawContent);
+            JSONArray elements = contentJson.getJSONArray("elements");
+            if (elements == null) {
+                return snapshot;
+            }
+            for (int i = 0; i < elements.size(); i++) {
+                JSONObject element = elements.getJSONObject(i);
+                if (element == null) {
+                    continue;
+                }
+                String title = trimToNull(element.getString("title"));
+                if (title == null) {
+                    continue;
+                }
+                JSONObject contentMap = element.getJSONObject("contentMap");
+                List<String> values = extractContentMapValues(contentMap);
+                String value = values.isEmpty() ? null : values.get(0);
+                if (value == null) {
+                    continue;
+                }
+                switch (title) {
+                    case "template" -> snapshot.template = value;
+                    case "deploymentTime" -> snapshot.deploymentTime = formatEpochMillisDate(value);
+                    case "deploymentMethod" -> snapshot.deploymentMethod = value;
+                    case "version" -> snapshot.version = value;
+                    case "backupMethod" -> snapshot.backupMethod = value;
+                    case "virtualizationType", "form1prop4" -> snapshot.virtualizationType = value;
+                    case "form1prop11" -> snapshot.deploymentArchitecture = value;
+                    case "form1prop3" -> snapshot.assetCount = value;
+                    case "form1prop8" -> snapshot.applicationServer = value;
+                    case "form1prop5" -> snapshot.databaseExternal = value;
+                    case "form1prop6" -> snapshot.redisExternal = value;
+                    case "form1prop9" -> snapshot.databaseSync = value;
+                    case "form1prop7" -> snapshot.sharedNfs = value;
+                    case "form1prop1", "assetTypes" -> {
+                        if (isTemplate(snapshot.template, "JumpServer")) {
+                            snapshot.assetTypes = String.join("、", values);
+                        } else if (isTemplate(snapshot.template, "MaxKB")) {
+                            snapshot.deploymentArchitecture = value;
+                        } else if (isTemplate(snapshot.template, "DataEase")) {
+                            snapshot.dataEaseDatabase = value;
+                        }
+                    }
+                    case "form1prop2" -> {
+                        if (isTemplate(snapshot.template, "JumpServer")) {
+                            snapshot.assetTypes = String.join("、", values);
+                        } else if (isTemplate(snapshot.template, "DataEase")) {
+                            snapshot.dorisUsage = value;
+                        }
+                    }
+                    case "form4prop1" -> {
+                        if (isTemplate(snapshot.template, "MaxKB")) {
+                            snapshot.authMethods = String.join("、", values);
+                        } else if (isTemplate(snapshot.template, "DataEase")) {
+                            snapshot.dataSourceType = value;
+                        }
+                    }
+                    case "form4prop2" -> snapshot.dataScale = value;
+                    case "form4prop3" -> {
+                        if (isTemplate(snapshot.template, "MaxKB")) {
+                            snapshot.businessDirections = String.join("、", values);
+                        } else if (isTemplate(snapshot.template, "DataEase")) {
+                            snapshot.analysisDirection = value;
+                        }
+                    }
+                    case "form4prop4" -> snapshot.customerFocus = value;
+                    case "form4prop5" -> snapshot.authMethods = String.join("、", values);
+                    case "form4prop6" -> snapshot.embeddedMode = value;
+                    case "form4prop7" -> snapshot.customerJoined = value;
+                    case "form1prop10", "customerFocus" -> snapshot.customerFocus = value;
+                    case "deploymentRecord" -> snapshot.deploymentRecord = value;
+                    case "remainingIssues", "form3prop1" -> snapshot.remainingIssues = value;
+                    case "remark", "form3prop2" -> snapshot.remark = value;
+                    default -> {
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("parseImplementationContentSnapshot failed, err={}", e.getMessage());
+        }
+        splitLegacyDeploymentRecordSections(snapshot);
+        return snapshot;
+    }
+
+    private void splitLegacyDeploymentRecordSections(ImplementationContentSnapshot snapshot) {
+        String deploymentRecord = trimToNull(snapshot.deploymentRecord);
+        if (deploymentRecord == null) {
+            return;
+        }
+
+        int remainingIndex = deploymentRecord.indexOf("\n\n遗留问题：");
+        int remarkIndex = deploymentRecord.indexOf("\n\n备注：");
+        if (remainingIndex < 0 && remarkIndex < 0) {
+            return;
+        }
+
+        int firstSectionIndex = remainingIndex >= 0 ? remainingIndex : remarkIndex;
+        if (remainingIndex >= 0 && remarkIndex >= 0) {
+            firstSectionIndex = Math.min(remainingIndex, remarkIndex);
+        }
+        snapshot.deploymentRecord = deploymentRecord.substring(0, firstSectionIndex).trim();
+
+        if (remainingIndex >= 0) {
+            int remainingValueStart = remainingIndex + "\n\n遗留问题：".length();
+            int remainingValueEnd = remarkIndex > remainingIndex ? remarkIndex : deploymentRecord.length();
+            if (snapshot.remainingIssues == null) {
+                snapshot.remainingIssues = trimToNull(deploymentRecord.substring(remainingValueStart, remainingValueEnd));
+            }
+        }
+        if (remarkIndex >= 0 && snapshot.remark == null) {
+            int remarkValueStart = remarkIndex + "\n\n备注：".length();
+            snapshot.remark = trimToNull(deploymentRecord.substring(remarkValueStart));
+        }
+    }
+
+    private String formatEpochMillisDate(String value) {
+        try {
+            long epochMillis = Long.parseLong(value);
+            if (epochMillis <= 0) {
+                return null;
+            }
+            return Instant.ofEpochMilli(epochMillis).atZone(ZONE_SHANGHAI).toLocalDate().toString();
+        } catch (Exception ignored) {
+            return trimToNull(value);
+        }
+    }
+
+    private List<String> extractContentMapValues(JSONObject contentMap) {
+        List<String> values = new ArrayList<>();
+        if (contentMap == null || contentMap.isEmpty()) {
+            return values;
+        }
+        List<Map.Entry<String, Object>> entries = new ArrayList<>(contentMap.entrySet());
+        entries.sort((left, right) -> extractContentMapOrder(left.getKey()) - extractContentMapOrder(right.getKey()));
+        for (Map.Entry<String, Object> entry : entries) {
+            String normalized = trimToNull(entry.getValue() == null ? null : entry.getValue().toString());
+            if (normalized != null) {
+                values.add(normalized);
+            }
+        }
+        return values;
+    }
+
+    private int extractContentMapOrder(String key) {
+        if (key == null) {
+            return Integer.MAX_VALUE;
+        }
+        if (key.startsWith("value")) {
+            try {
+                return Integer.parseInt(key.substring(5));
+            } catch (Exception ignored) {
+                return Integer.MAX_VALUE - 1;
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private String buildImplementationDisplayContent(ImplementationContentSnapshot snapshot, String rawContent) {
+        List<String> sections = new ArrayList<>();
+        if (isTemplate(snapshot.template, "JumpServer")) {
+            addImplementationDisplayLine(sections, "纳管资产类型", snapshot.assetTypes);
+            addImplementationDisplayLine(sections, "管理资产数", snapshot.assetCount);
+            addImplementationDisplayLine(sections, "虚拟化类型", snapshot.virtualizationType);
+            addImplementationDisplayLine(sections, "应用发布服务器", snapshot.applicationServer);
+            addImplementationDisplayLine(sections, "是否涉及到数据同步", snapshot.databaseSync);
+            addImplementationDisplayLine(sections, "数据库是否外置", snapshot.databaseExternal);
+            addImplementationDisplayLine(sections, "Redis是否外置部署", snapshot.redisExternal);
+            addImplementationDisplayLine(sections, "共享存储NFS", snapshot.sharedNfs);
+            addImplementationDisplayLine(sections, "客户核心关注点", snapshot.customerFocus);
+            addImplementationDisplayLine(sections, "部署架构", snapshot.deploymentArchitecture);
+            addImplementationDisplayBlock(sections, "记录内容", snapshot.deploymentRecord);
+        } else if (isTemplate(snapshot.template, "MaxKB")) {
+            addImplementationDisplayLine(sections, "部署架构", snapshot.deploymentArchitecture);
+            addImplementationDisplayLine(sections, "认证方式", snapshot.authMethods);
+            addImplementationDisplayLine(sections, "业务方向", snapshot.businessDirections);
+        } else if (isTemplate(snapshot.template, "DataEase")) {
+            addImplementationDisplayLine(sections, "备份方式", snapshot.backupMethod);
+            addImplementationDisplayLine(sections, "数据库配置", snapshot.dataEaseDatabase);
+            addImplementationDisplayLine(sections, "Doris配置", snapshot.dorisUsage);
+            addImplementationDisplayLine(sections, "部署架构", snapshot.deploymentArchitecture);
+            addImplementationDisplayLine(sections, "数据源类型", snapshot.dataSourceType);
+            addImplementationDisplayLine(sections, "数据量规模", snapshot.dataScale);
+            addImplementationDisplayLine(sections, "认证方式", snapshot.authMethods);
+            addImplementationDisplayLine(sections, "嵌入方式", snapshot.embeddedMode);
+            addImplementationDisplayLine(sections, "客户接入状态", snapshot.customerJoined);
+            addImplementationDisplayLine(sections, "分析及展示方向", snapshot.analysisDirection);
+            addImplementationDisplayLine(sections, "客户核心关注点", snapshot.customerFocus);
+        }
+        addImplementationDisplayBlock(sections, "遗留问题", snapshot.remainingIssues);
+        addImplementationDisplayBlock(sections, "备注", snapshot.remark);
+
+        if (sections.isEmpty()) {
+            return rawContent;
+        }
+        return String.join("\n\n", sections);
+    }
+
+    private void addImplementationDisplayLine(List<String> sections, String label, String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return;
+        }
+        sections.add(label + "：" + normalized);
+    }
+
+    private void addImplementationDisplayBlock(List<String> sections, String label, String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return;
+        }
+        sections.add(label + "：\n" + normalized);
+    }
+
+    private static final class SubscriptionContext {
+        private Long subscriptionId;
+        private Long clientId;
+        private String clientName;
+        private String contractNumber;
+        private Long productId;
+        private String productName;
+        private String serviceTypeName;
+        private String regionId;
+        private String subscriptionStartDate;
+        private String supportEndDate;
+    }
+
+    private static final class ImplementationContentSnapshot {
+        private String template;
+        private String deploymentTime;
+        private String deploymentMethod;
+        private String version;
+        private String backupMethod;
+        private String assetTypes;
+        private String assetCount;
+        private String virtualizationType;
+        private String applicationServer;
+        private String databaseSync;
+        private String databaseExternal;
+        private String redisExternal;
+        private String sharedNfs;
+        private String customerFocus;
+        private String deploymentArchitecture;
+        private String deploymentRecord;
+        private String authMethods;
+        private String businessDirections;
+        private String dataEaseDatabase;
+        private String dorisUsage;
+        private String dataSourceType;
+        private String dataScale;
+        private String embeddedMode;
+        private String customerJoined;
+        private String analysisDirection;
+        private String remainingIssues;
+        private String remark;
+    }
+
+    private boolean isTemplate(String template, String productKeyword) {
+        if (template == null || productKeyword == null) {
+            return false;
+        }
+        return template.toUpperCase(Locale.ROOT).contains(productKeyword.toUpperCase(Locale.ROOT));
     }
 
     private boolean isUuid(String value) {

@@ -53,6 +53,9 @@ import java.util.regex.Pattern;
 
 @Service
 public class ToolService {
+    private static final String MAIL_CLOSING_PRIMARY = "当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！";
+    private static final String MAIL_CLOSING_SECONDARY = "感谢您信任飞致云的产品和服务，后续有问题可随时沟通！";
+
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ToolService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
@@ -2143,9 +2146,27 @@ public class ToolService {
     }
 
     private String buildHtmlMailContent(String plainText, List<String> linkedAttachments, List<String> attachmentLinks) {
+        String normalizedPlainText = plainText == null ? "" : plainText.replace("\r\n", "\n");
+        String closingBlock = MAIL_CLOSING_PRIMARY + "\n\n" + MAIL_CLOSING_SECONDARY;
+        String bodyText = normalizedPlainText;
+        boolean hasClosingBlock = false;
+        int closingIndex = normalizedPlainText.indexOf(closingBlock);
+        if (closingIndex >= 0) {
+            bodyText = normalizedPlainText.substring(0, closingIndex).trim();
+            hasClosingBlock = true;
+        }
+
         StringBuilder html = new StringBuilder();
         html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;font-size:14px;\">");
-        html.append("<div style=\"white-space:pre-wrap;\">").append(escapeHtml(plainText)).append("</div>");
+        html.append("<div style=\"white-space:pre-wrap;\">").append(escapeHtml(bodyText)).append("</div>");
+        if (hasClosingBlock) {
+            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #fde68a;background:#fffaf0;border-radius:14px;\">");
+            html.append("<div style=\"font-size:15px;font-weight:600;color:#b45309;margin-bottom:10px;\">后续支持</div>");
+            html.append("<div style=\"color:#374151;\">");
+            html.append("<div style=\"margin-bottom:8px;\">").append(escapeHtml(MAIL_CLOSING_PRIMARY)).append("</div>");
+            html.append("<div style=\"font-weight:600;color:#92400e;\">").append(escapeHtml(MAIL_CLOSING_SECONDARY)).append("</div>");
+            html.append("</div></div>");
+        }
         html.append("<div style=\"margin-top:20px;padding:16px 18px;border:1px solid #dbe4ff;background:#f6f8ff;border-radius:14px;\">");
         html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:8px;\">交付资料下载</div>");
         int size = Math.min(linkedAttachments.size(), attachmentLinks.size());

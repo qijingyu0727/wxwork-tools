@@ -4,12 +4,14 @@ import com.alibaba.fastjson.JSONObject;
 import com.model.AcceptanceStatusData;
 import com.model.ApiResponse;
 import com.model.CustomerData;
+import com.model.ImplementationCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ServiceRecord;
 import com.model.Ticket;
 import com.model.TicketLog;
 import com.model.request.UpdateTicketRequest;
 import com.model.request.CreateMaintenanceRecordRequest;
+import com.model.request.CreateImplementationRecordRequest;
 import com.service.ChatGroupService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
@@ -80,6 +82,20 @@ public class ChatGroupController {
         }
     }
 
+    @GetMapping("/implementation-create-context")
+    public ApiResponse<ImplementationCreateContext> getImplementationCreateContext(
+            @RequestParam String extChatId,
+            HttpSession session) {
+        try {
+            String loginUserId = getLoginUserId(session);
+            ImplementationCreateContext context = chatGroupService.getImplementationCreateContext(extChatId, loginUserId);
+            return ApiResponse.success(context);
+        } catch (Exception e) {
+            LOGGER.error("getImplementationCreateContext failed: {}", e.getMessage(), e);
+            return ApiResponse.error("获取新增实施上下文失败: " + e.getMessage());
+        }
+    }
+
     // 获取维护记录接口
     @GetMapping("/service-records")
     public ApiResponse<List<ServiceRecord>> getServiceRecords(@RequestParam String extChatId) {
@@ -114,6 +130,20 @@ public class ChatGroupController {
         } catch (Exception e) {
             LOGGER.error("createMaintenanceRecord failed: {}", e.getMessage(), e);
             return ApiResponse.error("新增维护记录失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/implementation-records")
+    public ApiResponse<JSONObject> createImplementationRecord(
+            @RequestBody CreateImplementationRecordRequest request,
+            HttpSession session) {
+        try {
+            String loginUserId = getLoginUserId(session);
+            JSONObject data = chatGroupService.createImplementationRecord(request, loginUserId);
+            return ApiResponse.success(data);
+        } catch (Exception e) {
+            LOGGER.error("createImplementationRecord failed: {}", e.getMessage(), e);
+            return ApiResponse.error("新增实施记录失败: " + e.getMessage());
         }
     }
 

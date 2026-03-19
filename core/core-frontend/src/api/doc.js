@@ -62,6 +62,14 @@ export const docApi = {
     return request.post('/api/chat-group/maintenance-records', data)
   },
 
+  getImplementationCreateContext: (extChatId) => {
+    return request.get('/api/chat-group/implementation-create-context', { params: { extChatId } })
+  },
+
+  createImplementationRecord: (data) => {
+    return request.post('/api/chat-group/implementation-records', data)
+  },
+
   // 获取产品版本列表
   getProductVersions: (productId, extChatId) => {
     return request.get('/api/chat-group/product-versions', { params: { productId, extChatId } })
