@@ -302,6 +302,14 @@
             </div>
           </div>
 
+          <!-- AI分析 Tab -->
+          <div v-if="activeTab === 'realtime-analysis'" class="tab-pane active">
+            <div class="tab-placeholder">
+              <i class="fa fa-compass text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">AI分析暂时规划中</p>
+            </div>
+          </div>
+
           <!-- 工单 Tab -->
           <div v-if="activeTab === 'ticket'" class="tab-pane active">
             <!-- 筛选栏 -->
@@ -1323,7 +1331,8 @@ const tabs = ref([
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' },
-  { id: 'tools', name: '工具' }
+  { id: 'tools', name: '工具' },
+  { id: 'realtime-analysis', name: 'AI分析' }
 ])
 const toolEmail = ref('')
 const toolCcEmails = ref(DEFAULT_TOOL_MAIL_CC)
@@ -3106,6 +3115,113 @@ const showCustomerDataCompletionGuide = computed(() => {
   return chatId.value && !customerDataLoading.value && !customerData.value?.name
 })
 
+const realtimeAnalysisSelectedId = ref('acceptance-window')
+const realtimeAnalysisRefreshedAt = ref(new Date())
+
+const formatRealtimeAnalysisTime = (value) => {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return ''
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(value)
+}
+
+const realtimeAnalysisVersionText = computed(() => {
+  return versionBadgeText.value || '版本线索待补全'
+})
+
+const realtimeAnalysisItems = computed(() => {
+  const customerName = customerDisplayName.value === '客户信息待补全'
+    ? '当前客户'
+    : customerDisplayName.value
+  const versionText = realtimeAnalysisVersionText.value
+
+  return [
+    {
+      id: 'acceptance-window',
+      label: '验收窗口',
+      summary: '群里连续提到报告、验收和项目关闭，说明客户已经在等交付闭环。',
+      focus: '交付闭环',
+      scene: '验收推进',
+      messageCount: 20,
+      question: `${customerName} 最近在群里多次追问验收报告和交付收口，结合当前版本 ${versionText}，现在最适合推进的动作是什么？`,
+      answer: [
+        '这类对话通常不是单纯要“一个文件”，而是在确认项目是否进入可正式签收的阶段。此时最重要的不是继续解释，而是把验收动作拆成明确的时间点和交付物，给客户一个能立即执行的闭环节奏。',
+        '建议先确认当前环境版本、部署完成范围和遗留事项是否已经收敛，再把验收报告、附件包和验收会议时间一起发出。这样客户感受到的是“项目正在收尾”，而不是“支持团队还在处理中”。'
+      ],
+      actions: [
+        '今天内确认验收报告素材是否齐全，并把输出时间发到群里。',
+        '同步版本号、部署范围和遗留问题，避免客户在会议上重新追问。',
+        '如果还有未闭环事项，提前定义成验收后跟踪项，不要让它阻塞签收。'
+      ],
+      note: '可以直接在群里用一句话收口：我们今天整理最终验收材料，明天给您完整版本并约一个 15 分钟确认时间。'
+    },
+    {
+      id: 'knowledge-quality',
+      label: '知识命中率',
+      summary: '客户对回答质量和知识库可用性有疑虑，更像是问答效果调优而不是产品故障。',
+      focus: '问答调优',
+      scene: '效果优化',
+      messageCount: 18,
+      question: `${customerName} 提到“回答不稳定、命中率不高、同一个问题说法不一致”，如果要给客户一个专业但不空泛的建议，最应该怎么解释？`,
+      answer: [
+        '先把问题定义清楚：这通常不是“模型坏了”，而是知识切分、召回策略和问题表达方式共同影响了最终答案。客户真正需要听到的是一套可验证的优化路径，而不是泛泛地说继续训练模型。',
+        '对外建议以“知识整理优先、参数调优其次”的顺序沟通。先检查知识文档结构、标题层级、重复内容和无效附件，再看召回片段长度、问题改写和工作流提示词。这样既专业，也能让客户知道下一步为何有效。'
+      ],
+      actions: [
+        '先抽取 5 到 10 个客户最关心的问题，做一轮命中率对照测试。',
+        '排查知识库是否存在重复文档、目录混乱或低质量扫描件。',
+        '在演示环境给客户展示“优化前 / 优化后”对比，增强信心。'
+      ],
+      note: '建议口径偏顾问式，不要直接说“模型不行”，而要说“当前是知识组织方式影响了答案稳定性，我们已经有明确优化路径”。'
+    },
+    {
+      id: 'go-live-risk',
+      label: '上线风险',
+      summary: '客户同时提到权限、同步、割接和培训，说明已经进入上线前最后一段敏感期。',
+      focus: '上线准备',
+      scene: '风险识别',
+      messageCount: 16,
+      question: `${customerName} 在群里同时提到权限开通、数据同步、培训和切换时间，如何判断这是不是一个“快上线但准备还不够整齐”的信号？`,
+      answer: [
+        '这是典型的上线前混合信号。业务方开始推进切换时间，但实施动作仍然分散在多个主题上，意味着客户内部已经有上线压力，而项目侧还缺一份清晰的上线清单来统一节奏。',
+        '这时最有效的动作不是继续逐条回复，而是输出一页式上线准备清单，把权限、数据、培训、验收和回退方案放到同一张表里。客户会立刻感受到项目重新被“框住了”，焦虑会明显下降。'
+      ],
+      actions: [
+        '把群里分散的问题整理成上线前 checklist，并明确负责人。',
+        '优先确认权限、初始化数据和培训是否已经具备最小上线条件。',
+        '如果割接时间已经被提及，必须同步回退方案和支持值守安排。'
+      ],
+      note: '对外表达可以更稳一些：我们先把上线准备项收成一张清单，今天给您确认版本，避免切换当天再出现信息分散。'
+    }
+  ]
+})
+
+const currentRealtimeAnalysis = computed(() => {
+  return realtimeAnalysisItems.value.find(item => item.id === realtimeAnalysisSelectedId.value) || realtimeAnalysisItems.value[0] || null
+})
+
+const realtimeAnalysisDisplayTime = computed(() => {
+  return `最近分析 ${formatRealtimeAnalysisTime(realtimeAnalysisRefreshedAt.value)}`
+})
+
+const selectRealtimeAnalysis = (id) => {
+  realtimeAnalysisSelectedId.value = id
+}
+
+const handleRefreshRealtimeAnalysis = () => {
+  const items = realtimeAnalysisItems.value
+  if (!items.length) return
+  const currentIndex = items.findIndex(item => item.id === realtimeAnalysisSelectedId.value)
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % items.length : 0
+  realtimeAnalysisSelectedId.value = items[nextIndex].id
+  realtimeAnalysisRefreshedAt.value = new Date()
+}
+
 const ticketStatusMap = {
   '0': '无效工单',
   '1': '待确认',
@@ -4250,5 +4366,11 @@ watch(toolEmail, () => {
 
 watch(toolCcEmails, () => {
   adjustToolCcTextarea()
+})
+
+watch(chatId, (newValue, oldValue) => {
+  if (!newValue || newValue === oldValue) return
+  realtimeAnalysisSelectedId.value = realtimeAnalysisItems.value[0]?.id || ''
+  realtimeAnalysisRefreshedAt.value = new Date()
 })
 </script>

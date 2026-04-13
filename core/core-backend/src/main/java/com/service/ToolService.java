@@ -9,10 +9,14 @@ import com.model.request.MailDiagnoseRequest;
 import com.model.request.SendToolMailRequest;
 import com.util.HttpClientUtil;
 import com.util.JdbcUtils;
+import com.sun.mail.smtp.SMTPAddressFailedException;
+import com.sun.mail.smtp.SMTPTransport;
 import jakarta.annotation.Resource;
 import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.SendFailedException;
 import jakarta.mail.Address;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
@@ -59,6 +63,7 @@ public class ToolService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ToolService.class);
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern EMAIL_EXTRACT_PATTERN = Pattern.compile("(?i)([a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,})");
     private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(\\d+)");
     private static final Pattern DETAILED_VERSION_PATTERN = Pattern.compile("(?i)v?(\\d+(?:\\.\\d+)+)");
     private static final Pattern CONTRACT_DATE_PATTERN = Pattern.compile("20\\d{6}");
@@ -202,8 +207,15 @@ public class ToolService {
         if (extChatId.isEmpty()) {
             throw new IllegalArgumentException("extChatId 不能为空");
         }
-        CcResolution ccResolution = resolveEffectiveCcResolution(extChatId, request != null ? request.getCcEmails() : "", loginUserId);
+        String requestCcEmails = request != null ? request.getCcEmails() : null;
+        CcResolution ccResolution = resolveEffectiveCcResolution(
+                extChatId,
+                requestCcEmails,
+                request != null && request.getCcEmails() != null,
+                loginUserId
+        );
         List<String> ccEmails = ccResolution.finalCcEmails;
+        String ccEmailText = String.join(";", ccEmails);
 
         String sender = trim(fromAddress);
         String senderAuthCode = trim(authCode);
@@ -307,8 +319,10 @@ public class ToolService {
                     if (attempt >= maxAttempts) {
                         break;
                     }
-                    LOGGER.warn("send tool mail failed, retrying. profile={}, attempt={}/{}, toEmail={}, errClass={}, errMsg={}, rootClass={}, rootMsg={}, hint={}",
+                    LOGGER.warn("send tool mail failed, retrying. profile={}, attempt={}/{}, toEmail={}, ccText={}, invalidAddresses={}, errClass={}, errMsg={}, rootClass={}, rootMsg={}, hint={}",
                             profile.name, attempt, maxAttempts, toEmailText,
+                            ccEmailText,
+                            summarizeInvalidAddresses(e),
                             e.getClass().getName(), e.getMessage(),
                             rootCauseClassName(e), rootCauseMessage(e),
                             buildAuthHint(e));
@@ -336,6 +350,8 @@ public class ToolService {
         }
 
         if (usedProfile == null) {
+            LOGGER.error("send tool mail final failure: toEmail={}, ccText={}, invalidAddresses={}, failureStage={}, profiles={}",
+                    toEmailText, ccEmailText, summarizeInvalidAddresses(lastError), lastFailureStage, profileErrors);
             throw new Exception(buildSendMailFailureMessage(lastError, profileErrors), lastError);
         }
 
@@ -1580,6 +1596,8 @@ public class ToolService {
             LOGGER.debug("sendMailOnce prepare: profile={}, host={}, port={}, to={}, ccCount={}, attachmentCount={}",
                     profile.name, profile.host, profile.port, toEmailText, ccEmails == null ? 0 : ccEmails.size(), filesToAttach.size());
         }
+        validateRecipientsBeforeSend(mailSender, sender, toEmails, ccEmails);
+
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, StandardCharsets.UTF_8.name());
 
@@ -1606,6 +1624,101 @@ public class ToolService {
         } else {
             LOGGER.debug("sendMailOnce success: profile={}, to={}, attachmentCount={}", profile.name, toEmailText, filesToAttach.size());
         }
+    }
+
+    private void validateRecipientsBeforeSend(JavaMailSenderImpl mailSender,
+                                              String sender,
+                                              List<String> toEmails,
+                                              List<String> ccEmails) throws MessagingException {
+        List<String> finalToEmails = toEmails == null ? Collections.emptyList() : toEmails;
+        List<String> finalCcEmails = ccEmails == null ? Collections.emptyList() : ccEmails;
+        if (finalToEmails.isEmpty() && finalCcEmails.isEmpty()) {
+            return;
+        }
+
+        LinkedHashMap<String, String> rejectedByAddress = new LinkedHashMap<>();
+        MessagingException firstFailure = null;
+        Transport rawTransport = null;
+        try {
+            rawTransport = mailSender.getSession().getTransport("smtp");
+            if (!(rawTransport instanceof SMTPTransport transport)) {
+                return;
+            }
+            transport.connect(mailSender.getHost(), mailSender.getPort(), mailSender.getUsername(), mailSender.getPassword());
+
+            for (String email : finalToEmails) {
+                try {
+                    validateSingleRecipient(transport, sender, email);
+                } catch (MessagingException e) {
+                    if (firstFailure == null) {
+                        firstFailure = e;
+                    }
+                    rejectedByAddress.put(email, resolveRecipientFailureReason(transport, e));
+                }
+            }
+
+            for (String email : finalCcEmails) {
+                try {
+                    validateSingleRecipient(transport, sender, email);
+                } catch (MessagingException e) {
+                    if (firstFailure == null) {
+                        firstFailure = e;
+                    }
+                    rejectedByAddress.put(email, resolveRecipientFailureReason(transport, e));
+                }
+            }
+        } finally {
+            if (rawTransport != null) {
+                try {
+                    rawTransport.close();
+                } catch (MessagingException ignored) {
+                    // ignore close failure
+                }
+            }
+        }
+
+        if (rejectedByAddress.isEmpty()) {
+            return;
+        }
+
+        List<String> detailTexts = new ArrayList<>();
+        Address[] invalidAddresses = new Address[rejectedByAddress.size()];
+        int index = 0;
+        for (Map.Entry<String, String> entry : rejectedByAddress.entrySet()) {
+            invalidAddresses[index++] = new InternetAddress(entry.getKey());
+            String reason = trim(entry.getValue());
+            if (reason.isEmpty()) {
+                detailTexts.add(entry.getKey());
+            } else {
+                detailTexts.add(entry.getKey() + "(" + reason + ")");
+            }
+        }
+        throw new SendFailedException("Invalid Addresses: " + String.join(", ", detailTexts), firstFailure, null, null, invalidAddresses);
+    }
+
+    private void validateSingleRecipient(SMTPTransport transport, String sender, String email) throws MessagingException {
+        transport.issueCommand("RSET", 250);
+        transport.issueCommand("MAIL FROM:<" + sender + ">", 250);
+        int rcptCode = transport.simpleCommand("RCPT TO:<" + email + ">");
+        if (rcptCode == 250 || rcptCode == 251) {
+            return;
+        }
+        String response = sanitizeMessage(transport.getLastServerResponse());
+        throw new SMTPAddressFailedException(new InternetAddress(email), "RCPT TO", rcptCode, response);
+    }
+
+    private String resolveRecipientFailureReason(SMTPTransport transport, MessagingException e) {
+        String message = "";
+        if (e instanceof SMTPAddressFailedException addressFailedException) {
+            message = sanitizeMessage(trim(addressFailedException.getMessage()));
+        }
+        if (message.isEmpty()) {
+            message = sanitizeMessage(trim(transport == null ? "" : transport.getLastServerResponse()));
+        }
+        if (message.isEmpty()) {
+            message = sanitizeMessage(trim(e.getMessage()));
+        }
+        return message;
     }
 
     private JavaMailSenderImpl createMailSender(SmtpProfile profile, String sender, String senderAuthCode) {
@@ -1654,19 +1767,19 @@ public class ToolService {
         return "客户";
     }
 
-    private CcResolution resolveEffectiveCcResolution(String extChatId, String requestCcEmails, String loginUserId) {
+    private CcResolution resolveEffectiveCcResolution(String extChatId,
+                                                     String requestCcEmails,
+                                                     boolean requestCcProvided,
+                                                     String loginUserId) {
         CcResolution resolution = buildDefaultCcResolution(extChatId, loginUserId);
-        String manualCcText = trim(requestCcEmails);
-        if (!manualCcText.isEmpty()) {
-            LinkedHashSet<String> finalCcSet = new LinkedHashSet<>(resolution.mandatoryCcList);
-            finalCcSet.addAll(parseCcInputEmails(manualCcText, "抄送邮箱"));
-            resolution.finalCcEmails = new ArrayList<>(finalCcSet);
+        if (requestCcProvided) {
+            resolution.finalCcEmails = parseCcInputEmails(requestCcEmails, "抄送邮箱");
             resolution.defaultCcApplied = false;
         } else {
             resolution.finalCcEmails = new ArrayList<>(resolution.defaultCcList);
             resolution.defaultCcApplied = true;
         }
-        if (resolution.finalCcEmails.isEmpty()) {
+        if (!requestCcProvided && resolution.finalCcEmails.isEmpty()) {
             throw new IllegalStateException("抄送邮箱为空，请检查默认抄送配置");
         }
         return resolution;
@@ -2416,10 +2529,27 @@ public class ToolService {
         return "；invalidAddresses=" + String.join(",", invalidAddresses);
     }
 
+    private String summarizeInvalidAddresses(Throwable t) {
+        List<String> invalidAddresses = extractInvalidAddresses(t);
+        if (invalidAddresses.isEmpty()) {
+            return "-";
+        }
+        return String.join(",", invalidAddresses);
+    }
+
     private List<String> extractInvalidAddresses(Throwable t) {
         LinkedHashSet<String> invalidAddresses = new LinkedHashSet<>();
         Throwable cur = t;
         while (cur != null) {
+            if (cur instanceof SMTPAddressFailedException addressFailedException) {
+                InternetAddress address = addressFailedException.getAddress();
+                if (address != null) {
+                    String value = trim(address.toString()).toLowerCase(Locale.ROOT);
+                    if (!value.isEmpty()) {
+                        invalidAddresses.add(value);
+                    }
+                }
+            }
             if (cur instanceof SendFailedException sendFailedException) {
                 Address[] addresses = sendFailedException.getInvalidAddresses();
                 if (addresses != null) {
@@ -2434,9 +2564,24 @@ public class ToolService {
                     }
                 }
             }
+            collectEmailsFromText(invalidAddresses, cur.getMessage());
             cur = cur.getCause();
         }
         return new ArrayList<>(invalidAddresses);
+    }
+
+    private void collectEmailsFromText(Set<String> target, String text) {
+        String value = trim(text).toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) {
+            return;
+        }
+        Matcher matcher = EMAIL_EXTRACT_PATTERN.matcher(value);
+        while (matcher.find()) {
+            String email = trim(matcher.group(1));
+            if (!email.isEmpty()) {
+                target.add(email);
+            }
+        }
     }
 
     private boolean isPlaceholderSecret(String secret) {
