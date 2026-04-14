@@ -5,6 +5,7 @@ import com.model.AcceptanceStatusData;
 import com.model.ApiResponse;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
+import com.model.MaintenanceCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ServiceRecord;
 import com.model.Ticket;
@@ -93,6 +94,20 @@ public class ChatGroupController {
         } catch (Exception e) {
             LOGGER.error("getImplementationCreateContext failed: {}", e.getMessage(), e);
             return ApiResponse.error("获取新增实施上下文失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/maintenance-create-context")
+    public ApiResponse<MaintenanceCreateContext> getMaintenanceCreateContext(
+            @RequestParam String extChatId,
+            HttpSession session) {
+        try {
+            String loginUserId = getLoginUserId(session);
+            MaintenanceCreateContext context = chatGroupService.getMaintenanceCreateContext(extChatId, loginUserId);
+            return ApiResponse.success(context);
+        } catch (Exception e) {
+            LOGGER.error("getMaintenanceCreateContext failed: {}", e.getMessage(), e);
+            return ApiResponse.error("获取新增维护上下文失败: " + e.getMessage());
         }
     }
 

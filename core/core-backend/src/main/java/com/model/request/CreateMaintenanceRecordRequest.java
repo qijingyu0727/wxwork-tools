@@ -4,6 +4,7 @@ public class CreateMaintenanceRecordRequest {
     private Long clientId;
     private String ownerId;
     private String editorUserId;
+    private String submitterName;
     private String maintenanceTypes;
     private String maintenanceTitle;
     private Long maintenanceTime;
@@ -27,6 +28,14 @@ public class CreateMaintenanceRecordRequest {
 
     public void setEditorUserId(String editorUserId) {
         this.editorUserId = editorUserId;
+    }
+
+    public String getSubmitterName() {
+        return submitterName;
+    }
+
+    public void setSubmitterName(String submitterName) {
+        this.submitterName = submitterName;
     }
 
     public String getOwnerId() {

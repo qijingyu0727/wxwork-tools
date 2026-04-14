@@ -5,7 +5,10 @@ import com.model.ApiResponse;
 import com.service.DocService;
 import com.service.WxworkService;
 import com.util.HttpClientUtil;
+import com.util.JdbcUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +25,8 @@ import java.util.UUID;
 @Controller
 @RequestMapping("/wechat/work/login")
 public class WeChatWorkLoginController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(WeChatWorkLoginController.class);
 
     @Value("${crop_id}")
     private String cropId;
@@ -128,24 +133,36 @@ public class WeChatWorkLoginController {
         JSONObject userInfo = (JSONObject) session.getAttribute("login_user");
 
         if (isLogin != null && isLogin && userInfo != null) {
-            String userId = userInfo.getString("userid");
-            boolean isAdmin = false;
-            
-            if (StringUtils.isNotBlank(docService.getAdminIds()) && StringUtils.isNotBlank(userId)) {
-                String[] adminIds = docService.getAdminIds().split(",");
-                for (String adminId : adminIds) {
-                    if (userId.equals(adminId.trim())) {
-                        isAdmin = true;
-                        break;
-                    }
-                }
-            }
-            
-            userInfo.put("isAdmin", isAdmin);
+            String userId = firstNonBlank(
+                    userInfo.getString("userid"),
+                    userInfo.getString("UserId"),
+                    userInfo.getString("user_id")
+            );
+            userInfo.put("isAdmin", isAdminUser(userId));
             
             return ApiResponse.success(userInfo);
         } else {
             return ApiResponse.error("用户未登录");
+        }
+    }
+
+    @GetMapping("/debug-login")
+    @ResponseBody
+    public ApiResponse<JSONObject> debugLogin(@RequestParam("userId") String userId, HttpSession session) {
+        String normalizedUserId = StringUtils.trimToNull(userId);
+        if (normalizedUserId == null) {
+            return ApiResponse.error("缺少调试用户ID");
+        }
+
+        try {
+            JSONObject userInfo = buildDebugUserInfo(normalizedUserId);
+            session.setAttribute("login_user", userInfo);
+            session.setAttribute("is_login", true);
+            LOGGER.info("debug login success userId={}, name={}", normalizedUserId, userInfo.getString("name"));
+            return ApiResponse.success(userInfo);
+        } catch (Exception e) {
+            LOGGER.error("debug login failed userId={}, err={}", normalizedUserId, e.getMessage(), e);
+            return ApiResponse.error("调试登录失败: " + e.getMessage());
         }
     }
 
@@ -240,5 +257,61 @@ public class WeChatWorkLoginController {
             } catch (Exception ignored) {}
             return "redirect:/login-error?error=" + errorMessage;
         }
+    }
+
+    private JSONObject buildDebugUserInfo(String userId) throws Exception {
+        String name = userId;
+        String email = null;
+
+        JdbcUtils.setCscrmConfig();
+        try {
+            String sql = "SELECT s.name, s.email FROM staff s WHERE s.ext_id = ? LIMIT 1";
+            var result = JdbcUtils.query(sql, userId);
+            if (!result.isEmpty()) {
+                if (result.get(0)[0] != null) {
+                    name = result.get(0)[0].toString();
+                }
+                if (result.get(0)[1] != null) {
+                    email = result.get(0)[1].toString();
+                }
+            }
+        } finally {
+            JdbcUtils.clearConfig();
+        }
+
+        JSONObject userInfo = new JSONObject();
+        userInfo.put("userid", userId);
+        userInfo.put("UserId", userId);
+        userInfo.put("user_id", userId);
+        userInfo.put("name", name);
+        userInfo.put("email", email);
+        userInfo.put("avatar", "");
+        userInfo.put("isAdmin", isAdminUser(userId));
+        return userInfo;
+    }
+
+    private boolean isAdminUser(String userId) {
+        if (StringUtils.isBlank(docService.getAdminIds()) || StringUtils.isBlank(userId)) {
+            return false;
+        }
+        String[] adminIds = docService.getAdminIds().split(",");
+        for (String adminId : adminIds) {
+            if (userId.equals(adminId.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.isNotBlank(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 }

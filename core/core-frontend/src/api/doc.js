@@ -62,6 +62,10 @@ export const docApi = {
     return request.post('/api/chat-group/maintenance-records', data)
   },
 
+  getMaintenanceCreateContext: (extChatId) => {
+    return request.get('/api/chat-group/maintenance-create-context', { params: { extChatId } })
+  },
+
   getImplementationCreateContext: (extChatId) => {
     return request.get('/api/chat-group/implementation-create-context', { params: { extChatId } })
   },
@@ -92,6 +96,10 @@ export const docApi = {
 }
 
 export const jsapiApi = {
+  debugLogin: (userId) => {
+    return request.get('/wechat/work/login/debug-login', { params: { userId } })
+  },
+
   getJsapiTicket: () => {
     return request.get('/api/jsapi/get-ticket')
   },

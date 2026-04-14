@@ -5,6 +5,7 @@ core-frontend/node_modules/
 
 *.iml
 .idea
+.agents
 .idea/*
 .vscode
 .vscode/*
@@ -13,3 +14,4 @@ wxwork-tools.tar
 api.md
 DEV_PLAN.md
 AGENTS.md
+skills-lock.json

@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import com.model.AcceptanceStatusData;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
+import com.model.MaintenanceCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ProductVersionSnapshot;
 import com.model.ServiceRecord;
@@ -831,6 +832,16 @@ public class ChatGroupService {
         }
     }
 
+    public MaintenanceCreateContext getMaintenanceCreateContext(String extChatId, String loginUserId) throws Exception {
+        if (extChatId == null || extChatId.isEmpty()) {
+            throw new Exception("缺少群聊ID");
+        }
+
+        MaintenanceCreateContext context = new MaintenanceCreateContext();
+        context.setDefaultSubmitterName(resolveMaintenanceDefaultSubmitterName(loginUserId));
+        return context;
+    }
+
     public JSONObject createMaintenanceRecord(CreateMaintenanceRecordRequest request, String loginUserId) throws Exception {
         if (request.getClientId() == null) {
             throw new Exception("缺少客户ID");
@@ -862,34 +873,40 @@ public class ChatGroupService {
             throw new Exception("缺少区域ID，无法提交维护记录");
         }
 
-        String originalUserId = request.getOwnerId();
-        if (originalUserId == null || originalUserId.isEmpty()) {
-            originalUserId = request.getEditorUserId();
+        String submitterName = trimToNull(request.getSubmitterName());
+        String ownerId;
+        if (submitterName != null) {
+            ownerId = resolveMaintenanceSubmitterUserId(submitterName);
+        } else {
+            String originalUserId = request.getOwnerId();
+            if (originalUserId == null || originalUserId.isEmpty()) {
+                originalUserId = request.getEditorUserId();
+            }
+            if (originalUserId == null || originalUserId.isEmpty()) {
+                originalUserId = loginUserId;
+            }
+            if (originalUserId == null || originalUserId.isEmpty()) {
+                throw new Exception("缺少提交人ID");
+            }
+            SupportUserResolution resolution = resolveSupportUserIdDetails(originalUserId);
+            ownerId = resolution.resolvedUserId;
+            LOGGER.info(
+                    "createMaintenanceRecord owner resolution originalUserId={}, resolvedOwnerId={}, uuidCandidate={}, " +
+                            "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
+                            "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
+                    resolution.originalCandidate,
+                    resolution.resolvedUserId,
+                    resolution.uuidCandidate,
+                    resolution.staffHit,
+                    resolution.staffName,
+                    resolution.staffEmail,
+                    resolution.directSupportUserHit,
+                    resolution.directSupportUserId,
+                    resolution.supportUserByStaffHit,
+                    resolution.supportUserByStaffId,
+                    resolution.fallbackToOriginal
+            );
         }
-        if (originalUserId == null || originalUserId.isEmpty()) {
-            originalUserId = loginUserId;
-        }
-        if (originalUserId == null || originalUserId.isEmpty()) {
-            throw new Exception("缺少提交人ID");
-        }
-        SupportUserResolution resolution = resolveSupportUserIdDetails(originalUserId);
-        String ownerId = resolution.resolvedUserId;
-        LOGGER.info(
-                "createMaintenanceRecord owner resolution originalUserId={}, resolvedOwnerId={}, uuidCandidate={}, " +
-                        "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
-                        "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
-                resolution.originalCandidate,
-                resolution.resolvedUserId,
-                resolution.uuidCandidate,
-                resolution.staffHit,
-                resolution.staffName,
-                resolution.staffEmail,
-                resolution.directSupportUserHit,
-                resolution.directSupportUserId,
-                resolution.supportUserByStaffHit,
-                resolution.supportUserByStaffId,
-                resolution.fallbackToOriginal
-        );
 
         JSONObject payload = new JSONObject();
         payload.put("clientId", request.getClientId());
@@ -1089,6 +1106,13 @@ public class ChatGroupService {
         return value == null || value.trim().isEmpty();
     }
 
+    private boolean hasResolvedSupportUserId(SupportUserResolution resolution) {
+        return resolution != null
+                && resolution.resolvedUserId != null
+                && !resolution.resolvedUserId.isEmpty()
+                && !resolution.fallbackToOriginal;
+    }
+
     private JSONObject buildImplementationContent(String implementationProductAlias, CreateImplementationRecordRequest request) throws Exception {
         return switch (implementationProductAlias) {
             case "JS" -> buildJumpServerImplementationContent(request);
@@ -1161,6 +1185,77 @@ public class ChatGroupService {
         resolution.resolvedUserId = candidate;
         resolution.fallbackToOriginal = true;
         return resolution;
+    }
+
+    private String resolveMaintenanceDefaultSubmitterName(String loginUserId) {
+        String normalizedLoginUserId = trimToNull(loginUserId);
+        if (normalizedLoginUserId == null) {
+            return null;
+        }
+
+        String staffName;
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            staffName = resolveStaffNameByExtId(normalizedLoginUserId);
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+        if (isBlank(staffName)) {
+            return null;
+        }
+
+        SupportUserResolution resolution = resolveSupportUserIdDetails(normalizedLoginUserId);
+        if (!hasResolvedSupportUserId(resolution)) {
+            return null;
+        }
+        return staffName;
+    }
+
+    private String resolveMaintenanceSubmitterUserId(String submitterName) throws Exception {
+        String normalizedSubmitterName = trimToNull(submitterName);
+        if (normalizedSubmitterName == null) {
+            throw new Exception("缺少提交人");
+        }
+
+        String staffExtId = null;
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String sql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedSubmitterName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                staffExtId = result.get(0)[0].toString();
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+
+        if (isBlank(staffExtId)) {
+            throw new Exception("未找到提交人: " + normalizedSubmitterName);
+        }
+
+        SupportUserResolution resolution = resolveSupportUserIdDetails(staffExtId);
+        LOGGER.info(
+                "createMaintenanceRecord submitter resolution submitterName={}, staffExtId={}, resolvedOwnerId={}, uuidCandidate={}, " +
+                        "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
+                        "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
+                normalizedSubmitterName,
+                staffExtId,
+                resolution.resolvedUserId,
+                resolution.uuidCandidate,
+                resolution.staffHit,
+                resolution.staffName,
+                resolution.staffEmail,
+                resolution.directSupportUserHit,
+                resolution.directSupportUserId,
+                resolution.supportUserByStaffHit,
+                resolution.supportUserByStaffId,
+                resolution.fallbackToOriginal
+        );
+
+        if (!hasResolvedSupportUserId(resolution)) {
+            throw new Exception("提交人未配置 support_user，请重新选择: " + normalizedSubmitterName);
+        }
+        return resolution.resolvedUserId;
     }
 
     private static final class SupportUserResolution {
