@@ -4317,6 +4317,10 @@ const resolveDefaultTicketOwnerName = (ticket = null) => {
   if (editorName) {
     return editorName
   }
+  const editorUserId = getEditorUserId()
+  if (editorUserId) {
+    return editorUserId
+  }
   return typeof ticket?.ownerName === 'string' ? ticket.ownerName.trim() : ''
 }
 

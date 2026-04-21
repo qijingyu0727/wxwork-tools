@@ -68,6 +68,7 @@ public class ToolService {
     private static final Pattern MAJOR_VERSION_PATTERN = Pattern.compile("(\\d+)");
     private static final Pattern DETAILED_VERSION_PATTERN = Pattern.compile("(?i)v?(\\d+(?:\\.\\d+)+)");
     private static final Pattern CONTRACT_DATE_PATTERN = Pattern.compile("20\\d{6}");
+    private static final Pattern URL_PATTERN = Pattern.compile("https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+");
     private static final String EXTERNAL_CONFIG_PATH = "/opt/wxwork-tools/wxwork-tools.properties";
     private static final String ATTACH_RULE_PREFIX = "tool.mail.auto-attach.rule.";
     private static final String ATTACH_LINK_RULE_PREFIX = "tool.mail.attachment-link.rule.";
@@ -2307,7 +2308,7 @@ public class ToolService {
         html.append("<div style=\"padding:20px 22px;border:1px solid #d9f2e6;background:linear-gradient(180deg,#f7fffb 0%,#ffffff 100%);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,0.06);\">");
         html.append("<div style=\"font-size:18px;font-weight:700;color:#166534;margin-bottom:8px;\">").append(escapeHtml(greeting)).append("</div>");
         if (!summary.isEmpty()) {
-            html.append("<div style=\"color:#374151;white-space:pre-wrap;\">").append(escapeHtml(summary)).append("</div>");
+            html.append("<div style=\"color:#374151;white-space:pre-wrap;\">").append(renderMailRichText(summary)).append("</div>");
         }
         html.append("</div>");
         if (!resourceHeader.isEmpty() || !resourceLines.isEmpty()) {
@@ -2321,7 +2322,7 @@ public class ToolService {
                         .append("</div>");
             }
             if (!resourceLines.isEmpty()) {
-                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;\">").append(escapeHtml(resourceLines)).append("</div>");
+                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;\">").append(renderMailRichText(resourceLines)).append("</div>");
             }
             html.append("</div>");
         }
@@ -2339,7 +2340,7 @@ public class ToolService {
                 html.append("<div style=\"white-space:pre-wrap;color:#1f2937;margin-bottom:")
                         .append(downloadSize > 0 ? "14" : "0")
                         .append("px;\">")
-                        .append(escapeHtml(downloadLines))
+                        .append(renderMailRichText(downloadLines))
                         .append("</div>");
             }
             for (int i = 0; i < downloadSize; i++) {
@@ -2364,6 +2365,54 @@ public class ToolService {
         }
         html.append("</div>");
         return html.toString();
+    }
+
+    private String renderMailRichText(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String normalizedText = text.replace("\r\n", "\n");
+        Matcher matcher = URL_PATTERN.matcher(normalizedText);
+        StringBuilder html = new StringBuilder();
+        int lastIndex = 0;
+        while (matcher.find()) {
+            int start = matcher.start();
+            int end = matcher.end();
+            String matchedUrl = matcher.group();
+            String normalizedUrl = trimTrailingUrlPunctuation(matchedUrl);
+            if (normalizedUrl.isEmpty()) {
+                continue;
+            }
+
+            html.append(escapeHtml(normalizedText.substring(lastIndex, start)));
+            html.append("<a href=\"")
+                    .append(escapeHtmlAttribute(normalizedUrl))
+                    .append("\" style=\"color:#2563eb;text-decoration:none;font-weight:500;\">")
+                    .append(escapeHtml(normalizedUrl))
+                    .append("</a>");
+            if (normalizedUrl.length() < matchedUrl.length()) {
+                html.append(escapeHtml(matchedUrl.substring(normalizedUrl.length())));
+            }
+            lastIndex = end;
+        }
+        html.append(escapeHtml(normalizedText.substring(lastIndex)));
+        return html.toString();
+    }
+
+    private String trimTrailingUrlPunctuation(String url) {
+        if (url == null || url.isEmpty()) {
+            return "";
+        }
+        int end = url.length();
+        while (end > 0) {
+            char ch = url.charAt(end - 1);
+            if (ch == '.' || ch == ',' || ch == ';' || ch == ':' || ch == '。' || ch == '，' || ch == '；' || ch == '：') {
+                end--;
+                continue;
+            }
+            break;
+        }
+        return url.substring(0, end);
     }
 
     private List<String> splitMailParagraphs(String text) {

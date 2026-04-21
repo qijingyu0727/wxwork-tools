@@ -702,16 +702,27 @@ public class ChatGroupService {
             LOGGER.info("ownerName (处理人姓名): {}", request.getOwnerName());
             LOGGER.info("==========================================");
 
-            // 根据处理人姓名查询处理人ID
-            String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
-            var ownerResult = com.util.JdbcUtils.query(ownerSql, request.getOwnerName());
-
-            String ownerId = null;
-            if (!ownerResult.isEmpty() && ownerResult.get(0)[0] != null) {
-                ownerId = ownerResult.get(0)[0].toString();
-            } else {
-                throw new Exception("未找到处理人: " + request.getOwnerName());
+            String ownerId = trimToNull(request.getOwnerId());
+            String requestedOwnerName = trimToNull(request.getOwnerName());
+            if (ownerId == null && requestedOwnerName != null) {
+                ownerId = resolveStaffExtIdByName(requestedOwnerName);
+                if (ownerId == null) {
+                    throw new Exception("未找到处理人: " + requestedOwnerName);
+                }
             }
+            if (ownerId == null) {
+                ownerId = trimToNull(modifiedById);
+            }
+            if (ownerId == null) {
+                throw new Exception("缺少处理人ID");
+            }
+
+            String resolvedOwnerName = firstNonBlank(
+                    resolveStaffNameByExtId(ownerId),
+                    requestedOwnerName,
+                    trimToNull(modifiedByName),
+                    trimToNull(modifiedById)
+            );
 
             LOGGER.info("查询到的处理人ID (ownerId): {}", ownerId);
 
@@ -720,7 +731,7 @@ public class ChatGroupService {
             payload.put("id", request.getTicketId());
             payload.put("urgent", request.getUrgent());
             payload.put("customer_sentiment", request.getCustomerSentiment());
-            payload.put("owner_name", request.getOwnerName());
+            payload.put("owner_name", resolvedOwnerName);
             payload.put("owner_id", ownerId);  // 处理人ID
             payload.put("modified_by_id", modifiedById);  // 当前登录用户ID
             payload.put("modified_by_name", modifiedByName);  // 当前登录用户姓名
@@ -759,24 +770,25 @@ public class ChatGroupService {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             String extChatId = resolveExtChatIdByTicketId(request.getTicketId());
-            String ownerId = request.getOwnerId();
-            if (ownerId == null || ownerId.isEmpty()) {
-                String ownerName = request.getOwnerName();
-                if (ownerName != null && !ownerName.isEmpty()) {
-                    String ownerSql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
-                    var ownerResult = com.util.JdbcUtils.query(ownerSql, ownerName);
-                    if (!ownerResult.isEmpty() && ownerResult.get(0)[0] != null) {
-                        ownerId = ownerResult.get(0)[0].toString();
-                    }
+            String ownerId = trimToNull(request.getOwnerId());
+            String requestedOwnerName = trimToNull(request.getOwnerName());
+            if (ownerId == null && requestedOwnerName != null) {
+                ownerId = resolveStaffExtIdByName(requestedOwnerName);
+                if (ownerId == null) {
+                    throw new Exception("未找到处理人: " + requestedOwnerName);
                 }
             }
-            if (ownerId == null || ownerId.isEmpty()) {
-                ownerId = loginUserId;
+            if (ownerId == null) {
+                ownerId = trimToNull(loginUserId);
             }
-            if (ownerId == null || ownerId.isEmpty()) {
+            if (ownerId == null) {
                 throw new Exception("缺少负责人ID");
             }
-            String ownerName = resolveStaffNameByExtId(ownerId);
+            String ownerName = firstNonBlank(
+                    resolveStaffNameByExtId(ownerId),
+                    requestedOwnerName,
+                    trimToNull(loginUserId)
+            );
             String modifiedByName = resolveStaffNameByExtId(loginUserId);
 
             JSONObject payload = new JSONObject();
@@ -834,6 +846,36 @@ public class ChatGroupService {
             }
         } catch (Exception ignored) {
             // ignore
+        }
+        return null;
+    }
+
+    private String resolveStaffExtIdByName(String staffName) {
+        String normalizedStaffName = trimToNull(staffName);
+        if (normalizedStaffName == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedStaffName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return trimToNull(result.get(0)[0].toString());
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
         }
         return null;
     }
