@@ -2973,6 +2973,14 @@ const ensureActiveTabData = async (targetChatId, options = {}) => {
   }
 }
 
+const preloadVersionSources = async (targetChatId, options = {}) => {
+  if (!targetChatId) return
+  await Promise.all([
+    loadImplementationTabData(targetChatId, options),
+    loadMaintenanceTabData(targetChatId, options)
+  ])
+}
+
 const getTicketLogs = async (ticketId) => {
   if (!ticketId) {
     return
@@ -3295,12 +3303,13 @@ const latestVersion = computed(() => {
 
   const latest = candidates.reduce((best, current) => {
     if (!best) return current
-    if (current.timestamp > best.timestamp) return current
-    if (current.timestamp < best.timestamp) return best
 
     const versionCompare = compareVersionCore(current.version, best.version)
     if (versionCompare > 0) return current
     if (versionCompare < 0) return best
+
+    if (current.timestamp > best.timestamp) return current
+    if (current.timestamp < best.timestamp) return best
 
     return current.order < best.order ? current : best
   }, null)
@@ -3970,7 +3979,10 @@ const loadChatData = async (targetChatId) => {
     getAcceptanceStatus(targetChatId)
   ])
 
-  await ensureActiveTabData(targetChatId)
+  await preloadVersionSources(targetChatId)
+  if (activeTab.value !== 'implementation' && activeTab.value !== 'maintenance') {
+    await ensureActiveTabData(targetChatId)
+  }
   if (activeTab.value !== 'ticket') {
     runInBackground(loadTicketTabData(targetChatId))
   }
@@ -4298,6 +4310,7 @@ const getEditorUserId = () => {
 }
 
 const getEditorDisplayName = () => {
+  const editorUserId = getEditorUserId()
   const candidates = [
     userStore.userInfo?.name,
     userStore.userInfo?.username,
@@ -4305,7 +4318,7 @@ const getEditorDisplayName = () => {
   ]
   for (const candidate of candidates) {
     const normalized = typeof candidate === 'string' ? candidate.trim() : ''
-    if (normalized) {
+    if (normalized && normalized !== editorUserId) {
       return normalized
     }
   }
@@ -4316,10 +4329,6 @@ const resolveDefaultTicketOwnerName = (ticket = null) => {
   const editorName = getEditorDisplayName()
   if (editorName) {
     return editorName
-  }
-  const editorUserId = getEditorUserId()
-  if (editorUserId) {
-    return editorUserId
   }
   return typeof ticket?.ownerName === 'string' ? ticket.ownerName.trim() : ''
 }

@@ -138,6 +138,10 @@ public class WeChatWorkLoginController {
                     userInfo.getString("UserId"),
                     userInfo.getString("user_id")
             );
+            String resolvedName = resolveStaffName(userId);
+            if (StringUtils.isNotBlank(resolvedName)) {
+                userInfo.put("name", resolvedName);
+            }
             userInfo.put("isAdmin", isAdminUser(userId));
             
             return ApiResponse.success(userInfo);
@@ -301,6 +305,25 @@ public class WeChatWorkLoginController {
             }
         }
         return false;
+    }
+
+    private String resolveStaffName(String userId) {
+        if (StringUtils.isBlank(userId)) {
+            return null;
+        }
+        JdbcUtils.setCscrmConfig();
+        try {
+            String sql = "SELECT s.name FROM staff s WHERE s.ext_id = ? LIMIT 1";
+            var result = JdbcUtils.query(sql, userId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return result.get(0)[0].toString();
+            }
+        } catch (Exception e) {
+            LOGGER.warn("resolveStaffName failed userId={}, err={}", userId, e.getMessage());
+        } finally {
+            JdbcUtils.clearConfig();
+        }
+        return null;
     }
 
     private String firstNonBlank(String... values) {
