@@ -75,6 +75,14 @@ public class ChatGroupService {
     private static final String IMPLEMENTATION_DEFAULT_VALIDATION_VALUE = "正常，满足客户使用";
 
     public CustomerData getCustomerData(String extChatId) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new CustomerData();
+        }
+        return queryCustomerData(normalizedExtChatId);
+    }
+
+    private CustomerData queryCustomerData(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             long totalStartNs = System.nanoTime();
@@ -226,6 +234,14 @@ public class ChatGroupService {
     }
 
     public AcceptanceStatusData getAcceptanceStatus(String extChatId) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new AcceptanceStatusData();
+        }
+        return queryAcceptanceStatus(normalizedExtChatId);
+    }
+
+    private AcceptanceStatusData queryAcceptanceStatus(String extChatId) {
         long startNs = System.nanoTime();
         try {
             String resolveMode = "fast";
@@ -392,7 +408,7 @@ public class ChatGroupService {
     }
 
     // 通用的获取工单方法
-    private List<Ticket> getTicketsByCategory(String extChatId, String issueCategory) {
+    private List<Ticket> queryTicketsByCategory(String extChatId, String issueCategory) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             StringBuilder sql = new StringBuilder("SELECT cat.id, " +
@@ -449,14 +465,30 @@ public class ChatGroupService {
     }
 
     public List<Ticket> getIssueTickets(String extChatId) {
-        return getTicketsByCategory(extChatId, "功能需求");
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new ArrayList<>();
+        }
+        return queryTicketsByCategory(normalizedExtChatId, "功能需求");
     }
 
     public List<Ticket> getBugTickets(String extChatId) {
-        return getTicketsByCategory(extChatId, "产品缺陷");
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new ArrayList<>();
+        }
+        return queryTicketsByCategory(normalizedExtChatId, "产品缺陷");
     }
 
     public List<MaintenanceRecord> getMaintenanceRecords(String extChatId) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new ArrayList<>();
+        }
+        return queryMaintenanceRecords(normalizedExtChatId);
+    }
+
+    private List<MaintenanceRecord> queryMaintenanceRecords(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
@@ -524,6 +556,14 @@ public class ChatGroupService {
     }
 
     public List<ServiceRecord> getServiceRecords(String extChatId) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new ArrayList<>();
+        }
+        return queryServiceRecords(normalizedExtChatId);
+    }
+
+    private List<ServiceRecord> queryServiceRecords(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             String sql = "WITH chat_product AS ( " +
@@ -607,7 +647,11 @@ public class ChatGroupService {
     }
 
     public List<Ticket> getTickets(String extChatId) {
-        return getTicketsByCategory(extChatId, null);
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            return new ArrayList<>();
+        }
+        return queryTicketsByCategory(normalizedExtChatId, null);
     }
 
     public List<TicketLog> getTicketLogs(Long ticketId) {
@@ -650,6 +694,7 @@ public class ChatGroupService {
     public void updateTicket(UpdateTicketRequest request, String modifiedById, String modifiedByName) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
+            String extChatId = resolveExtChatIdByTicketId(request.getTicketId());
             // 打印接收到的参数
             LOGGER.info("========== Service 层接收到的参数 ==========");
             LOGGER.info("modifiedById (传入参数): {}", modifiedById);
@@ -713,6 +758,7 @@ public class ChatGroupService {
     public void updateIssueOrBugTicket(UpdateTicketRequest request, String loginUserId, String kind) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
+            String extChatId = resolveExtChatIdByTicketId(request.getTicketId());
             String ownerId = request.getOwnerId();
             if (ownerId == null || ownerId.isEmpty()) {
                 String ownerName = request.getOwnerName();
@@ -793,10 +839,15 @@ public class ChatGroupService {
     }
 
     public ImplementationCreateContext getImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
-        if (extChatId == null || extChatId.isEmpty()) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
             throw new Exception("缺少群聊ID");
         }
+        String normalizedLoginUserId = nullToEmpty(trimToNull(loginUserId));
+        return queryImplementationCreateContext(normalizedExtChatId, normalizedLoginUserId);
+    }
 
+    private ImplementationCreateContext queryImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
@@ -833,10 +884,15 @@ public class ChatGroupService {
     }
 
     public MaintenanceCreateContext getMaintenanceCreateContext(String extChatId, String loginUserId) throws Exception {
-        if (extChatId == null || extChatId.isEmpty()) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
             throw new Exception("缺少群聊ID");
         }
+        String normalizedLoginUserId = nullToEmpty(trimToNull(loginUserId));
+        return queryMaintenanceCreateContext(normalizedExtChatId, normalizedLoginUserId);
+    }
 
+    private MaintenanceCreateContext queryMaintenanceCreateContext(String extChatId, String loginUserId) {
         MaintenanceCreateContext context = new MaintenanceCreateContext();
         context.setDefaultSubmitterName(resolveMaintenanceDefaultSubmitterName(loginUserId));
         return context;
@@ -1613,6 +1669,23 @@ public class ChatGroupService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private String resolveExtChatIdByTicketId(String ticketId) {
+        String normalizedTicketId = trimToNull(ticketId);
+        if (normalizedTicketId == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT room_id FROM chat_analysis_tickets WHERE id = ? AND deleted_at IS NULL LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedTicketId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return trimToNull(result.get(0)[0].toString());
+            }
+        } catch (Exception e) {
+            LOGGER.warn("resolveExtChatIdByTicketId failed ticketId={}, err={}", normalizedTicketId, e.getMessage());
+        }
+        return null;
+    }
+
     private String firstNonBlank(String first, String second) {
         String firstTrimmed = trimToNull(first);
         if (firstTrimmed != null) {
@@ -2113,6 +2186,14 @@ public class ChatGroupService {
     }
 
     public List<String> getProductVersions(Long productId, String extChatId) throws Exception {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            throw new Exception("extChatId 不能为空");
+        }
+        return queryProductVersions(productId, normalizedExtChatId);
+    }
+
+    private List<String> queryProductVersions(Long productId, String extChatId) throws Exception {
         List<Long> productIds = resolveVersionProductIds(productId, extChatId);
         if (productIds.isEmpty()) {
             throw new Exception("productId 不能为空");

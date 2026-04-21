@@ -21,6 +21,7 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -397,7 +398,12 @@ public class ToolService {
         if (normalizedExtChatId.isEmpty()) {
             throw new IllegalArgumentException("extChatId 不能为空");
         }
-        CcResolution resolution = buildDefaultCcResolution(normalizedExtChatId, loginUserId);
+        String normalizedLoginUserId = trim(loginUserId);
+        return buildMailDefaultCcResult(normalizedExtChatId, normalizedLoginUserId);
+    }
+
+    private Map<String, Object> buildMailDefaultCcResult(String extChatId, String loginUserId) {
+        CcResolution resolution = buildDefaultCcResolution(extChatId, loginUserId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("defaultCcText", String.join(";", resolution.defaultCcList));
         result.put("defaultCcList", resolution.defaultCcList);
@@ -2116,9 +2122,6 @@ public class ToolService {
                                          List<String> linkedAttachments,
                                          List<String> attachmentLinks) {
         String plainText = buildMailPlainText(productAlias, majorVersion, customerName, resolvedVersion);
-        if (linkedAttachments == null || linkedAttachments.isEmpty() || attachmentLinks == null || attachmentLinks.isEmpty()) {
-            return new MailContent(plainText, false);
-        }
         return new MailContent(buildHtmlMailContent(plainText, linkedAttachments, attachmentLinks), true);
     }
 
@@ -2269,9 +2272,88 @@ public class ToolService {
             hasClosingBlock = true;
         }
 
+        List<String> paragraphs = splitMailParagraphs(bodyText);
+        String greeting = paragraphs.isEmpty() ? "Dear all：" : paragraphs.get(0);
+        String summary = paragraphs.size() > 1 ? paragraphs.get(1) : "";
+        String resourceHeader = "";
+        String resourceLines = "";
+        String downloadHeader = "";
+        String downloadLines = "";
+
+        for (int i = 2; i < paragraphs.size(); i++) {
+            String paragraph = paragraphs.get(i);
+            if (paragraph.startsWith("以下为")) {
+                resourceHeader = paragraph;
+                if (i + 1 < paragraphs.size()) {
+                    resourceLines = paragraphs.get(i + 1);
+                    i++;
+                }
+                continue;
+            }
+            if (paragraph.startsWith("点击下方链接")) {
+                downloadHeader = paragraph;
+                if (i + 1 < paragraphs.size()) {
+                    downloadLines = paragraphs.get(i + 1);
+                    i++;
+                }
+            }
+        }
+
+        int downloadSize = Math.min(linkedAttachments == null ? 0 : linkedAttachments.size(),
+                attachmentLinks == null ? 0 : attachmentLinks.size());
+
         StringBuilder html = new StringBuilder();
-        html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;font-size:14px;\">");
-        html.append("<div style=\"white-space:pre-wrap;\">").append(escapeHtml(bodyText)).append("</div>");
+        html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;font-size:14px;max-width:720px;\">");
+        html.append("<div style=\"padding:20px 22px;border:1px solid #d9f2e6;background:linear-gradient(180deg,#f7fffb 0%,#ffffff 100%);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,0.06);\">");
+        html.append("<div style=\"font-size:18px;font-weight:700;color:#166534;margin-bottom:8px;\">").append(escapeHtml(greeting)).append("</div>");
+        if (!summary.isEmpty()) {
+            html.append("<div style=\"color:#374151;white-space:pre-wrap;\">").append(escapeHtml(summary)).append("</div>");
+        }
+        html.append("</div>");
+        if (!resourceHeader.isEmpty() || !resourceLines.isEmpty()) {
+            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #dbeafe;background:#f8fbff;border-radius:14px;\">");
+            html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:10px;\">相关资料</div>");
+            if (!resourceHeader.isEmpty()) {
+                html.append("<div style=\"color:#374151;margin-bottom:")
+                        .append(resourceLines.isEmpty() ? "0" : "10")
+                        .append("px;\">")
+                        .append(escapeHtml(resourceHeader))
+                        .append("</div>");
+            }
+            if (!resourceLines.isEmpty()) {
+                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;\">").append(escapeHtml(resourceLines)).append("</div>");
+            }
+            html.append("</div>");
+        }
+        if (!downloadHeader.isEmpty() || !downloadLines.isEmpty() || downloadSize > 0) {
+            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #dbe4ff;background:#f6f8ff;border-radius:14px;\">");
+            html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:8px;\">交付资料</div>");
+            if (!downloadHeader.isEmpty()) {
+                html.append("<div style=\"color:#374151;margin-bottom:")
+                        .append((!downloadLines.isEmpty() || downloadSize > 0) ? "10" : "0")
+                        .append("px;\">")
+                        .append(escapeHtml(downloadHeader))
+                        .append("</div>");
+            }
+            if (!downloadLines.isEmpty()) {
+                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;margin-bottom:")
+                        .append(downloadSize > 0 ? "14" : "0")
+                        .append("px;\">")
+                        .append(escapeHtml(downloadLines))
+                        .append("</div>");
+            }
+            for (int i = 0; i < downloadSize; i++) {
+                html.append("<div style=\"margin:0 0 14px 0;\">");
+                html.append("<div style=\"font-size:13px;color:#111827;margin-bottom:6px;\">")
+                        .append(escapeHtml(linkedAttachments.get(i)))
+                        .append("</div>");
+                html.append("<a href=\"")
+                        .append(escapeHtmlAttribute(attachmentLinks.get(i)))
+                        .append("\" style=\"display:inline-block;padding:10px 16px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;font-size:13px;font-weight:600;\">下载附件</a>");
+                html.append("</div>");
+            }
+            html.append("</div>");
+        }
         if (hasClosingBlock) {
             html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #fde68a;background:#fffaf0;border-radius:14px;\">");
             html.append("<div style=\"font-size:15px;font-weight:600;color:#b45309;margin-bottom:10px;\">后续支持</div>");
@@ -2280,21 +2362,22 @@ public class ToolService {
             html.append("<div style=\"font-weight:600;color:#92400e;\">").append(escapeHtml(MAIL_CLOSING_SECONDARY)).append("</div>");
             html.append("</div></div>");
         }
-        html.append("<div style=\"margin-top:20px;padding:16px 18px;border:1px solid #dbe4ff;background:#f6f8ff;border-radius:14px;\">");
-        html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:8px;\">交付资料下载</div>");
-        int size = Math.min(linkedAttachments.size(), attachmentLinks.size());
-        for (int i = 0; i < size; i++) {
-            html.append("<div style=\"margin:0 0 14px 0;\">");
-            html.append("<div style=\"font-size:13px;color:#111827;margin-bottom:6px;\">")
-                    .append(escapeHtml(linkedAttachments.get(i)))
-                    .append("</div>");
-            html.append("<a href=\"")
-                    .append(escapeHtmlAttribute(attachmentLinks.get(i)))
-                    .append("\" style=\"display:inline-block;padding:10px 16px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;font-size:13px;font-weight:600;\">下载附件</a>");
-            html.append("</div>");
-        }
-        html.append("</div></div>");
+        html.append("</div>");
         return html.toString();
+    }
+
+    private List<String> splitMailParagraphs(String text) {
+        if (text == null || text.isBlank()) {
+            return Collections.emptyList();
+        }
+        List<String> paragraphs = new ArrayList<>();
+        for (String part : text.split("\\n\\s*\\n")) {
+            String normalized = trim(part);
+            if (!normalized.isEmpty()) {
+                paragraphs.add(normalized);
+            }
+        }
+        return paragraphs;
     }
 
     private String resolveFallbackVersion(String productAlias) {

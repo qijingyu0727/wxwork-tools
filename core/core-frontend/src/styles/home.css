@@ -1126,6 +1126,184 @@
   flex: 1;
 }
 
+.realtime-analysis-card-shell {
+  position: relative;
+  min-height: auto;
+  padding: 1.1rem 1.1rem 1.05rem;
+  border-color: rgba(34, 197, 94, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.09), transparent 28%),
+    linear-gradient(180deg, rgba(247, 255, 249, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.realtime-analysis-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.realtime-analysis-icon-btn {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 0.7rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+  color: #0f766e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  cursor: default;
+  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.realtime-analysis-icon-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 118, 110, 0.16);
+  color: #0f766e;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+}
+
+.realtime-analysis-icon-btn i {
+  font-size: 0.9rem;
+}
+
+.realtime-analysis-card-shell .tool-card-title-row {
+  align-items: center;
+  margin-bottom: 0;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+}
+
+.realtime-analysis-card-shell .tool-card-title {
+  font-size: 1.02rem;
+  line-height: 1.15;
+}
+
+.realtime-analysis-card-shell .tool-card-subtitle {
+  margin: 0.32rem 0 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.realtime-analysis-content-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  margin-top: 0.95rem;
+}
+
+.realtime-analysis-block {
+  position: relative;
+  padding: 1rem 1rem 1.05rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 250, 251, 0.96) 100%);
+  box-shadow:
+    0 8px 20px rgba(15, 23, 42, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.realtime-analysis-block::before {
+  content: "";
+  position: absolute;
+  top: 0.78rem;
+  bottom: 0.78rem;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+}
+
+.realtime-analysis-block-question::before {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.92), rgba(56, 189, 248, 0.26));
+}
+
+.realtime-analysis-block-answer::before {
+  background: linear-gradient(180deg, rgba(5, 150, 105, 0.96), rgba(34, 197, 94, 0.28));
+}
+
+.realtime-analysis-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.realtime-analysis-section-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.realtime-analysis-section-kicker {
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa7b8;
+}
+
+.realtime-analysis-section-title {
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.realtime-analysis-copy-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: 0.65rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 250, 0.96));
+  color: #0f766e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.realtime-analysis-copy-btn:hover {
+  border-color: rgba(15, 118, 110, 0.24);
+  color: #047857;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(236, 253, 245, 0.98));
+  box-shadow: 0 10px 18px rgba(5, 150, 105, 0.08);
+}
+
+.realtime-analysis-copy-btn i {
+  font-size: 0.86rem;
+}
+
+.realtime-analysis-text {
+  margin: 0;
+  padding: 0.9rem 0.95rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(241, 245, 249, 0.95);
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.88rem;
+  line-height: 1.8;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.realtime-analysis-answer-text {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 250, 252, 0.98) 100%);
+  color: #1f2937;
+}
+
 .tool-card-body {
   flex: 1;
   display: flex;

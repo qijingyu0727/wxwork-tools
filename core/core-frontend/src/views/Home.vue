@@ -44,7 +44,7 @@
           v-if="showCustomerDataCompletionGuide"
           class="customer-data-guide"
         >
-          未识别到客户名称。请前往 CRM -> 客户管理 -> 许可列表，搜索客户全称，编辑补充客户群聊名称后点击“同步”按钮。
+          未识别到客户名称。请前往 CSM -> 客户管理 -> 许可列表，搜索客户全称，编辑补充客户群聊名称后点击“同步”按钮。
         </div>
 
         <!-- 统计数据 -->
@@ -123,6 +123,67 @@
           </button>
         </div>
         <div class="tab-content">
+          <div v-if="activeTab === 'analysis'" class="tab-pane active">
+            <div class="tools-pane">
+              <div class="tools-grid">
+                <section class="tool-card tool-card-report realtime-analysis-card-shell">
+                  <div class="tool-card-title-row">
+                    <span class="tool-card-icon">
+                      <i class="fa fa-bolt"></i>
+                    </span>
+                    <div class="tool-card-heading">
+                      <div class="realtime-analysis-card-header">
+                        <h4 class="tool-card-title">实时分析</h4>
+                        <button
+                          type="button"
+                          class="realtime-analysis-icon-btn"
+                          title="刷新分析（即将开放）"
+                          aria-label="刷新分析（即将开放）"
+                        >
+                          <i class="fa fa-rotate-right"></i>
+                        </button>
+                      </div>
+                      <p class="tool-card-subtitle">{{ realtimeAnalysisDisplayTime }}</p>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-body">
+                    <div v-if="currentRealtimeAnalysis" class="realtime-analysis-content-stack">
+                      <section class="realtime-analysis-block realtime-analysis-block-question">
+                        <div class="realtime-analysis-section-head">
+                          <div class="realtime-analysis-section-meta">
+                            <div class="realtime-analysis-section-kicker">Question</div>
+                            <div class="realtime-analysis-section-title">待回复问题</div>
+                          </div>
+                        </div>
+                        <pre class="realtime-analysis-text">{{ currentRealtimeAnalysis.question }}</pre>
+                      </section>
+
+                      <section class="realtime-analysis-block realtime-analysis-block-answer">
+                        <div class="realtime-analysis-section-head">
+                          <div class="realtime-analysis-section-meta">
+                            <div class="realtime-analysis-section-kicker">Answer</div>
+                            <div class="realtime-analysis-section-title">建议回复内容</div>
+                          </div>
+                          <button
+                            type="button"
+                            class="realtime-analysis-copy-btn"
+                            title="复制答案"
+                            aria-label="复制答案"
+                            @click="copyRealtimeAnalysisAnswer(currentRealtimeAnalysis)"
+                          >
+                            <i class="fa fa-copy"></i>
+                          </button>
+                        </div>
+                        <pre class="realtime-analysis-text realtime-analysis-answer-text">{{ currentRealtimeAnalysisAnswerText }}</pre>
+                      </section>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+
           <!-- 实施 Tab -->
           <div v-if="activeTab === 'implementation'" class="tab-pane active">
             <div v-if="maintenanceRecords.length === 0" class="add-maintenance-section">
@@ -281,7 +342,7 @@
                         ref="toolCcTextareaRef"
                         v-model.trim="toolCcEmails"
                         class="tool-email-input tool-cc-textarea"
-                        rows="2"
+                        rows="3"
                         placeholder="填写抄送邮箱，多个邮箱用分号隔开"
                         @input="adjustToolCcTextarea"
                       ></textarea>
@@ -1377,6 +1438,18 @@ const toolMailSubmitting = ref(false)
 const toolReportSubmitting = ref(false)
 let acceptanceStatusRequestToken = 0
 let acceptanceStatusRefreshTimers = []
+
+const createTabLoadState = () => ({
+  analysis: true,
+  implementation: false,
+  maintenance: false,
+  tools: false,
+  ticket: false,
+  requirement: false,
+  defect: false
+})
+
+const tabLoadState = ref(createTabLoadState())
 
 // 需求和缺陷工单相关状态
 const issueTickets = ref([])
@@ -2821,6 +2894,85 @@ const getBugTickets = async (extChatId) => {
   }
 }
 
+const resetTabLoadState = () => {
+  tabLoadState.value = createTabLoadState()
+}
+
+const loadTicketTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  if (tabLoadState.value.ticket && !force) return
+  await getTickets(targetChatId)
+  tabLoadState.value.ticket = true
+}
+
+const loadRequirementTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  await loadTicketTabData(targetChatId, { force })
+  if (tabLoadState.value.requirement && !force) return
+  await getIssueTickets(targetChatId)
+  tabLoadState.value.requirement = true
+}
+
+const loadDefectTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  await loadTicketTabData(targetChatId, { force })
+  if (tabLoadState.value.defect && !force) return
+  await getBugTickets(targetChatId)
+  tabLoadState.value.defect = true
+}
+
+const loadImplementationTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  if (tabLoadState.value.implementation && !force) return
+  await getMaintenanceRecords(targetChatId)
+  tabLoadState.value.implementation = true
+}
+
+const loadMaintenanceTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  if (tabLoadState.value.maintenance && !force) return
+  await getServiceRecords(targetChatId)
+  tabLoadState.value.maintenance = true
+}
+
+const loadToolsTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) {
+    toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
+    tabLoadState.value.tools = true
+    return
+  }
+  if (tabLoadState.value.tools && !force) return
+  await loadToolMailDefaultCc(targetChatId)
+  tabLoadState.value.tools = true
+}
+
+const ensureActiveTabData = async (targetChatId, options = {}) => {
+  if (!targetChatId) return
+  if (activeTab.value === 'implementation') {
+    await loadImplementationTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'maintenance') {
+    await loadMaintenanceTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'tools') {
+    await loadToolsTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'ticket') {
+    await loadTicketTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'requirement') {
+    await loadRequirementTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'defect') {
+    await loadDefectTabData(targetChatId, options)
+  }
+}
+
 const getTicketLogs = async (ticketId) => {
   if (!ticketId) {
     return
@@ -3572,6 +3724,12 @@ const currentRealtimeAnalysis = computed(() => {
   return realtimeAnalysisItems.value.find(item => item.id === realtimeAnalysisSelectedId.value) || realtimeAnalysisItems.value[0] || null
 })
 
+const currentRealtimeAnalysisAnswerText = computed(() => {
+  const item = currentRealtimeAnalysis.value
+  const parts = Array.isArray(item?.answer) ? item.answer : []
+  return parts.join('\n\n').trim()
+})
+
 const realtimeAnalysisDisplayTime = computed(() => {
   return `最近分析 ${formatRealtimeAnalysisTime(realtimeAnalysisRefreshedAt.value)}`
 })
@@ -3603,15 +3761,16 @@ const handleRefreshRealtimeAnalysis = () => {
 }
 
 const copyRealtimeAnalysisAnswer = async (item) => {
-  const text = buildRealtimeAnalysisLinkText(item)
+  const parts = Array.isArray(item?.answer) ? item.answer : []
+  const text = parts.join('\n\n').trim()
   if (!text) {
-    showToast('当前没有可复制的知识库链接', false)
+    showToast('当前没有可复制的答案内容', false)
     return
   }
 
   try {
     await navigator.clipboard.writeText(text)
-    showToast('知识库链接已复制', true)
+    showToast('答案已复制', true)
   } catch (error) {
     showToast('复制失败，请稍后重试', false)
   }
@@ -3780,10 +3939,25 @@ const getLogActionClass = (action) => {
 
 const loadChatData = async (targetChatId) => {
   resetTicketViewState()
+  resetTabLoadState()
   clearAcceptanceStatusFields()
+  customerData.value = {}
+  maintenanceRecords.value = []
+  serviceRecords.value = []
+  tickets.value = []
+  issueTickets.value = []
+  bugTickets.value = []
   implementationContext.value = null
   implementationVersionOptions.value = []
   implementationContextLoadedChatId.value = ''
+  maintenanceCreateContext.value = null
+  maintenanceContextLoadedChatId.value = ''
+  productVersions.value = []
+  versionsLoadedProductId.value = null
+  versionPreloadPromise.value = null
+  implementationContextPreloadPromise.value = null
+  maintenanceContextPreloadPromise.value = null
+  toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
 
   const runInBackground = (task) => {
     Promise.resolve(task).catch(() => {
@@ -3791,23 +3965,15 @@ const loadChatData = async (targetChatId) => {
     })
   }
 
-  runInBackground(getAcceptanceStatus(targetChatId))
-  runInBackground(loadToolMailDefaultCc(targetChatId))
-  runInBackground(getMaintenanceRecords(targetChatId))
-  runInBackground(getServiceRecords(targetChatId))
-  runInBackground((async () => {
-    await getTickets(targetChatId)
-    await Promise.all([
-      getIssueTickets(targetChatId),
-      getBugTickets(targetChatId)
-    ])
-  })())
+  await Promise.all([
+    getCustomerData(targetChatId),
+    getAcceptanceStatus(targetChatId)
+  ])
 
-  await getCustomerData(targetChatId)
-  // 群聊加载时即预取版本，避免打开新增维护才开始请求
-  runInBackground(prefetchProductVersions())
-  runInBackground(prefetchMaintenanceCreateContext(targetChatId))
-  runInBackground(prefetchImplementationCreateContext(targetChatId))
+  await ensureActiveTabData(targetChatId)
+  if (activeTab.value !== 'ticket') {
+    runInBackground(loadTicketTabData(targetChatId))
+  }
 }
 
 const loadDebugChatFallback = async (messagePrefix = '企业微信 chatID 获取失败') => {
@@ -4129,6 +4295,29 @@ const getEditorUserId = () => {
     return DEBUG_EDITOR_USER_ID
   }
   return userStore.userInfo?.userid || userStore.userInfo?.UserId || userStore.userInfo?.user_id || ''
+}
+
+const getEditorDisplayName = () => {
+  const candidates = [
+    userStore.userInfo?.name,
+    userStore.userInfo?.username,
+    userStore.userInfo?.nickname
+  ]
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim() : ''
+    if (normalized) {
+      return normalized
+    }
+  }
+  return ''
+}
+
+const resolveDefaultTicketOwnerName = (ticket = null) => {
+  const editorName = getEditorDisplayName()
+  if (editorName) {
+    return editorName
+  }
+  return typeof ticket?.ownerName === 'string' ? ticket.ownerName.trim() : ''
 }
 
 const loadProductVersions = async ({ silent = false, force = false } = {}) => {
@@ -4668,6 +4857,7 @@ const handleUpdateTicket = async (ticketId) => {
 
   // 加载员工列表
   await loadStaffList()
+  updateForm.value.ownerName = resolveDefaultTicketOwnerName(ticket)
   showUpdateModal.value = true
 }
 
@@ -4828,7 +5018,7 @@ onMounted(async () => {
       console.error('本地调试登录失败:', error)
     }
   } else {
-    userStore.checkLogin()
+    await userStore.checkLogin()
   }
 
   registerWxWork()
@@ -4850,6 +5040,13 @@ watch(toolEmail, () => {
 
 watch(toolCcEmails, () => {
   adjustToolCcTextarea()
+})
+
+watch(activeTab, (newValue, oldValue) => {
+  if (!chatId.value || !newValue || newValue === oldValue) return
+  ensureActiveTabData(chatId.value).catch((error) => {
+    console.warn('load active tab data failed:', error)
+  })
 })
 
 watch(chatId, (newValue, oldValue) => {
