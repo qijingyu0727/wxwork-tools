@@ -69,6 +69,7 @@ public class ToolService {
     private static final Pattern DETAILED_VERSION_PATTERN = Pattern.compile("(?i)v?(\\d+(?:\\.\\d+)+)");
     private static final Pattern CONTRACT_DATE_PATTERN = Pattern.compile("20\\d{6}");
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+");
+    private static final Pattern MAIL_SUMMARY_PRODUCT_PATTERN = Pattern.compile("^(.*?)(\\s+(?:JumpServer|MaxKB|DataEase(?:\\s+专业版)?|SQLBot)\\s+)(.*)$");
     private static final String EXTERNAL_CONFIG_PATH = "/opt/wxwork-tools/wxwork-tools.properties";
     private static final String ATTACH_RULE_PREFIX = "tool.mail.auto-attach.rule.";
     private static final String ATTACH_LINK_RULE_PREFIX = "tool.mail.attachment-link.rule.";
@@ -2137,7 +2138,7 @@ public class ToolService {
             return """
                     Dear all：
 
-                    %s DataEase 专业版环境部署交付已经完成。目前交付版本：%s
+                    %s DataEase 专业版环境部署交付已经完成。当前交付版本：%s
 
                     以下为 DataEase 的一些相关链接：
 
@@ -2157,7 +2158,7 @@ public class ToolService {
             return """
                     Dear all：
 
-                    %s JumpServer 环境部署交付已经完成。目前交付版本：%s
+                    %s JumpServer 环境部署交付已经完成。当前交付版本：%s
 
                     以下为堡垒机的一些相关链接：
 
@@ -2181,7 +2182,7 @@ public class ToolService {
             return """
                     Dear all：
 
-                    %s JumpServer 环境部署交付已经完成。目前交付版本：%s
+                    %s JumpServer 环境部署交付已经完成。当前交付版本：%s
 
                     以下为堡垒机的一些相关链接：
 
@@ -2205,7 +2206,7 @@ public class ToolService {
             return """
                     Dear all：
 
-                    %s MaxKB 环境部署交付已经完成。目前交付版本：%s
+                    %s MaxKB 环境部署交付已经完成。当前交付版本：%s
                     
                     以下为 MaxKB 的一些相关链接：
 
@@ -2230,7 +2231,7 @@ public class ToolService {
             return """
                     Dear all：
 
-                    %s MaxKB 环境部署交付已经完成。目前交付版本：%s
+                    %s MaxKB 环境部署交付已经完成。当前交付版本：%s
 
                     以下为 MaxKB 的一些相关链接：
 
@@ -2251,10 +2252,28 @@ public class ToolService {
                     """.formatted(name, version);
         }
 
+        if ("SQLBot".equalsIgnoreCase(productAlias)) {
+            return """
+                    Dear all：
+
+                    %s SQLBot 环境部署交付已经完成。当前交付版本：%s
+
+                    以下为 SQLBot 的一些相关链接：
+
+                    SQLBot 官方文档： https://sqlbot.fit2cloud.com/v1/
+                    SQLBot MCP 服务文档：https://sqlbot.fit2cloud.com/v1/mcp_server/
+                    SQLBot 官方论坛：https://bbs.fit2cloud.com/c/14-category/14
+
+                    当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
+
+                    感谢您信任飞致云的产品和服务，后续有问题可随时沟通！
+                    """.formatted(name, version);
+        }
+
         return """
                 Dear all：
 
-                %s %s 环境部署交付已经完成。目前交付版本：%s
+                %s %s 环境部署交付已经完成。当前交付版本：%s
 
                 当前交付实施已经完成，后续的问题可以在群里沟通，我们的一线技术支持人员将会及时响应您的问题！
 
@@ -2304,48 +2323,47 @@ public class ToolService {
                 attachmentLinks == null ? 0 : attachmentLinks.size());
 
         StringBuilder html = new StringBuilder();
-        html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;font-size:14px;max-width:720px;\">");
-        html.append("<div style=\"padding:20px 22px;border:1px solid #d9f2e6;background:linear-gradient(180deg,#f7fffb 0%,#ffffff 100%);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,0.06);\">");
-        html.append("<div style=\"font-size:18px;font-weight:700;color:#166534;margin-bottom:8px;\">").append(escapeHtml(greeting)).append("</div>");
+        html.append("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',PingFang SC,'Microsoft YaHei',sans-serif;line-height:1.8;color:#111827;font-size:14px;max-width:720px;\">");
+        html.append("<div style=\"white-space:pre-wrap;color:#111827;\">").append(renderMailRichText(greeting)).append("</div>");
         if (!summary.isEmpty()) {
-            html.append("<div style=\"color:#374151;white-space:pre-wrap;\">").append(renderMailRichText(summary)).append("</div>");
+            html.append("<div style=\"margin-top:12px;white-space:pre-wrap;color:#1f2937;\">").append(renderMailSummary(summary)).append("</div>");
         }
-        html.append("</div>");
         if (!resourceHeader.isEmpty() || !resourceLines.isEmpty()) {
-            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #dbeafe;background:#f8fbff;border-radius:14px;\">");
-            html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:10px;\">相关资料</div>");
             if (!resourceHeader.isEmpty()) {
-                html.append("<div style=\"color:#374151;margin-bottom:")
-                        .append(resourceLines.isEmpty() ? "0" : "10")
-                        .append("px;\">")
-                        .append(escapeHtml(resourceHeader))
+                html.append("<div style=\"margin-top:16px;white-space:pre-wrap;color:#1f2937;\">")
+                        .append(renderMailRichText(resourceHeader))
                         .append("</div>");
             }
             if (!resourceLines.isEmpty()) {
-                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;\">").append(renderMailRichText(resourceLines)).append("</div>");
+                html.append("<div style=\"margin-top:10px;\">")
+                        .append(renderMailInfoRows(resourceLines))
+                        .append("</div>");
             }
-            html.append("</div>");
         }
-        if (!downloadHeader.isEmpty() || !downloadLines.isEmpty() || downloadSize > 0) {
+        if (!downloadHeader.isEmpty()) {
+            html.append("<div style=\"margin-top:16px;white-space:pre-wrap;color:#1f2937;\">")
+                    .append(renderMailRichText(downloadHeader))
+                    .append("</div>");
+        }
+        if (!downloadLines.isEmpty()) {
+            html.append("<div style=\"margin-top:8px;\">")
+                    .append(renderMailLineList(downloadLines))
+                    .append("</div>");
+        }
+        if (hasClosingBlock) {
+            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #fde68a;background:#fffaf0;border-radius:14px;\">");
+            html.append("<div style=\"font-size:15px;font-weight:700;color:#9a3412;margin-bottom:10px;\">后续支持</div>");
+            html.append("<div style=\"color:#1f2937;\">");
+            html.append("<div style=\"margin-bottom:8px;\">").append(escapeHtml(MAIL_CLOSING_PRIMARY)).append("</div>");
+            html.append("<div style=\"font-weight:700;color:#7c2d12;\">").append(escapeHtml(MAIL_CLOSING_SECONDARY)).append("</div>");
+            html.append("</div></div>");
+        }
+        if (downloadSize > 0) {
             html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #dbe4ff;background:#f6f8ff;border-radius:14px;\">");
-            html.append("<div style=\"font-size:15px;font-weight:600;color:#1d4ed8;margin-bottom:8px;\">交付资料</div>");
-            if (!downloadHeader.isEmpty()) {
-                html.append("<div style=\"color:#374151;margin-bottom:")
-                        .append((!downloadLines.isEmpty() || downloadSize > 0) ? "10" : "0")
-                        .append("px;\">")
-                        .append(escapeHtml(downloadHeader))
-                        .append("</div>");
-            }
-            if (!downloadLines.isEmpty()) {
-                html.append("<div style=\"white-space:pre-wrap;color:#1f2937;margin-bottom:")
-                        .append(downloadSize > 0 ? "14" : "0")
-                        .append("px;\">")
-                        .append(renderMailRichText(downloadLines))
-                        .append("</div>");
-            }
+            html.append("<div style=\"font-size:15px;font-weight:700;color:#1d4ed8;margin-bottom:8px;\">交付资料下载</div>");
             for (int i = 0; i < downloadSize; i++) {
                 html.append("<div style=\"margin:0 0 14px 0;\">");
-                html.append("<div style=\"font-size:13px;color:#111827;margin-bottom:6px;\">")
+                html.append("<div style=\"font-size:13px;color:#0f172a;font-weight:500;margin-bottom:6px;\">")
                         .append(escapeHtml(linkedAttachments.get(i)))
                         .append("</div>");
                 html.append("<a href=\"")
@@ -2354,14 +2372,6 @@ public class ToolService {
                 html.append("</div>");
             }
             html.append("</div>");
-        }
-        if (hasClosingBlock) {
-            html.append("<div style=\"margin-top:18px;padding:16px 18px;border:1px solid #fde68a;background:#fffaf0;border-radius:14px;\">");
-            html.append("<div style=\"font-size:15px;font-weight:600;color:#b45309;margin-bottom:10px;\">后续支持</div>");
-            html.append("<div style=\"color:#374151;\">");
-            html.append("<div style=\"margin-bottom:8px;\">").append(escapeHtml(MAIL_CLOSING_PRIMARY)).append("</div>");
-            html.append("<div style=\"font-weight:600;color:#92400e;\">").append(escapeHtml(MAIL_CLOSING_SECONDARY)).append("</div>");
-            html.append("</div></div>");
         }
         html.append("</div>");
         return html.toString();
@@ -2396,6 +2406,117 @@ public class ToolService {
             lastIndex = end;
         }
         html.append(escapeHtml(normalizedText.substring(lastIndex)));
+        return html.toString();
+    }
+
+    private String renderMailSummary(String text) {
+        String normalizedText = trim(text);
+        if (normalizedText.isEmpty()) {
+            return "";
+        }
+
+        String versionMarker = "当前交付版本：";
+        int versionIndex = normalizedText.indexOf(versionMarker);
+        if (versionIndex < 0) {
+            return renderMailRichText(normalizedText);
+        }
+
+        String beforeVersion = normalizedText.substring(0, versionIndex);
+        String versionText = normalizedText.substring(versionIndex + versionMarker.length()).trim();
+        String deploymentMarker = " 环境部署交付已经完成。";
+        int deploymentIndex = beforeVersion.indexOf(deploymentMarker);
+        if (deploymentIndex < 0) {
+            return renderMailRichText(normalizedText);
+        }
+
+        String companyAndProduct = beforeVersion.substring(0, deploymentIndex);
+        String remainingText = beforeVersion.substring(deploymentIndex);
+
+        StringBuilder html = new StringBuilder();
+        Matcher productMatcher = MAIL_SUMMARY_PRODUCT_PATTERN.matcher(companyAndProduct);
+        if (productMatcher.matches()) {
+            String companyName = productMatcher.group(1);
+            String productName = productMatcher.group(2);
+            String extraText = productMatcher.group(3);
+            html.append("<span style=\"font-weight:700;color:#111827;\">")
+                    .append(escapeHtml(companyName))
+                    .append("</span>");
+            html.append(escapeHtml(productName));
+            html.append(escapeHtml(extraText));
+        } else {
+            html.append("<span style=\"font-weight:700;color:#111827;\">")
+                    .append(escapeHtml(companyAndProduct))
+                    .append("</span>");
+        }
+        html.append(escapeHtml(remainingText + " " + versionMarker + " "));
+        html.append("<span style=\"font-weight:700;color:#111827;\">")
+                .append(escapeHtml(versionText))
+                .append("</span>");
+        return html.toString();
+    }
+
+    private String renderMailInfoRows(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        String[] lines = text.replace("\r\n", "\n").split("\n");
+        for (String rawLine : lines) {
+            String line = trim(rawLine);
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            Matcher matcher = URL_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                html.append("<div style=\"margin:0 0 8px 0;color:#111827;\">")
+                        .append(renderMailRichText(line))
+                        .append("</div>");
+                continue;
+            }
+
+            String matchedUrl = matcher.group();
+            String normalizedUrl = trimTrailingUrlPunctuation(matchedUrl);
+            String label = line.substring(0, matcher.start()).trim();
+            String trailing = line.substring(matcher.start() + normalizedUrl.length()).trim();
+
+            html.append("<div style=\"margin:0 0 8px 0;line-height:1.9;color:#111827;\">");
+            if (!label.isEmpty()) {
+                html.append("<span style=\"font-weight:600;color:#374151;\">")
+                        .append(escapeHtml(label))
+                        .append("</span>");
+                html.append("<span style=\"display:inline-block;width:8px;\"></span>");
+            }
+            html.append("<a href=\"")
+                    .append(escapeHtmlAttribute(normalizedUrl))
+                    .append("\" style=\"color:#2563eb;text-decoration:none;font-weight:500;word-break:break-all;\">")
+                    .append(escapeHtml(normalizedUrl))
+                    .append("</a>");
+            if (!trailing.isEmpty()) {
+                html.append("<span style=\"color:#111827;\">")
+                        .append(escapeHtml(trailing))
+                        .append("</span>");
+            }
+            html.append("</div>");
+        }
+        return html.toString();
+    }
+
+    private String renderMailLineList(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        String[] lines = text.replace("\r\n", "\n").split("\n");
+        for (String rawLine : lines) {
+            String line = trim(rawLine);
+            if (line.isEmpty()) {
+                continue;
+            }
+            html.append("<div style=\"margin:0 0 8px 0;color:#111827;line-height:1.9;\">")
+                    .append(renderMailRichText(line))
+                    .append("</div>");
+        }
         return html.toString();
     }
 
@@ -2438,6 +2559,9 @@ public class ToolService {
         }
         if ("MaxKB".equalsIgnoreCase(productAlias)) {
             return trim(fallbackVersionMaxKB);
+        }
+        if ("SQLBot".equalsIgnoreCase(productAlias)) {
+            return "v1";
         }
         return "";
     }
