@@ -79,6 +79,11 @@ export const docApi = {
     return request.get('/api/chat-group/product-versions', { params: { productId, extChatId } })
   },
 
+  // 获取产品版本下载链接
+  getProductDownloadUrl: (extChatId, version) => {
+    return request.get('/api/chat-group/product-download-url', { params: { extChatId, version } })
+  },
+
   // 工具模块-发送邮件
   sendToolMail: (data) => {
     return request.post('/api/tools/send-mail', data, { timeout: 210000 })

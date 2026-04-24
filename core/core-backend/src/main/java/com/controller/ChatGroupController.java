@@ -370,4 +370,17 @@ public class ChatGroupController {
             return ApiResponse.error("获取产品版本失败: " + e.getMessage());
         }
     }
+
+    @GetMapping("/product-download-url")
+    public ApiResponse<Map<String, Object>> getProductDownloadUrl(
+            @RequestParam String extChatId,
+            @RequestParam String version) {
+        try {
+            Map<String, Object> data = chatGroupService.getProductDownloadUrl(extChatId, version);
+            return ApiResponse.success(data);
+        } catch (Exception e) {
+            LOGGER.error("product-download-url failed extChatId={}, version={}, err={}", extChatId, version, e.getMessage(), e);
+            return ApiResponse.error("获取下载链接失败: " + e.getMessage());
+        }
+    }
 }

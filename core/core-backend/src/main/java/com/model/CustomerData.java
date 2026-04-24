@@ -10,6 +10,9 @@ public class CustomerData {
     private String acceptanceStatusCode;
     private String needAcceptanceReport;
     private String accepted;
+    private String serviceStatus;
+    private Integer isCompleted;
+    private Boolean supportExpired;
     private Integer notResolvedTicketCount;
     private Integer allTicketCount;
     private Integer criticalTicketCount;
@@ -88,6 +91,30 @@ public class CustomerData {
 
     public void setAccepted(String accepted) {
         this.accepted = accepted;
+    }
+
+    public String getServiceStatus() {
+        return serviceStatus;
+    }
+
+    public void setServiceStatus(String serviceStatus) {
+        this.serviceStatus = serviceStatus;
+    }
+
+    public Integer getIsCompleted() {
+        return isCompleted;
+    }
+
+    public void setIsCompleted(Integer isCompleted) {
+        this.isCompleted = isCompleted;
+    }
+
+    public Boolean getSupportExpired() {
+        return supportExpired;
+    }
+
+    public void setSupportExpired(Boolean supportExpired) {
+        this.supportExpired = supportExpired;
     }
 
     public Integer getNotResolvedTicketCount() {

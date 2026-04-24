@@ -25,6 +25,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.net.URLEncoder;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import jakarta.annotation.Resource;
 
 @Service
@@ -160,11 +163,15 @@ public class ChatGroupService {
                 long productMetaStartNs = System.nanoTime();
                 fillCustomerProductMeta(extChatId, data);
                 long productMetaCostMs = (System.nanoTime() - productMetaStartNs) / 1_000_000;
+                long serviceStatusStartNs = System.nanoTime();
+                fillCustomerServiceStatus(data);
+                long serviceStatusCostMs = (System.nanoTime() - serviceStatusStartNs) / 1_000_000;
 
-                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, acceptanceMs=0, totalMs={}",
+                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, serviceStatusMs={}, acceptanceMs=0, totalMs={}",
                         extChatId,
                         baseQueryCostMs,
                         productMetaCostMs,
+                        serviceStatusCostMs,
                         (System.nanoTime() - totalStartNs) / 1_000_000);
             } else {
                 data.setName("未知客户");
@@ -230,6 +237,87 @@ public class ChatGroupService {
         } finally {
             LOGGER.info("fillAcceptanceStatus timing extChatId={}, costMs={}",
                     extChatId, (System.nanoTime() - startNs) / 1_000_000);
+        }
+    }
+
+    private void fillCustomerServiceStatus(CustomerData data) {
+        if (data == null) {
+            return;
+        }
+        if (isSubscriptionExpired(data.getSubscriptionEndDate())) {
+            data.setSupportExpired(true);
+            data.setServiceStatus("已到期");
+            return;
+        }
+
+        data.setSupportExpired(false);
+        String clientName = trim(data.getName());
+        if (clientName.isEmpty()) {
+            return;
+        }
+
+        try {
+            String url = cscrmBaseUrl + cscrmApiPath +
+                    "/support-info/clients?name=" + URLEncoder.encode(clientName, StandardCharsets.UTF_8) +
+                    "&customerChurnType=2&page=1&page_size=10";
+            String response = requestWithDnsRetry(url);
+            JSONObject responseJson = JSONObject.parseObject(response);
+            Integer code = responseJson.getInteger("code");
+            if (code != null && code != 0) {
+                LOGGER.warn("fillCustomerServiceStatus non-zero code clientName={}, code={}, msg={}",
+                        clientName, code, firstNonBlank(responseJson.getString("message"), responseJson.getString("msg")));
+                return;
+            }
+
+            JSONObject item = selectClientItem(responseJson.getJSONObject("data"), clientName);
+            if (item == null) {
+                return;
+            }
+            Boolean supportExpired = item.getBoolean("supportExpired");
+            if (Boolean.TRUE.equals(supportExpired)) {
+                data.setSupportExpired(true);
+                data.setServiceStatus("已到期");
+                return;
+            }
+            Integer isCompleted = item.getInteger("isCompleted");
+            data.setIsCompleted(isCompleted);
+            if (isCompleted != null && isCompleted == 1) {
+                data.setServiceStatus("服务中");
+            } else if (isCompleted != null && isCompleted == 0) {
+                data.setServiceStatus("交付中");
+            }
+        } catch (Exception e) {
+            LOGGER.warn("fillCustomerServiceStatus failed clientName={}, err={}", clientName, e.getMessage());
+        }
+    }
+
+    private JSONObject selectClientItem(JSONObject dataJson, String clientName) {
+        if (dataJson == null || !(dataJson.get("items") instanceof JSONArray items) || items.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            if (!(item instanceof JSONObject itemJson)) {
+                continue;
+            }
+            if (clientName.equals(trim(itemJson.getString("name")))
+                    || clientName.equals(trim(itemJson.getString("abbreviatedName")))) {
+                return itemJson;
+            }
+        }
+        Object first = items.get(0);
+        return first instanceof JSONObject ? (JSONObject) first : null;
+    }
+
+    private boolean isSubscriptionExpired(String subscriptionEndDate) {
+        String value = trim(subscriptionEndDate);
+        if (value.isEmpty()) {
+            return false;
+        }
+        try {
+            return LocalDate.parse(value).isBefore(LocalDate.now(ZONE_SHANGHAI));
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -2127,13 +2215,25 @@ public class ChatGroupService {
 
     private List<String> fetchProductVersions(Long productId) throws Exception {
         List<String> versions = new ArrayList<>();
+        List<ProductVersionInfo> versionInfos = fetchProductVersionInfos(productId);
+        for (ProductVersionInfo versionInfo : versionInfos) {
+            if (versionInfo.name != null && !versionInfo.name.isEmpty()) {
+                versions.add(versionInfo.name);
+            }
+        }
+        LOGGER.info("fetchProductVersions done productId={}, count={}", productId, versions.size());
+        return versions;
+    }
+
+    private List<ProductVersionInfo> fetchProductVersionInfos(Long productId) throws Exception {
+        List<ProductVersionInfo> versions = new ArrayList<>();
         String url = cscrmBaseUrl + cscrmApiPath + "/support-info/products/" + productId + "/versions";
-        LOGGER.info("fetchProductVersions start productId={}, url={}", productId, url);
+        LOGGER.info("fetchProductVersionInfos start productId={}, url={}", productId, url);
         String response = requestWithDnsRetry(url);
         JSONObject responseJson = JSONObject.parseObject(response);
         Integer code = responseJson.getInteger("code");
         if (code != null && code != 0) {
-            LOGGER.warn("fetchProductVersions non-zero code productId={}, code={}, msg={}",
+            LOGGER.warn("fetchProductVersionInfos non-zero code productId={}, code={}, msg={}",
                     productId, code, responseJson.getString("msg"));
             return versions;
         }
@@ -2155,7 +2255,7 @@ public class ChatGroupService {
         for (int i = 0; i < list.size(); i++) {
             Object item = list.get(i);
             if (item instanceof String) {
-                versions.add((String) item);
+                versions.add(new ProductVersionInfo((String) item, null));
             } else if (item instanceof JSONObject) {
                 JSONObject itemJson = (JSONObject) item;
                 String version = itemJson.getString("version");
@@ -2163,11 +2263,11 @@ public class ChatGroupService {
                     version = itemJson.getString("name");
                 }
                 if (version != null && !version.isEmpty()) {
-                    versions.add(version);
+                    versions.add(new ProductVersionInfo(version, trimToNull(itemJson.getString("installation"))));
                 }
             }
         }
-        LOGGER.info("fetchProductVersions done productId={}, count={}", productId, versions.size());
+        LOGGER.info("fetchProductVersionInfos done productId={}, count={}", productId, versions.size());
         return versions;
     }
 
@@ -2235,6 +2335,96 @@ public class ChatGroupService {
         return queryProductVersions(productId, normalizedExtChatId);
     }
 
+    public Map<String, Object> getProductDownloadUrl(String extChatId, String version) throws Exception {
+        String normalizedExtChatId = trimToNull(extChatId);
+        String normalizedVersion = trimToNull(version);
+        if (normalizedExtChatId == null) {
+            throw new Exception("extChatId 不能为空");
+        }
+        if (normalizedVersion == null) {
+            throw new Exception("version 不能为空");
+        }
+
+        String productKey = getProductDownloadKeyByExtChatId(normalizedExtChatId);
+        if (productKey == null || productKey.isEmpty()) {
+            throw new Exception("无法识别当前群聊产品");
+        }
+        String key = resolveProductDownloadInstallation(normalizedExtChatId, normalizedVersion);
+        String installationProductKey = extractProductKeyFromInstallation(key);
+        if (installationProductKey != null && !installationProductKey.equalsIgnoreCase(productKey)) {
+            throw new Exception("下载文件产品与当前群聊产品不一致");
+        }
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/products/download-url?key=" + URLEncoder.encode(key, StandardCharsets.UTF_8);
+        LOGGER.info("getProductDownloadUrl request extChatId={}, productKey={}, key={}", normalizedExtChatId, productKey, key);
+
+        String response = requestWithDnsRetry(url);
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code != null && code != 0) {
+            throw new Exception(firstNonBlank(responseJson.getString("message"), responseJson.getString("msg"), "获取下载链接失败"));
+        }
+        JSONObject data = responseJson.getJSONObject("data");
+        String downloadUrl = data != null ? trimToNull(data.getString("url")) : null;
+        if (downloadUrl == null) {
+            throw new Exception("下载链接为空");
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("product", productKey);
+        result.put("version", normalizedVersion);
+        result.put("key", key);
+        result.put("url", downloadUrl);
+        return result;
+    }
+
+    private String resolveProductDownloadInstallation(String extChatId, String version) throws Exception {
+        String normalizedVersion = trim(version);
+        if (normalizedVersion.contains("/")) {
+            return normalizedVersion;
+        }
+
+        Long productId = getProductIdByExtChatId(extChatId);
+        List<Long> productIds = resolveVersionProductIds(productId, extChatId);
+        for (Long pid : productIds) {
+            for (ProductVersionInfo versionInfo : fetchProductVersionInfos(pid)) {
+                if (matchesSelectedVersion(versionInfo, normalizedVersion)) {
+                    if (versionInfo.installation == null || versionInfo.installation.isEmpty()) {
+                        throw new Exception("当前版本未配置 installation: " + normalizedVersion);
+                    }
+                    return versionInfo.installation;
+                }
+            }
+        }
+        throw new Exception("未找到版本 installation: " + normalizedVersion);
+    }
+
+    private String extractProductKeyFromInstallation(String installation) {
+        String normalized = trim(installation);
+        int slashIndex = normalized.indexOf('/');
+        if (slashIndex <= 0) {
+            return null;
+        }
+        return normalized.substring(0, slashIndex);
+    }
+
+    private boolean matchesSelectedVersion(ProductVersionInfo versionInfo, String selectedVersion) {
+        if (versionInfo == null) {
+            return false;
+        }
+        String selected = trim(selectedVersion);
+        return selected.equals(trim(versionInfo.name)) || selected.equals(trim(versionInfo.installation));
+    }
+
+    private static class ProductVersionInfo {
+        private final String name;
+        private final String installation;
+
+        private ProductVersionInfo(String name, String installation) {
+            this.name = name;
+            this.installation = installation;
+        }
+    }
+
     private List<String> queryProductVersions(Long productId, String extChatId) throws Exception {
         List<Long> productIds = resolveVersionProductIds(productId, extChatId);
         if (productIds.isEmpty()) {
@@ -2294,6 +2484,42 @@ public class ChatGroupService {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String getProductDownloadKeyByExtChatId(String extChatId) {
+        String alias = getProductAliasByExtChatId(extChatId);
+        String key = toProductDownloadKey(alias);
+        if (key != null) {
+            return key;
+        }
+
+        Long productId = getProductIdByExtChatId(extChatId);
+        if (productId == null) {
+            return null;
+        }
+        if (MAXKB_PRODUCT_IDS.contains(productId)) {
+            return "maxkb";
+        }
+        if (DATAEASE_PRODUCT_IDS.contains(productId)) {
+            return "dataease";
+        }
+        if (productId == 2001L) {
+            return "jumpserver";
+        }
+        return null;
+    }
+
+    private String toProductDownloadKey(String alias) {
+        if (alias == null || alias.isEmpty()) {
+            return null;
+        }
+        return switch (alias) {
+            case "JS" -> "jumpserver";
+            case "MK" -> "maxkb";
+            case "DE" -> "dataease";
+            case "SQLBOT" -> "sqlbot";
+            default -> null;
+        };
     }
 
     public ProductVersionSnapshot getProductVersionSnapshot(String extChatId) {

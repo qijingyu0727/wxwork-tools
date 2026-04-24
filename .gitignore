@@ -1,8 +1,15 @@
 target/
 core-backend/target/
+core/core-backend/target/
+core/core-frontend/dist/
+core/core-frontend/node/
+core/core-frontend/node_modules/
+core/core-frontend/.env
+core/core-frontend/.env.*
 core-frontend/node/
 core-frontend/node_modules/
 
+*.log
 *.iml
 .idea
 .agents
@@ -10,8 +17,11 @@ core-frontend/node_modules/
 .vscode
 .vscode/*
 .DS_Store
+.playwright-mcp/
 wxwork-tools.tar
 api.md
 DEV_PLAN.md
 AGENTS.md
 skills-lock.json
+*.png
+

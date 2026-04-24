@@ -37,6 +37,12 @@
             >
               {{ customerData.isAccepted }}
             </span>
+            <span
+              v-if="customerServiceStatusText"
+              :class="['badge', getCustomerServiceStatusBadgeClass(customerServiceStatusText)]"
+            >
+              {{ customerServiceStatusText }}
+            </span>
             <span v-if="versionBadgeText" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ versionBadgeText }}</span>
           </div>
         </div>
@@ -292,6 +298,57 @@
           <div v-if="activeTab === 'tools'" class="tab-pane active">
             <div class="tools-pane">
               <div class="tools-grid">
+                <section class="tool-card tool-card-download">
+                  <div class="tool-card-title-row">
+                    <span class="tool-card-icon">
+                      <i class="fa fa-download"></i>
+                    </span>
+                    <div class="tool-card-heading">
+                      <h4 class="tool-card-title">获取下载链接</h4>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-body">
+                    <div class="tool-form-row">
+                      <select
+                        v-model="downloadVersion"
+                        class="tool-download-select"
+                        :disabled="versionsLoading || productVersions.length === 0"
+                        @focus="prefetchProductVersions"
+                        @change="handleDownloadVersionChange"
+                      >
+                        <option value="">{{ versionsLoading ? '版本加载中...' : '请选择版本' }}</option>
+                        <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
+                      </select>
+                    </div>
+
+                    <div v-if="downloadUrl" class="tool-download-result">
+                      <a :href="downloadUrl" target="_blank" rel="noopener noreferrer" class="tool-download-link">
+                        {{ downloadUrl }}
+                      </a>
+                      <button
+                        type="button"
+                        class="tool-download-copy"
+                        title="复制下载链接"
+                        aria-label="复制下载链接"
+                        @click="copyDownloadUrl"
+                      >
+                        <i class="fa fa-copy"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="tool-card-footer">
+                    <button
+                      class="tool-action-btn tool-action-btn-download"
+                      :disabled="downloadUrlLoading || !downloadVersion"
+                      @click="handleGenerateDownloadUrl"
+                    >
+                      {{ downloadUrlLoading ? '生成中...' : '获取链接' }}
+                    </button>
+                  </div>
+                </section>
+
                 <section class="tool-card tool-card-report">
                   <div class="tool-card-title-row">
                     <span class="tool-card-icon">
@@ -1489,6 +1546,9 @@ const versionsLoading = ref(false)
 const productVersions = ref([])
 const versionsLoadedProductId = ref(null)
 const versionPreloadPromise = ref(null)
+const downloadVersion = ref('')
+const downloadUrl = ref('')
+const downloadUrlLoading = ref(false)
 const maintenanceCreateContext = ref(null)
 const maintenanceContextLoadedChatId = ref('')
 const maintenanceContextPreloadPromise = ref(null)
@@ -3327,12 +3387,36 @@ const versionBadgeText = computed(() => {
   return '请补充实施'
 })
 
+const customerServiceStatusText = computed(() => {
+  const supportExpired = customerData.value?.supportExpired
+  if (supportExpired === true || isSubscriptionDateExpired(customerData.value?.subscriptionEndDate)) {
+    return '已到期'
+  }
+  return customerData.value?.serviceStatus || ''
+})
+
 const customerDisplayName = computed(() => {
   if (customerDataLoading.value) {
     return '-'
   }
   return customerData.value?.name || '客户信息待补全'
 })
+
+const isSubscriptionDateExpired = (value) => {
+  if (!value) return false
+  const date = new Date(`${value}T00:00:00+08:00`)
+  if (Number.isNaN(date.getTime())) return false
+  const today = new Date()
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  return date.getTime() < todayStart
+}
+
+const getCustomerServiceStatusBadgeClass = (status) => {
+  if (status === '已到期') return 'badge-danger'
+  if (status === '服务中') return 'badge-success'
+  if (status === '交付中') return 'badge-warning'
+  return 'badge-neutral'
+}
 
 const showCustomerDataCompletionGuide = computed(() => {
   return chatId.value && !customerDataLoading.value && !customerData.value?.name
@@ -3964,6 +4048,9 @@ const loadChatData = async (targetChatId) => {
   productVersions.value = []
   versionsLoadedProductId.value = null
   versionPreloadPromise.value = null
+  downloadVersion.value = ''
+  downloadUrl.value = ''
+  downloadUrlLoading.value = false
   implementationContextPreloadPromise.value = null
   maintenanceContextPreloadPromise.value = null
   toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
@@ -3980,6 +4067,7 @@ const loadChatData = async (targetChatId) => {
   ])
 
   await preloadVersionSources(targetChatId)
+  await prefetchProductVersions()
   if (activeTab.value !== 'implementation' && activeTab.value !== 'maintenance') {
     await ensureActiveTabData(targetChatId)
   }
@@ -4148,6 +4236,49 @@ const handleDefectResolvedClick = () => {
 
 const handleVersionClick = () => {
   activeTab.value = 'implementation'
+}
+
+const handleDownloadVersionChange = () => {
+  downloadUrl.value = ''
+}
+
+const handleGenerateDownloadUrl = async () => {
+  if (!chatId.value) {
+    showToast('未获取到当前群聊ID，无法获取下载链接', false)
+    return
+  }
+  if (!downloadVersion.value) {
+    showToast('请先选择版本', false)
+    return
+  }
+
+  downloadUrlLoading.value = true
+  try {
+    const result = await docApi.getProductDownloadUrl(chatId.value, downloadVersion.value)
+    if (result.success && result.data?.url) {
+      downloadUrl.value = result.data.url
+      showToast('下载链接已生成', true)
+      return
+    }
+    showToast(result.message || '获取下载链接失败', false)
+  } catch (error) {
+    showToast('获取下载链接失败: ' + (error.message || error), false)
+  } finally {
+    downloadUrlLoading.value = false
+  }
+}
+
+const copyDownloadUrl = async () => {
+  if (!downloadUrl.value) {
+    showToast('当前没有可复制的下载链接', false)
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(downloadUrl.value)
+    showToast('下载链接已复制', true)
+  } catch (error) {
+    showToast('复制失败，请稍后重试', false)
+  }
 }
 
 const formatDateInputValue = (date = new Date()) => {
@@ -4366,6 +4497,9 @@ const loadProductVersions = async ({ silent = false, force = false } = {}) => {
         if (typeof item === 'string') return item
         return item?.version || item?.name || ''
       }).filter(Boolean)
+      if (productVersions.value.length > 0) {
+        downloadVersion.value = getDefaultDownloadVersion(productVersions.value)
+      }
       versionsLoadedProductId.value = resolvedProductId || productId
       return
     }
@@ -4383,6 +4517,67 @@ const loadProductVersions = async ({ silent = false, force = false } = {}) => {
   } finally {
     versionsLoading.value = false
   }
+}
+
+const getDefaultDownloadVersion = (versions) => {
+  if (!Array.isArray(versions) || versions.length === 0) {
+    return ''
+  }
+  const semanticVersions = versions.filter(isSemanticProductVersion)
+  const scopedVersions = semanticVersions.filter(version => matchesDownloadProductMajor(version))
+  const majorPreferredVersions = scopedVersions.length > 0 ? scopedVersions : semanticVersions
+  const architecture = inferDefaultDownloadArchitecture()
+  const architectureMatched = majorPreferredVersions.filter(version => matchesDownloadArchitecture(version, architecture))
+  const candidates = architectureMatched.length > 0 ? architectureMatched : majorPreferredVersions
+  return candidates[0] || semanticVersions[0] || versions[0]
+}
+
+const isSemanticProductVersion = (version) => /v?\d+\.\d+\.\d+/i.test(String(version || '').trim())
+
+const getDownloadProductAlias = () => {
+  const productId = Number(customerData.value?.productId || 0)
+  if (productId && REALTIME_ANALYSIS_PRODUCT_ID_ALIAS_MAP[productId]) {
+    return REALTIME_ANALYSIS_PRODUCT_ID_ALIAS_MAP[productId]
+  }
+  return realtimeAnalysisProductAlias.value || ''
+}
+
+const matchesDownloadProductMajor = (version) => {
+  const alias = getDownloadProductAlias()
+  const major = getProductVersionMajor(version)
+  if (alias === 'MK') {
+    return major === 2
+  }
+  if (alias === 'JS') {
+    return major === 4
+  }
+  return true
+}
+
+const getProductVersionMajor = (version) => {
+  const match = String(version || '').match(/v?(\d+)\.\d+\.\d+/i)
+  return match ? Number(match[1]) : Number.NaN
+}
+
+const inferDefaultDownloadArchitecture = () => {
+  const text = String(versionBadgeText.value || '').trim().toLowerCase()
+  if (!text || text === '请补充实施') {
+    return 'x86'
+  }
+  if (text.includes('arm')) {
+    return 'arm'
+  }
+  return 'x86'
+}
+
+const matchesDownloadArchitecture = (version, architecture) => {
+  const text = String(version || '').trim().toLowerCase()
+  const isArm = text.includes('arm') || text.includes('aarch64')
+  const isX86 = text.includes('x86') || text.includes('amd64')
+  if (architecture === 'arm') {
+    return isArm
+  }
+  return isX86 || !isArm
 }
 
 const prefetchProductVersions = () => {
