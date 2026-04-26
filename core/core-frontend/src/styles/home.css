@@ -1102,10 +1102,14 @@
 }
 
 .tool-card-email {
-  border-color: rgba(96, 165, 250, 0.28);
+  border-color: rgba(99, 102, 241, 0.24);
   background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
-    linear-gradient(180deg, #f8fcff 0%, #ffffff 100%);
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.11), transparent 30%),
+    linear-gradient(180deg, #f8faff 0%, #ffffff 100%);
+}
+
+.tool-card-email::before {
+  background: linear-gradient(90deg, rgba(79, 70, 229, 0.92), rgba(129, 140, 248, 0.22));
 }
 
 .tool-card-download {
@@ -1120,14 +1124,14 @@
 }
 
 .tool-card-report {
-  border-color: rgba(74, 222, 128, 0.24);
+  border-color: rgba(56, 189, 248, 0.24);
   background:
-    radial-gradient(circle at top right, rgba(34, 197, 94, 0.12), transparent 30%),
-    linear-gradient(180deg, #f7fff9 0%, #ffffff 100%);
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.1), transparent 30%),
+    linear-gradient(180deg, #f7fcff 0%, #ffffff 100%);
 }
 
 .tool-card-report::before {
-  background: linear-gradient(90deg, rgba(5, 150, 105, 0.95), rgba(16, 185, 129, 0.22));
+  background: linear-gradient(90deg, rgba(2, 132, 199, 0.92), rgba(56, 189, 248, 0.22));
 }
 
 .tool-card-title-row {
@@ -1351,13 +1355,18 @@
 }
 
 .tool-card-report .tool-card-icon {
-  color: #047857;
-  background: linear-gradient(145deg, rgba(5, 150, 105, 0.16), rgba(74, 222, 128, 0.08));
+  color: #0369a1;
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(125, 211, 252, 0.08));
 }
 
 .tool-card-download .tool-card-icon {
   color: #1d4ed8;
   background: linear-gradient(145deg, rgba(37, 99, 235, 0.16), rgba(96, 165, 250, 0.08));
+}
+
+.tool-card-email .tool-card-icon {
+  color: #4338ca;
+  background: linear-gradient(145deg, rgba(79, 70, 229, 0.14), rgba(129, 140, 248, 0.08));
 }
 
 .tool-card-title {
@@ -1527,8 +1536,8 @@
 }
 
 .tool-action-btn-email {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  box-shadow: 0 12px 20px rgba(37, 99, 235, 0.22);
+  background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+  box-shadow: 0 12px 20px rgba(79, 70, 229, 0.2);
 }
 
 .tool-action-btn-download {
@@ -1545,8 +1554,8 @@
 }
 
 .tool-action-btn-report {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  box-shadow: 0 12px 20px rgba(5, 150, 105, 0.2);
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  box-shadow: 0 12px 20px rgba(2, 132, 199, 0.18);
 }
 
 .tool-action-btn-report:hover:not(:disabled) {
