@@ -2309,22 +2309,33 @@ public class ChatGroupService {
         String alias = getProductAliasByExtChatId(extChatId);
         LOGGER.info("resolveVersionProductIds input productId={}, extChatId={}, alias={}", productId, extChatId, alias);
 
+        if (productId != null && MAXKB_PRODUCT_IDS.contains(productId)) {
+            return prioritizeProductId(MAXKB_PRODUCT_IDS, productId);
+        }
+        if (productId != null && DATAEASE_PRODUCT_IDS.contains(productId)) {
+            return prioritizeProductId(DATAEASE_PRODUCT_IDS, productId);
+        }
         if ("MK".equals(alias)) {
             return new ArrayList<>(MAXKB_PRODUCT_IDS);
         }
         if ("DE".equals(alias)) {
             return new ArrayList<>(DATAEASE_PRODUCT_IDS);
         }
-        if (productId != null && MAXKB_PRODUCT_IDS.contains(productId)) {
-            return new ArrayList<>(MAXKB_PRODUCT_IDS);
-        }
-        if (productId != null && DATAEASE_PRODUCT_IDS.contains(productId)) {
-            return new ArrayList<>(DATAEASE_PRODUCT_IDS);
-        }
         if (productId == null) {
             return new ArrayList<>();
         }
         return new ArrayList<>(List.of(productId));
+    }
+
+    private List<Long> prioritizeProductId(List<Long> productIds, Long preferredProductId) {
+        List<Long> result = new ArrayList<>();
+        result.add(preferredProductId);
+        for (Long productId : productIds) {
+            if (!productId.equals(preferredProductId)) {
+                result.add(productId);
+            }
+        }
+        return result;
     }
 
     public List<String> getProductVersions(Long productId, String extChatId) throws Exception {
@@ -2379,10 +2390,6 @@ public class ChatGroupService {
 
     private String resolveProductDownloadInstallation(String extChatId, String version) throws Exception {
         String normalizedVersion = trim(version);
-        if (normalizedVersion.contains("/")) {
-            return normalizedVersion;
-        }
-
         Long productId = getProductIdByExtChatId(extChatId);
         List<Long> productIds = resolveVersionProductIds(productId, extChatId);
         for (Long pid : productIds) {

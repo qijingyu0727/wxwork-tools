@@ -192,7 +192,7 @@
 
           <!-- 实施 Tab -->
           <div v-if="activeTab === 'implementation'" class="tab-pane active">
-            <div v-if="maintenanceRecords.length === 0" class="add-maintenance-section">
+            <div v-if="!maintenanceLoading && maintenanceRecords.length === 0" class="add-maintenance-section">
               <button class="btn-add-maintenance" @click="handleAddImplementation">
                 <span>+ 新增</span>
               </button>
@@ -1545,7 +1545,10 @@ const implementationCalendarCursor = ref(new Date())
 const versionsLoading = ref(false)
 const productVersions = ref([])
 const versionsLoadedProductId = ref(null)
+const versionsLoadedChatId = ref('')
+const versionsLoadedKey = ref('')
 const versionPreloadPromise = ref(null)
+const versionPreloadKey = ref('')
 const downloadVersion = ref('')
 const downloadUrl = ref('')
 const downloadUrlLoading = ref(false)
@@ -2736,6 +2739,9 @@ const getCustomerData = async (extChatId) => {
   customerDataLoading.value = true
   try {
     const res = await docApi.getCustomerData(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       customerData.value = {
         ...(customerData.value || {}),
@@ -2746,10 +2752,15 @@ const getCustomerData = async (extChatId) => {
       customerData.value = {}
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     showToast('获取客户数据异常：' + (err.message || err), false)
     customerData.value = {}
   } finally {
-    customerDataLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      customerDataLoading.value = false
+    }
   }
 }
 
@@ -2852,15 +2863,23 @@ const getMaintenanceRecords = async (extChatId) => {
   maintenanceLoading.value = true
   try {
     const res = await docApi.getMaintenanceRecords(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       maintenanceRecords.value = res.data || []
     } else {
       maintenanceRecords.value = []
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     maintenanceRecords.value = []
   } finally {
-    maintenanceLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      maintenanceLoading.value = false
+    }
   }
 }
 
@@ -2868,15 +2887,23 @@ const getServiceRecords = async (extChatId) => {
   serviceLoading.value = true
   try {
     const res = await docApi.getServiceRecords(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       serviceRecords.value = res.data || []
     } else {
       serviceRecords.value = []
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     serviceRecords.value = []
   } finally {
-    serviceLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      serviceLoading.value = false
+    }
   }
 }
 
@@ -2897,10 +2924,17 @@ const resetTicketViewState = () => {
   bugSearchKeyword.value = ''
 }
 
+const isCurrentChatTarget = (targetChatId) => {
+  return !targetChatId || chatId.value === targetChatId
+}
+
 const getTickets = async (extChatId) => {
   ticketsLoading.value = true
   try {
     const res = await docApi.getTickets(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       tickets.value = res.data || []
       syncIssueAndBugTickets()
@@ -2909,10 +2943,15 @@ const getTickets = async (extChatId) => {
       syncIssueAndBugTickets()
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     tickets.value = []
     syncIssueAndBugTickets()
   } finally {
-    ticketsLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      ticketsLoading.value = false
+    }
   }
 }
 
@@ -2920,6 +2959,9 @@ const getIssueTickets = async (extChatId) => {
   issueTicketsLoading.value = true
   try {
     const res = await docApi.getIssueTickets(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       const list = Array.isArray(res.data) ? res.data : []
       issueTickets.value = list.length > 0
@@ -2929,9 +2971,14 @@ const getIssueTickets = async (extChatId) => {
       issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
   } finally {
-    issueTicketsLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      issueTicketsLoading.value = false
+    }
   }
 }
 
@@ -2939,6 +2986,9 @@ const getBugTickets = async (extChatId) => {
   bugTicketsLoading.value = true
   try {
     const res = await docApi.getBugTickets(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     if (res.success) {
       const list = Array.isArray(res.data) ? res.data : []
       bugTickets.value = list.length > 0
@@ -2948,9 +2998,14 @@ const getBugTickets = async (extChatId) => {
       bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
     }
   } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return
+    }
     bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
   } finally {
-    bugTicketsLoading.value = false
+    if (isCurrentChatTarget(extChatId)) {
+      bugTicketsLoading.value = false
+    }
   }
 }
 
@@ -2960,38 +3015,50 @@ const resetTabLoadState = () => {
 
 const loadTicketTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.ticket && !force) return
   await getTickets(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.ticket = true
 }
 
 const loadRequirementTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
   await loadTicketTabData(targetChatId, { force })
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.requirement && !force) return
   await getIssueTickets(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.requirement = true
 }
 
 const loadDefectTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
   await loadTicketTabData(targetChatId, { force })
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.defect && !force) return
   await getBugTickets(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.defect = true
 }
 
 const loadImplementationTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.implementation && !force) return
   await getMaintenanceRecords(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.implementation = true
 }
 
 const loadMaintenanceTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.maintenance && !force) return
   await getServiceRecords(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.maintenance = true
 }
 
@@ -3001,8 +3068,10 @@ const loadToolsTabData = async (targetChatId, { force = false } = {}) => {
     tabLoadState.value.tools = true
     return
   }
+  if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.tools && !force) return
   await loadToolMailDefaultCc(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.tools = true
 }
 
@@ -4047,7 +4116,10 @@ const loadChatData = async (targetChatId) => {
   maintenanceContextLoadedChatId.value = ''
   productVersions.value = []
   versionsLoadedProductId.value = null
+  versionsLoadedChatId.value = ''
+  versionsLoadedKey.value = ''
   versionPreloadPromise.value = null
+  versionPreloadKey.value = ''
   downloadVersion.value = ''
   downloadUrl.value = ''
   downloadUrlLoading.value = false
@@ -4061,16 +4133,25 @@ const loadChatData = async (targetChatId) => {
     })
   }
 
-  await Promise.all([
-    getCustomerData(targetChatId),
-    getAcceptanceStatus(targetChatId)
+  const customerDataPromise = getCustomerData(targetChatId)
+  const acceptanceStatusPromise = getAcceptanceStatus(targetChatId)
+  const versionSourcesPromise = preloadVersionSources(targetChatId)
+  const productVersionsPromise = Promise.allSettled([
+    customerDataPromise,
+    versionSourcesPromise
+  ]).then(() => prefetchProductVersions())
+  const activeTabPromise = activeTab.value !== 'implementation' && activeTab.value !== 'maintenance'
+    ? ensureActiveTabData(targetChatId)
+    : Promise.resolve()
+
+  await Promise.allSettled([
+    customerDataPromise,
+    acceptanceStatusPromise,
+    versionSourcesPromise,
+    productVersionsPromise,
+    activeTabPromise
   ])
 
-  await preloadVersionSources(targetChatId)
-  await prefetchProductVersions()
-  if (activeTab.value !== 'implementation' && activeTab.value !== 'maintenance') {
-    await ensureActiveTabData(targetChatId)
-  }
   if (activeTab.value !== 'ticket') {
     runInBackground(loadTicketTabData(targetChatId))
   }
@@ -4433,6 +4514,13 @@ const getCurrentProductId = () => {
   return customerData.value?.productId || null
 }
 
+const getProductVersionsCacheKey = (targetChatId = chatId.value, productId = getCurrentProductId()) => {
+  if (!targetChatId || !productId) {
+    return ''
+  }
+  return `${targetChatId}::${productId}`
+}
+
 const getEditorUserId = () => {
   if (LOCAL_DEBUG_CHAT) {
     return DEBUG_EDITOR_USER_ID
@@ -4464,26 +4552,32 @@ const resolveDefaultTicketOwnerName = (ticket = null) => {
   return typeof ticket?.ownerName === 'string' ? ticket.ownerName.trim() : ''
 }
 
-const loadProductVersions = async ({ silent = false, force = false } = {}) => {
+const loadProductVersions = async ({ silent = false, force = false, targetChatId = chatId.value } = {}) => {
   const productId = getCurrentProductId()
   if (!productId) {
     productVersions.value = []
     versionsLoadedProductId.value = null
+    versionsLoadedChatId.value = ''
+    versionsLoadedKey.value = ''
     if (!silent) {
       showToast('未识别到当前客户产品，无法加载版本列表', false)
     }
     return
   }
-  if (!force && versionsLoadedProductId.value === productId && productVersions.value.length > 0) {
+  const cacheKey = getProductVersionsCacheKey(targetChatId, productId)
+  if (!force && versionsLoadedKey.value === cacheKey) {
     return
   }
 
   versionsLoading.value = true
   try {
     const result = await Promise.race([
-      docApi.getProductVersions(productId, chatId.value),
+      docApi.getProductVersions(productId, targetChatId),
       new Promise((_, reject) => setTimeout(() => reject(new Error('获取版本列表超时')), 12000))
     ])
+    if (!isCurrentChatTarget(targetChatId)) {
+      return
+    }
     if (result.success) {
       const rawVersions = Array.isArray(result.data) ? result.data : (result.data?.items || [])
       const resolvedProductId = result.data?.productId
@@ -4500,22 +4594,34 @@ const loadProductVersions = async ({ silent = false, force = false } = {}) => {
       if (productVersions.value.length > 0) {
         downloadVersion.value = getDefaultDownloadVersion(productVersions.value)
       }
-      versionsLoadedProductId.value = resolvedProductId || productId
+      const loadedProductId = resolvedProductId || productId
+      versionsLoadedProductId.value = loadedProductId
+      versionsLoadedChatId.value = targetChatId
+      versionsLoadedKey.value = getProductVersionsCacheKey(targetChatId, loadedProductId)
       return
     }
     productVersions.value = []
     versionsLoadedProductId.value = null
+    versionsLoadedChatId.value = ''
+    versionsLoadedKey.value = ''
     if (!silent) {
       showToast(result.message || '获取版本列表失败', false)
     }
   } catch (error) {
+    if (!isCurrentChatTarget(targetChatId)) {
+      return
+    }
     productVersions.value = []
     versionsLoadedProductId.value = null
+    versionsLoadedChatId.value = ''
+    versionsLoadedKey.value = ''
     if (!silent) {
       showToast('获取版本列表失败: ' + (error.message || error), false)
     }
   } finally {
-    versionsLoading.value = false
+    if (isCurrentChatTarget(targetChatId)) {
+      versionsLoading.value = false
+    }
   }
 }
 
@@ -4581,18 +4687,32 @@ const matchesDownloadArchitecture = (version, architecture) => {
 }
 
 const prefetchProductVersions = () => {
-  if (versionPreloadPromise.value) {
+  const targetChatId = chatId.value
+  const productId = getCurrentProductId()
+  const cacheKey = getProductVersionsCacheKey(targetChatId, productId)
+  if (!cacheKey) {
+    return Promise.resolve()
+  }
+  if (versionsLoadedKey.value === cacheKey) {
+    return Promise.resolve()
+  }
+  if (versionPreloadPromise.value && versionPreloadKey.value === cacheKey) {
     return versionPreloadPromise.value
   }
-  versionPreloadPromise.value = (async () => {
-    await loadProductVersions({ silent: true, force: false })
-    if (productVersions.value.length === 0 && getCurrentProductId()) {
+  versionPreloadKey.value = cacheKey
+  const preloadPromise = (async () => {
+    await loadProductVersions({ silent: true, force: false, targetChatId })
+    if (versionsLoadedKey.value !== cacheKey && isCurrentChatTarget(targetChatId) && getCurrentProductId()) {
       await new Promise(resolve => setTimeout(resolve, 1200))
-      await loadProductVersions({ silent: true, force: true })
+      await loadProductVersions({ silent: true, force: true, targetChatId })
     }
   })().finally(() => {
-    versionPreloadPromise.value = null
+    if (versionPreloadPromise.value === preloadPromise) {
+      versionPreloadPromise.value = null
+      versionPreloadKey.value = ''
+    }
   })
+  versionPreloadPromise.value = preloadPromise
   return versionPreloadPromise.value
 }
 
