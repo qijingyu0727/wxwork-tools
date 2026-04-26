@@ -3922,6 +3922,63 @@ const handleRefreshRealtimeAnalysis = () => {
   realtimeAnalysisRefreshedAt.value = new Date()
 }
 
+const legacyCopyText = (text) => {
+  if (!text || typeof document === 'undefined') {
+    return false
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'readonly')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '-9999px'
+  textarea.style.opacity = '0'
+  textarea.style.fontSize = '16px'
+  const activeElement = document.activeElement
+  const selection = window.getSelection ? window.getSelection() : null
+  const selectedRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+  try {
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length)
+    return document.execCommand && document.execCommand('copy')
+  } catch (error) {
+    console.warn('legacy copy failed:', error)
+    return false
+  } finally {
+    if (textarea.parentNode) {
+      textarea.parentNode.removeChild(textarea)
+    }
+    if (selectedRange && selection) {
+      selection.removeAllRanges()
+      selection.addRange(selectedRange)
+    }
+    if (activeElement && typeof activeElement.focus === 'function') {
+      activeElement.focus()
+    }
+  }
+}
+
+const copyTextToClipboard = async (text) => {
+  const normalized = typeof text === 'string' ? text : String(text || '')
+  if (!normalized) {
+    return false
+  }
+  if (legacyCopyText(normalized)) {
+    return true
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(normalized)
+      return true
+    } catch (error) {
+      console.warn('navigator clipboard copy failed:', error)
+    }
+  }
+  return false
+}
+
 const copyRealtimeAnalysisAnswer = async (item) => {
   const parts = Array.isArray(item?.answer) ? item.answer : []
   const text = parts.join('\n\n').trim()
@@ -3929,13 +3986,8 @@ const copyRealtimeAnalysisAnswer = async (item) => {
     showToast('当前没有可复制的答案内容', false)
     return
   }
-
-  try {
-    await navigator.clipboard.writeText(text)
-    showToast('答案已复制', true)
-  } catch (error) {
-    showToast('复制失败，请稍后重试', false)
-  }
+  const copied = await copyTextToClipboard(text)
+  showToast(copied ? '答案已复制' : '复制失败，请稍后重试', copied)
 }
 
 const ticketStatusMap = {
@@ -4354,12 +4406,8 @@ const copyDownloadUrl = async () => {
     showToast('当前没有可复制的下载链接', false)
     return
   }
-  try {
-    await navigator.clipboard.writeText(downloadUrl.value)
-    showToast('下载链接已复制', true)
-  } catch (error) {
-    showToast('复制失败，请稍后重试', false)
-  }
+  const copied = await copyTextToClipboard(downloadUrl.value)
+  showToast(copied ? '下载链接已复制' : '复制失败，请长按链接手动复制', copied)
 }
 
 const formatDateInputValue = (date = new Date()) => {
