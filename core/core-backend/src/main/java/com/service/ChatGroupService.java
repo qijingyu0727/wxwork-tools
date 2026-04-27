@@ -1006,7 +1006,6 @@ public class ChatGroupService {
             context.setDefaultSubmitterName(resolveSubmitterName(loginUserId));
             context.setProductAlias(implementationProductAlias);
             context.setSubscriptionDisplayText(buildSubscriptionDisplayText(subscription));
-            context.setAvailableVersions(getProductVersions(subscription.productId, extChatId));
             return context;
         } finally {
             com.util.JdbcUtils.clearConfig();

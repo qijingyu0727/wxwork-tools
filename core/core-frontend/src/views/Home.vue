@@ -919,10 +919,11 @@
                 </div>
                 <div class="form-group implementation-form-span-2">
                   <label class="form-label">软件版本 <span class="required">*</span></label>
-                  <select v-model="addImplementationForm.version" class="form-input">
-                    <option value="" disabled>请选择版本</option>
-                    <option v-for="version in implementationVersionOptions" :key="version" :value="version">{{ version }}</option>
+                  <select v-model="addImplementationForm.version" class="form-input" :disabled="versionsLoading || productVersions.length === 0">
+                    <option value="" disabled>{{ versionsLoading ? '版本加载中...' : '请选择版本' }}</option>
+                    <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
                   </select>
+                  <div v-if="versionsLoading" class="text-gray-400 text-sm mt-2">版本加载中...</div>
                 </div>
                 <template v-if="isJumpServerImplementation">
                   <div class="form-group implementation-form-span-2">
@@ -1309,7 +1310,8 @@
 
             <div class="form-group">
               <label class="form-label">选择版本 <span class="required">*</span></label>
-              <select v-model="addMaintenanceForm.maintenanceVersion" class="form-input" :disabled="versionsLoading" required>
+              <select v-model="addMaintenanceForm.maintenanceVersion" class="form-input" :disabled="versionsLoading || productVersions.length === 0" required>
+                <option value="" disabled>{{ versionsLoading ? '版本加载中...' : '请选择版本' }}</option>
                 <option v-for="version in productVersions" :key="version" :value="version">{{ version }}</option>
               </select>
               <div v-if="versionsLoading" class="text-gray-400 text-sm mt-2">版本加载中...</div>
@@ -1527,6 +1529,7 @@ const showUpdateModal = ref(false)
 const currentTicketId = ref(null)
 const currentTicketTitle = ref('')
 const staffList = ref([])
+const staffListPreloadPromise = ref(null)
 const showStaffDropdown = ref(false)
 const showMaintenanceSubmitterDropdown = ref(false)
 const updateForm = ref({
@@ -1550,11 +1553,13 @@ const versionsLoadedKey = ref('')
 const versionPreloadPromise = ref(null)
 const versionPreloadKey = ref('')
 const downloadVersion = ref('')
+const downloadVersionTouched = ref(false)
 const downloadUrl = ref('')
 const downloadUrlLoading = ref(false)
 const maintenanceCreateContext = ref(null)
 const maintenanceContextLoadedChatId = ref('')
 const maintenanceContextPreloadPromise = ref(null)
+const maintenanceContextPreloadChatId = ref('')
 const addMaintenanceForm = ref({
   maintenanceTime: '',
   maintenanceTypes: '',
@@ -1567,9 +1572,9 @@ const showAddImplementationModal = ref(false)
 const implementationContextLoading = ref(false)
 const addImplementationSubmitting = ref(false)
 const implementationContext = ref(null)
-const implementationVersionOptions = ref([])
 const implementationContextLoadedChatId = ref('')
 const implementationContextPreloadPromise = ref(null)
+const implementationContextPreloadChatId = ref('')
 const addImplementationForm = ref({
   deploymentDate: '',
   deploymentMethod: '远程部署',
@@ -4162,10 +4167,12 @@ const loadChatData = async (targetChatId) => {
   issueTickets.value = []
   bugTickets.value = []
   implementationContext.value = null
-  implementationVersionOptions.value = []
   implementationContextLoadedChatId.value = ''
+  implementationContextPreloadChatId.value = ''
   maintenanceCreateContext.value = null
   maintenanceContextLoadedChatId.value = ''
+  maintenanceContextPreloadChatId.value = ''
+  versionsLoading.value = false
   productVersions.value = []
   versionsLoadedProductId.value = null
   versionsLoadedChatId.value = ''
@@ -4173,6 +4180,7 @@ const loadChatData = async (targetChatId) => {
   versionPreloadPromise.value = null
   versionPreloadKey.value = ''
   downloadVersion.value = ''
+  downloadVersionTouched.value = false
   downloadUrl.value = ''
   downloadUrlLoading.value = false
   implementationContextPreloadPromise.value = null
@@ -4188,10 +4196,17 @@ const loadChatData = async (targetChatId) => {
   const customerDataPromise = getCustomerData(targetChatId)
   const acceptanceStatusPromise = getAcceptanceStatus(targetChatId)
   const versionSourcesPromise = preloadVersionSources(targetChatId)
-  const productVersionsPromise = Promise.allSettled([
-    customerDataPromise,
+  const productVersionsPromise = customerDataPromise.then(() => prefetchProductVersions(targetChatId))
+  const downloadVersionSyncPromise = Promise.allSettled([
+    productVersionsPromise,
     versionSourcesPromise
-  ]).then(() => prefetchProductVersions())
+  ]).then(() => syncDefaultDownloadVersion())
+  const implementationContextPromise = prefetchImplementationCreateContext(targetChatId)
+  const maintenanceContextPromise = prefetchMaintenanceCreateContext(targetChatId)
+
+  runInBackground(implementationContextPromise.then(() => prefetchProductVersions(targetChatId)))
+  runInBackground(maintenanceContextPromise)
+  runInBackground(loadStaffList({ silent: true }))
   const activeTabPromise = activeTab.value !== 'implementation' && activeTab.value !== 'maintenance'
     ? ensureActiveTabData(targetChatId)
     : Promise.resolve()
@@ -4201,6 +4216,7 @@ const loadChatData = async (targetChatId) => {
     acceptanceStatusPromise,
     versionSourcesPromise,
     productVersionsPromise,
+    downloadVersionSyncPromise,
     activeTabPromise
   ])
 
@@ -4372,6 +4388,7 @@ const handleVersionClick = () => {
 }
 
 const handleDownloadVersionChange = () => {
+  downloadVersionTouched.value = true
   downloadUrl.value = ''
 }
 
@@ -4562,6 +4579,13 @@ const getCurrentProductId = () => {
   return customerData.value?.productId || null
 }
 
+const isSameProductId = (left, right) => {
+  if (!left || !right) {
+    return false
+  }
+  return String(left) === String(right)
+}
+
 const getProductVersionsCacheKey = (targetChatId = chatId.value, productId = getCurrentProductId()) => {
   if (!targetChatId || !productId) {
     return ''
@@ -4601,6 +4625,9 @@ const resolveDefaultTicketOwnerName = (ticket = null) => {
 }
 
 const loadProductVersions = async ({ silent = false, force = false, targetChatId = chatId.value } = {}) => {
+  if (!isCurrentChatTarget(targetChatId)) {
+    return
+  }
   const productId = getCurrentProductId()
   if (!productId) {
     productVersions.value = []
@@ -4635,17 +4662,22 @@ const loadProductVersions = async ({ silent = false, force = false, targetChatId
           productId: resolvedProductId
         }
       }
+      const loadedProductId = resolvedProductId || productId
+      if (!isSameProductId(getCurrentProductId(), loadedProductId)) {
+        productVersions.value = []
+        versionsLoadedProductId.value = null
+        versionsLoadedChatId.value = ''
+        versionsLoadedKey.value = ''
+        return
+      }
       productVersions.value = rawVersions.map(item => {
         if (typeof item === 'string') return item
         return item?.version || item?.name || ''
       }).filter(Boolean)
-      if (productVersions.value.length > 0) {
-        downloadVersion.value = getDefaultDownloadVersion(productVersions.value)
-      }
-      const loadedProductId = resolvedProductId || productId
       versionsLoadedProductId.value = loadedProductId
       versionsLoadedChatId.value = targetChatId
       versionsLoadedKey.value = getProductVersionsCacheKey(targetChatId, loadedProductId)
+      syncDefaultDownloadVersion()
       return
     }
     productVersions.value = []
@@ -4684,6 +4716,16 @@ const getDefaultDownloadVersion = (versions) => {
   const architectureMatched = majorPreferredVersions.filter(version => matchesDownloadArchitecture(version, architecture))
   const candidates = architectureMatched.length > 0 ? architectureMatched : majorPreferredVersions
   return candidates[0] || semanticVersions[0] || versions[0]
+}
+
+const syncDefaultDownloadVersion = () => {
+  if (!isCurrentChatTarget(versionsLoadedChatId.value)) {
+    return
+  }
+  if (downloadVersionTouched.value || productVersions.value.length === 0) {
+    return
+  }
+  downloadVersion.value = getDefaultDownloadVersion(productVersions.value)
 }
 
 const isSemanticProductVersion = (version) => /v?\d+\.\d+\.\d+/i.test(String(version || '').trim())
@@ -4734,8 +4776,10 @@ const matchesDownloadArchitecture = (version, architecture) => {
   return isX86 || !isArm
 }
 
-const prefetchProductVersions = () => {
-  const targetChatId = chatId.value
+const prefetchProductVersions = (targetChatId = chatId.value) => {
+  if (!isCurrentChatTarget(targetChatId)) {
+    return Promise.resolve()
+  }
   const productId = getCurrentProductId()
   const cacheKey = getProductVersionsCacheKey(targetChatId, productId)
   if (!cacheKey) {
@@ -4771,25 +4815,35 @@ const prefetchMaintenanceCreateContext = (targetChatId = chatId.value) => {
   if (maintenanceContextLoadedChatId.value === targetChatId && maintenanceCreateContext.value) {
     return Promise.resolve(maintenanceCreateContext.value)
   }
-  if (maintenanceContextPreloadPromise.value) {
+  if (maintenanceContextPreloadPromise.value && maintenanceContextPreloadChatId.value === targetChatId) {
     return maintenanceContextPreloadPromise.value
   }
-  maintenanceContextPreloadPromise.value = (async () => {
+  maintenanceContextPreloadChatId.value = targetChatId
+  const preloadPromise = (async () => {
     const result = await docApi.getMaintenanceCreateContext(targetChatId)
     if (!(result.success || result.code === 0)) {
       throw new Error(result.message || result.msg || '获取新增维护上下文失败')
+    }
+    if (!isCurrentChatTarget(targetChatId)) {
+      return null
     }
     const context = result.data || {}
     maintenanceCreateContext.value = context
     maintenanceContextLoadedChatId.value = targetChatId
     return context
   })().catch((error) => {
-    maintenanceCreateContext.value = null
-    maintenanceContextLoadedChatId.value = ''
+    if (isCurrentChatTarget(targetChatId)) {
+      maintenanceCreateContext.value = null
+      maintenanceContextLoadedChatId.value = ''
+    }
     throw error
   }).finally(() => {
-    maintenanceContextPreloadPromise.value = null
+    if (maintenanceContextPreloadPromise.value === preloadPromise) {
+      maintenanceContextPreloadPromise.value = null
+      maintenanceContextPreloadChatId.value = ''
+    }
   })
+  maintenanceContextPreloadPromise.value = preloadPromise
   return maintenanceContextPreloadPromise.value
 }
 
@@ -4800,27 +4854,42 @@ const prefetchImplementationCreateContext = (targetChatId = chatId.value) => {
   if (implementationContextLoadedChatId.value === targetChatId && implementationContext.value) {
     return Promise.resolve(implementationContext.value)
   }
-  if (implementationContextPreloadPromise.value) {
+  if (implementationContextPreloadPromise.value && implementationContextPreloadChatId.value === targetChatId) {
     return implementationContextPreloadPromise.value
   }
-  implementationContextPreloadPromise.value = (async () => {
+  implementationContextPreloadChatId.value = targetChatId
+  const preloadPromise = (async () => {
     const result = await docApi.getImplementationCreateContext(targetChatId)
     if (!(result.success || result.code === 0)) {
       throw new Error(result.message || result.msg || '获取新增实施上下文失败')
     }
+    if (!isCurrentChatTarget(targetChatId)) {
+      return null
+    }
     const context = result.data || {}
     implementationContext.value = context
-    implementationVersionOptions.value = Array.isArray(context.availableVersions) ? context.availableVersions : []
+    if (!customerData.value?.productId && context.productId) {
+      customerData.value = {
+        ...(customerData.value || {}),
+        productId: context.productId
+      }
+      prefetchProductVersions(targetChatId).catch(() => {})
+    }
     implementationContextLoadedChatId.value = targetChatId
     return context
   })().catch((error) => {
-    implementationContext.value = null
-    implementationVersionOptions.value = []
-    implementationContextLoadedChatId.value = ''
+    if (isCurrentChatTarget(targetChatId)) {
+      implementationContext.value = null
+      implementationContextLoadedChatId.value = ''
+    }
     throw error
   }).finally(() => {
-    implementationContextPreloadPromise.value = null
+    if (implementationContextPreloadPromise.value === preloadPromise) {
+      implementationContextPreloadPromise.value = null
+      implementationContextPreloadChatId.value = ''
+    }
   })
+  implementationContextPreloadPromise.value = preloadPromise
   return implementationContextPreloadPromise.value
 }
 
@@ -4928,7 +4997,12 @@ const handleAddImplementation = async () => {
   showAddImplementationModal.value = true
   resetAddImplementationForm()
   try {
-    const context = await prefetchImplementationCreateContext(chatId.value)
+    const targetChatId = chatId.value
+    const [context] = await Promise.all([
+      prefetchImplementationCreateContext(targetChatId),
+      prefetchProductVersions(targetChatId)
+    ])
+    await prefetchProductVersions(targetChatId)
     resetAddImplementationForm(context || {})
     nextTick(() => {
       doAdjustImplementationTextareas()
@@ -4948,13 +5022,12 @@ const handleAddMaintenance = async () => {
   }
   resetAddMaintenanceForm()
   showAddMaintenanceModal.value = true
-  if (staffList.value.length === 0) {
-    await loadStaffList()
-  }
   try {
+    const targetChatId = chatId.value
     const [, context] = await Promise.all([
-      prefetchProductVersions(),
-      prefetchMaintenanceCreateContext(chatId.value)
+      prefetchProductVersions(targetChatId),
+      prefetchMaintenanceCreateContext(targetChatId),
+      loadStaffList()
     ])
     resetAddMaintenanceForm(context || {})
   } catch (error) {
@@ -5237,24 +5310,47 @@ const handleUpdateTicket = async (ticketId) => {
   showUpdateModal.value = true
 }
 
-const loadStaffList = async () => {
-  try {
-    const result = await docApi.getStaffList()
-    // console.log('员工列表响应:', result)
-    if (result.success) {
-      staffList.value = result.data || []
-      // console.log('员工列表加载成功，共', staffList.value.length, '人')
-      return true
-    } else {
+const loadStaffList = async ({ silent = false } = {}) => {
+  if (staffList.value.length > 0) {
+    return true
+  }
+  if (staffListPreloadPromise.value) {
+    const loaded = await staffListPreloadPromise.value
+    if (!loaded && !silent) {
+      showToast('加载员工列表失败', false)
+    }
+    return loaded
+  }
+
+  const preloadPromise = (async () => {
+    try {
+      const result = await docApi.getStaffList()
+      // console.log('员工列表响应:', result)
+      if (result.success) {
+        staffList.value = result.data || []
+        // console.log('员工列表加载成功，共', staffList.value.length, '人')
+        return true
+      }
       console.error('加载员工列表失败:', result.message)
-      showToast('加载员工列表失败: ' + result.message, false)
+      if (!silent) {
+        showToast('加载员工列表失败: ' + result.message, false)
+      }
+      return false
+    } catch (error) {
+      console.error('加载员工列表失败:', error)
+      if (!silent) {
+        showToast('加载员工列表失败', false)
+      }
       return false
     }
-  } catch (error) {
-    console.error('加载员工列表失败:', error)
-    showToast('加载员工列表失败', false)
-    return false
-  }
+  })().finally(() => {
+    if (staffListPreloadPromise.value === preloadPromise) {
+      staffListPreloadPromise.value = null
+    }
+  })
+
+  staffListPreloadPromise.value = preloadPromise
+  return staffListPreloadPromise.value
 }
 
 // 过滤员工列表
