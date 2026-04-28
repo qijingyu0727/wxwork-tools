@@ -25,6 +25,10 @@ export const docApi = {
     return request.get('/api/chat-group/service-records', { params: { extChatId } })
   },
 
+  getContractSubscriptions: (extChatId) => {
+    return request.get('/api/chat-group/contract-subscriptions', { params: { extChatId } })
+  },
+
   getTickets: (extChatId) => {
     return request.get('/api/chat-group/tickets', { params: { extChatId } })
   },

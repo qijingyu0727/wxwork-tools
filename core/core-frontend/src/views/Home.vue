@@ -33,13 +33,15 @@
           <div class="customer-badges">
             <span
               v-if="customerData?.isAccepted"
-              :class="['badge', getAcceptanceBadgeClass(customerData?.acceptanceStatusCode)]"
+              :class="['badge', getAcceptanceBadgeClass(customerData?.acceptanceStatusCode), 'badge-clickable']"
+              @click="handleAcceptanceStatusClick"
             >
               {{ customerData.isAccepted }}
             </span>
             <span
               v-if="customerServiceStatusText"
-              :class="['badge', getCustomerServiceStatusBadgeClass(customerServiceStatusText)]"
+              :class="['badge', getCustomerServiceStatusBadgeClass(customerServiceStatusText), 'badge-clickable']"
+              @click="handleCustomerServiceStatusClick"
             >
               {{ customerServiceStatusText }}
             </span>
@@ -289,6 +291,58 @@
                 <div v-if="record.maintenanceContext" class="maintenance-content">
                   <div class="info-label">维护内容</div>
                   <pre class="content-text">{{ record.maintenanceContext }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 合同 Tab -->
+          <div v-if="activeTab === 'contract'" class="tab-pane active">
+            <div v-if="contractsLoading" class="tab-placeholder">
+              <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">加载中...</p>
+            </div>
+            <div v-else-if="contractSubscriptions.length === 0" class="tab-placeholder">
+              <i class="fa fa-file-text-o text-3xl text-gray-400 mb-4"></i>
+              <p class="text-gray-500">暂无合同信息</p>
+            </div>
+            <div v-else class="contract-list">
+              <div v-for="contract in contractSubscriptions" :key="contract.id || contract.contractNumber" class="maintenance-card contract-card">
+                <div class="contract-card-top">
+                  <div class="contract-title-block">
+                    <span class="maintenance-template contract-title">{{ contract.productServiceName || contract.contractNumber || '-' }}</span>
+                  </div>
+                  <span class="contract-service-tag">{{ formatContractServiceTag(contract) }}</span>
+                </div>
+                <div class="contract-detail-list">
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">授权数量</span>
+                    <span class="contract-detail-value contract-license-value">{{ formatContractLicenseAmount(contract) }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">合同编号</span>
+                    <span class="contract-detail-value">{{ contract.contractNumber || '-' }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">订阅类型</span>
+                    <span class="contract-detail-value">{{ contract.subscriptionTypeName || '-' }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">实施顾问</span>
+                    <span class="contract-detail-value">{{ contract.supportUser || '-' }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">销售</span>
+                    <span class="contract-detail-value">{{ contract.salesUser || '-' }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">许可周期</span>
+                    <span class="contract-detail-value contract-period">{{ formatContractPeriod(contract) }}</span>
+                  </div>
+                  <div class="contract-detail-row">
+                    <span class="contract-detail-label">序列号</span>
+                    <span class="contract-detail-value">{{ contract.serialNo || '-' }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1469,6 +1523,11 @@ const maintenanceRecords = ref([])
 const maintenanceLoading = ref(false)
 const serviceRecords = ref([])
 const serviceLoading = ref(false)
+const contractSubscriptions = ref([])
+const contractsLoading = ref(false)
+const contractsLoadedChatId = ref('')
+const contractsPreloadPromise = ref(null)
+const contractsPreloadChatId = ref('')
 const tickets = ref([])
 const ticketsLoading = ref(false)
 const ticketFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
@@ -1480,6 +1539,7 @@ const activeTab = ref('implementation')
 const tabs = ref([
   { id: 'implementation', name: '实施' },
   { id: 'maintenance', name: '维护' },
+  { id: 'contract', name: '合同' },
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' },
@@ -1502,6 +1562,7 @@ const createTabLoadState = () => ({
   analysis: true,
   implementation: false,
   maintenance: false,
+  contract: false,
   tools: false,
   ticket: false,
   requirement: false,
@@ -2912,6 +2973,49 @@ const getServiceRecords = async (extChatId) => {
   }
 }
 
+const loadContractSubscriptions = async (extChatId, { silent = false, force = false } = {}) => {
+  if (!extChatId) {
+    return []
+  }
+  if (!force && contractsLoadedChatId.value === extChatId) {
+    return contractSubscriptions.value
+  }
+
+  contractsLoading.value = true
+  try {
+    const res = await docApi.getContractSubscriptions(extChatId)
+    if (!isCurrentChatTarget(extChatId)) {
+      return []
+    }
+    if (res.success || res.code === 0) {
+      const items = Array.isArray(res.data) ? res.data : (res.data?.items || [])
+      contractSubscriptions.value = items
+      contractsLoadedChatId.value = extChatId
+      return items
+    }
+    contractSubscriptions.value = []
+    contractsLoadedChatId.value = ''
+    if (!silent) {
+      showToast(res.message || res.msg || '获取合同信息失败', false)
+    }
+    return []
+  } catch (err) {
+    if (!isCurrentChatTarget(extChatId)) {
+      return []
+    }
+    contractSubscriptions.value = []
+    contractsLoadedChatId.value = ''
+    if (!silent) {
+      showToast('获取合同信息失败: ' + (err.message || err), false)
+    }
+    return []
+  } finally {
+    if (isCurrentChatTarget(extChatId)) {
+      contractsLoading.value = false
+    }
+  }
+}
+
 const syncIssueAndBugTickets = () => {
   issueTickets.value = tickets.value.filter(t => /需求/.test(t?.issueCategory || ''))
   bugTickets.value = tickets.value.filter(t => (t?.issueCategory || '') === '产品缺陷')
@@ -3067,6 +3171,37 @@ const loadMaintenanceTabData = async (targetChatId, { force = false } = {}) => {
   tabLoadState.value.maintenance = true
 }
 
+const prefetchContractSubscriptions = (targetChatId = chatId.value) => {
+  if (!targetChatId || !isCurrentChatTarget(targetChatId)) {
+    return Promise.resolve([])
+  }
+  if (contractsLoadedChatId.value === targetChatId) {
+    return Promise.resolve(contractSubscriptions.value)
+  }
+  if (contractsPreloadPromise.value && contractsPreloadChatId.value === targetChatId) {
+    return contractsPreloadPromise.value
+  }
+
+  contractsPreloadChatId.value = targetChatId
+  const preloadPromise = loadContractSubscriptions(targetChatId, { silent: true }).finally(() => {
+    if (contractsPreloadPromise.value === preloadPromise) {
+      contractsPreloadPromise.value = null
+      contractsPreloadChatId.value = ''
+    }
+  })
+  contractsPreloadPromise.value = preloadPromise
+  return contractsPreloadPromise.value
+}
+
+const loadContractTabData = async (targetChatId, { force = false } = {}) => {
+  if (!targetChatId) return
+  if (!isCurrentChatTarget(targetChatId)) return
+  if (tabLoadState.value.contract && !force) return
+  await prefetchContractSubscriptions(targetChatId)
+  if (!isCurrentChatTarget(targetChatId)) return
+  tabLoadState.value.contract = contractsLoadedChatId.value === targetChatId
+}
+
 const loadToolsTabData = async (targetChatId, { force = false } = {}) => {
   if (!targetChatId) {
     toolCcEmails.value = DEFAULT_TOOL_MAIL_CC
@@ -3088,6 +3223,10 @@ const ensureActiveTabData = async (targetChatId, options = {}) => {
   }
   if (activeTab.value === 'maintenance') {
     await loadMaintenanceTabData(targetChatId, options)
+    return
+  }
+  if (activeTab.value === 'contract') {
+    await loadContractTabData(targetChatId, options)
     return
   }
   if (activeTab.value === 'tools') {
@@ -3483,6 +3622,106 @@ const isSubscriptionDateExpired = (value) => {
   const today = new Date()
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
   return date.getTime() < todayStart
+}
+
+const getContractServiceShortName = (contract) => {
+  const serviceType = String(contract?.serviceTypeName || '').trim()
+  const amountUnit = String(contract?.amountUnit || '').trim()
+  const text = `${serviceType} ${amountUnit}`
+  if (text.includes('订阅')) return '订阅'
+  if (text.includes('授权')) return '授权'
+  return serviceType || amountUnit || '许可'
+}
+
+const isJumpServerContract = (contract) => {
+  const productId = Number(contract?.productId)
+  if (productId === 2001) {
+    return true
+  }
+  const category = String(contract?.category || '').trim().toUpperCase()
+  if (category === 'JS' || category === 'JUMPSERVER') {
+    return true
+  }
+  return String(contract?.productServiceName || '').toUpperCase().includes('JUMPSERVER')
+}
+
+const isMaxKbContract = (contract) => {
+  const productId = Number(contract?.productId)
+  if ([2009, 2013].includes(productId)) {
+    return true
+  }
+  const category = String(contract?.category || '').trim().toUpperCase()
+  if (category === 'MK' || category === 'MAXKB') {
+    return true
+  }
+  return String(contract?.productServiceName || '').toUpperCase().includes('MAXKB')
+}
+
+const isDataEaseContract = (contract) => {
+  const productId = Number(contract?.productId)
+  if ([2003, 2008].includes(productId)) {
+    return true
+  }
+  const category = String(contract?.category || '').trim().toUpperCase()
+  if (category === 'DE' || category === 'DATAEASE') {
+    return true
+  }
+  return String(contract?.productServiceName || '').toUpperCase().includes('DATAEASE')
+}
+
+const formatContractServiceTag = (contract) => {
+  return getContractServiceShortName(contract)
+}
+
+const formatContractAmountValue = (amount) => {
+  if (amount === null || amount === undefined || amount === '') {
+    return '-'
+  }
+  return String(amount)
+}
+
+const formatContractLicenseAmount = (contract) => {
+  const productServiceName = String(contract?.productServiceName || '').trim()
+  if (isMaxKbContract(contract)) {
+    return '一套'
+  }
+  if (isDataEaseContract(contract)) {
+    if (productServiceName.includes('专业版') || productServiceName.includes('嵌入式版')) {
+      return '一套'
+    }
+    if (productServiceName.includes('企业版')) {
+      return formatContractAmountValue(contract?.amount)
+    }
+    return Number(contract?.amount) > 1 ? formatContractAmountValue(contract?.amount) : '一套'
+  }
+  if (isJumpServerContract(contract)) {
+    return formatContractAmountValue(contract?.amount)
+  }
+  return Number(contract?.amount) > 1 ? formatContractAmountValue(contract?.amount) : '一套'
+}
+
+const normalizeContractDate = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return ''
+  }
+  const text = String(value).trim()
+  if (!text) {
+    return ''
+  }
+  if (/^\d+$/.test(text)) {
+    const date = new Date(Number(text))
+    return Number.isNaN(date.getTime()) ? '' : formatDateInputValue(date)
+  }
+  return text
+}
+
+const formatContractPeriod = (contract) => {
+  const startDate = normalizeContractDate(contract?.startDate)
+  const endDate = normalizeContractDate(contract?.supportEndDate || contract?.endDate)
+  if (!startDate && !endDate) {
+    return '-'
+  }
+  return `${startDate || '-'} 至 ${endDate || '-'}`
 }
 
 const getCustomerServiceStatusBadgeClass = (status) => {
@@ -4163,6 +4402,11 @@ const loadChatData = async (targetChatId) => {
   customerData.value = {}
   maintenanceRecords.value = []
   serviceRecords.value = []
+  contractSubscriptions.value = []
+  contractsLoading.value = false
+  contractsLoadedChatId.value = ''
+  contractsPreloadPromise.value = null
+  contractsPreloadChatId.value = ''
   tickets.value = []
   issueTickets.value = []
   bugTickets.value = []
@@ -4206,6 +4450,7 @@ const loadChatData = async (targetChatId) => {
 
   runInBackground(implementationContextPromise.then(() => prefetchProductVersions(targetChatId)))
   runInBackground(maintenanceContextPromise)
+  runInBackground(prefetchContractSubscriptions(targetChatId))
   runInBackground(loadStaffList({ silent: true }))
   const activeTabPromise = activeTab.value !== 'implementation' && activeTab.value !== 'maintenance'
     ? ensureActiveTabData(targetChatId)
@@ -4383,8 +4628,16 @@ const handleDefectResolvedClick = () => {
   bugFilter.value = 'resolved'
 }
 
+const handleAcceptanceStatusClick = () => {
+  activeTab.value = 'tools'
+}
+
 const handleVersionClick = () => {
   activeTab.value = 'implementation'
+}
+
+const handleCustomerServiceStatusClick = () => {
+  activeTab.value = 'contract'
 }
 
 const handleDownloadVersionChange = () => {

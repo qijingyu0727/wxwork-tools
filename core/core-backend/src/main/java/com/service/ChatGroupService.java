@@ -2,6 +2,7 @@ package com.service;
 
 import org.springframework.stereotype.Service;
 import com.model.AcceptanceStatusData;
+import com.model.ContractSubscription;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
 import com.model.MaintenanceCreateContext;
@@ -307,6 +308,114 @@ public class ChatGroupService {
         }
         Object first = items.get(0);
         return first instanceof JSONObject ? (JSONObject) first : null;
+    }
+
+    private String resolveGroupChatName(String extChatId) {
+        try {
+            String sql = "SELECT name FROM group_chat WHERE ext_chat_id = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, extChatId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return trimToNull(result.get(0)[0].toString());
+            }
+        } catch (Exception e) {
+            LOGGER.warn("resolveGroupChatName failed extChatId={}, err={}", extChatId, e.getMessage());
+        }
+        return null;
+    }
+
+    private String resolveContractClientName(String extChatId) {
+        try {
+            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
+            if (subscription != null) {
+                return trimToNull(subscription.clientName);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("resolveContractClientName failed extChatId={}, err={}", extChatId, e.getMessage());
+        }
+        return null;
+    }
+
+    private List<ContractSubscription> fetchContractSubscriptions(String clientName) throws Exception {
+        List<ContractSubscription> subscriptions = new ArrayList<>();
+        String normalizedClientName = trimToNull(clientName);
+        if (normalizedClientName == null) {
+            return subscriptions;
+        }
+
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/subscriptions?" +
+                "clientName=" + URLEncoder.encode(normalizedClientName, StandardCharsets.UTF_8) +
+                "&sort_field=start_date&sort_type=desc";
+        String response = requestWithDnsRetry(url);
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code != null && code != 0) {
+            throw new Exception(firstNonBlank(
+                    responseJson.getString("message"),
+                    responseJson.getString("msg"),
+                    "查询合同信息失败"
+            ));
+        }
+
+        JSONObject dataJson = responseJson.getJSONObject("data");
+        JSONArray items = dataJson != null ? dataJson.getJSONArray("items") : null;
+        if (items == null || items.isEmpty()) {
+            return subscriptions;
+        }
+
+        for (int i = 0; i < items.size(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            if (item == null || !matchesContractSubscription(item, normalizedClientName)) {
+                continue;
+            }
+            subscriptions.add(toContractSubscription(item));
+        }
+        return subscriptions;
+    }
+
+    private boolean matchesContractSubscription(JSONObject item, String exactValue) {
+        String normalizedExact = trimToNull(exactValue);
+        if (normalizedExact == null) {
+            return true;
+        }
+        JSONObject client = item.getJSONObject("client");
+        String clientName = client != null ? trimToNull(client.getString("name")) : null;
+        return normalizedExact.equals(clientName);
+    }
+
+    private ContractSubscription toContractSubscription(JSONObject item) {
+        ContractSubscription subscription = new ContractSubscription();
+        JSONObject client = item.getJSONObject("client");
+        JSONObject productService = item.getJSONObject("productService");
+        Boolean expired = item.getBoolean("expired");
+        Boolean supportExpired = item.getBoolean("supportExpired");
+
+        subscription.setId(item.getLong("id"));
+        subscription.setClientId(item.getLong("clientId"));
+        subscription.setClientName(client != null ? trimToNull(client.getString("name")) : null);
+        subscription.setContractNumber(trimToNull(item.getString("contractNumber")));
+        subscription.setProductId(productService != null ? productService.getLong("productId") : null);
+        subscription.setCategory(trimToNull(item.getString("category")));
+        subscription.setProductServiceName(productService != null ? trimToNull(productService.getString("name")) : null);
+        subscription.setAmount(firstNonNullLong(item.getLong("amount"), productService != null ? productService.getLong("amount") : null));
+        subscription.setAmountUnit(productService != null ? trimToNull(productService.getString("amountUnit")) : null);
+        subscription.setServiceTypeName(trimToNull(item.getString("serviceTypeName")));
+        subscription.setSupportUser(trimToNull(item.getString("supportUser")));
+        subscription.setSalesUser(trimToNull(item.getString("salesUser")));
+        subscription.setStartDate(formatEpochMillisDate(item.getString("start_date")));
+        subscription.setEndDate(formatEpochMillisDate(item.getString("end_date")));
+        subscription.setSupportEndDate(formatEpochMillisDate(item.getString("support_end_date")));
+        subscription.setSubscriptionTypeName(trimToNull(item.getString("subscriptionTypeName")));
+        subscription.setExpired(expired);
+        subscription.setSupportExpired(supportExpired);
+        subscription.setStatusText(Boolean.TRUE.equals(expired) || Boolean.TRUE.equals(supportExpired) ? "已到期" : "有效");
+        subscription.setSerialNo(trimToNull(item.getString("serialNo")));
+        subscription.setGroupChatName(trimToNull(item.getString("groupChatName")));
+        return subscription;
+    }
+
+    private Long firstNonNullLong(Long first, Long second) {
+        return first != null ? first : second;
     }
 
     private boolean isSubscriptionExpired(String subscriptionEndDate) {
@@ -1284,6 +1393,24 @@ public class ChatGroupService {
                 }
             }
             default -> throw new Exception("当前群聊暂不支持新增实施记录");
+        }
+    }
+
+    public List<ContractSubscription> getContractSubscriptions(String extChatId) throws Exception {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            throw new Exception("缺少群聊ID");
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String clientName = resolveContractClientName(normalizedExtChatId);
+            List<ContractSubscription> subscriptions = fetchContractSubscriptions(clientName);
+            LOGGER.info("getContractSubscriptions by clientName extChatId={}, clientName={}, count={}",
+                    normalizedExtChatId, clientName, subscriptions.size());
+            return subscriptions;
+        } finally {
+            com.util.JdbcUtils.clearConfig();
         }
     }
 

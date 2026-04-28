@@ -3,6 +3,7 @@ package com.controller;
 import com.alibaba.fastjson.JSONObject;
 import com.model.AcceptanceStatusData;
 import com.model.ApiResponse;
+import com.model.ContractSubscription;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
 import com.model.MaintenanceCreateContext;
@@ -119,6 +120,17 @@ public class ChatGroupController {
             return ApiResponse.success(records);
         } catch (Exception e) {
             return ApiResponse.error("获取维护记录失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/contract-subscriptions")
+    public ApiResponse<List<ContractSubscription>> getContractSubscriptions(@RequestParam String extChatId) {
+        try {
+            List<ContractSubscription> subscriptions = chatGroupService.getContractSubscriptions(extChatId);
+            return ApiResponse.success(subscriptions);
+        } catch (Exception e) {
+            LOGGER.error("getContractSubscriptions failed extChatId={}, err={}", extChatId, e.getMessage(), e);
+            return ApiResponse.error("获取合同信息失败: " + e.getMessage());
         }
     }
 
