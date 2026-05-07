@@ -16,6 +16,8 @@ import java.util.List;
 @Service
 public class WxworkService {
 
+    private static final long CACHE_REFRESH_BUFFER_MILLIS = 5 * 60 * 1000L;
+
     @Value("${app_secret}")
     private String customerSecret;
 
@@ -40,11 +42,36 @@ public class WxworkService {
     @Value("${api_get_agent_jsapi_ticket_url}")
     private String apiGetAgentJsapiTicketUrl;
 
+    private final Object accessTokenLock = new Object();
+    private final Object jsapiTicketLock = new Object();
+    private final Object agentJsapiTicketLock = new Object();
+
+    private volatile String cachedAccessToken;
+    private volatile long accessTokenExpireAt;
+    private volatile JsapiTicketModel cachedJsapiTicket;
+    private volatile long jsapiTicketExpireAt;
+    private volatile JsapiTicketModel cachedAgentJsapiTicket;
+    private volatile long agentJsapiTicketExpireAt;
+
     public String getHttpRequest(String url) throws Exception {
         return HttpClientUtil.getRequest(url);
     }
 
     public String getAccessToken() throws Exception {
+        if (isCacheValid(accessTokenExpireAt)) {
+            return cachedAccessToken;
+        }
+
+        synchronized (accessTokenLock) {
+            if (isCacheValid(accessTokenExpireAt)) {
+                return cachedAccessToken;
+            }
+
+            return refreshAccessToken();
+        }
+    }
+
+    private String refreshAccessToken() throws Exception {
         System.out.println("开始调用企业微信API获取access_token...");
         long start = System.currentTimeMillis();
 
@@ -71,7 +98,9 @@ public class WxworkService {
 
         long totalTime = System.currentTimeMillis() - start;
         System.out.println("获取access_token完成，总耗时: " + totalTime + "ms");
-        return accessTokenModel.getAccessToken();
+        cachedAccessToken = accessTokenModel.getAccessToken();
+        accessTokenExpireAt = buildExpireAt(accessTokenModel.getExpiresIn());
+        return cachedAccessToken;
     }
 
     public CreateDocModel createDoc(CreateDocRequest request) throws Exception {
@@ -89,11 +118,37 @@ public class WxworkService {
     }
 
     public JsapiTicketModel getJsapiTicket() throws Exception {
-        return getTicket(apiGetJsapiTicketUrl, "企业jsapi_ticket");
+        if (isCacheValid(jsapiTicketExpireAt)) {
+            return cachedJsapiTicket;
+        }
+
+        synchronized (jsapiTicketLock) {
+            if (isCacheValid(jsapiTicketExpireAt)) {
+                return cachedJsapiTicket;
+            }
+
+            JsapiTicketModel ticketModel = getTicket(apiGetJsapiTicketUrl, "企业jsapi_ticket");
+            cachedJsapiTicket = ticketModel;
+            jsapiTicketExpireAt = buildExpireAt(ticketModel.getExpiresIn());
+            return cachedJsapiTicket;
+        }
     }
 
     public JsapiTicketModel getAgentJsapiTicket() throws Exception {
-        return getTicket(apiGetAgentJsapiTicketUrl, "应用jsapi_ticket");
+        if (isCacheValid(agentJsapiTicketExpireAt)) {
+            return cachedAgentJsapiTicket;
+        }
+
+        synchronized (agentJsapiTicketLock) {
+            if (isCacheValid(agentJsapiTicketExpireAt)) {
+                return cachedAgentJsapiTicket;
+            }
+
+            JsapiTicketModel ticketModel = getTicket(apiGetAgentJsapiTicketUrl, "应用jsapi_ticket");
+            cachedAgentJsapiTicket = ticketModel;
+            agentJsapiTicketExpireAt = buildExpireAt(ticketModel.getExpiresIn());
+            return cachedAgentJsapiTicket;
+        }
     }
 
     public String getCorpId() {
@@ -130,6 +185,15 @@ public class WxworkService {
         long totalTime = System.currentTimeMillis() - start;
         System.out.println("获取" + ticketName + "完成，总耗时: " + totalTime + "ms");
         return ticketModel;
+    }
+
+    private boolean isCacheValid(long expireAt) {
+        return expireAt > System.currentTimeMillis() + CACHE_REFRESH_BUFFER_MILLIS;
+    }
+
+    private long buildExpireAt(Integer expiresInSeconds) {
+        int safeExpiresInSeconds = expiresInSeconds == null || expiresInSeconds <= 0 ? 7200 : expiresInSeconds;
+        return System.currentTimeMillis() + safeExpiresInSeconds * 1000L;
     }
 
 }
