@@ -64,7 +64,7 @@
             <div class="stat-content">
               <div class="stat-label">服务到期</div>
               <div class="stat-value">
-                <span class="stat-primary">{{ customerData?.subscriptionEndDate || '-' }}</span>
+                <span class="stat-primary">{{ customerSubscriptionEndDateText || '-' }}</span>
               </div>
             </div>
           </div>
@@ -3600,14 +3600,6 @@ const versionBadgeText = computed(() => {
   return '请补充实施'
 })
 
-const customerServiceStatusText = computed(() => {
-  const supportExpired = customerData.value?.supportExpired
-  if (supportExpired === true || isSubscriptionDateExpired(customerData.value?.subscriptionEndDate)) {
-    return '已到期'
-  }
-  return customerData.value?.serviceStatus || ''
-})
-
 const customerDisplayName = computed(() => {
   if (customerDataLoading.value) {
     return '-'
@@ -3623,6 +3615,35 @@ const isSubscriptionDateExpired = (value) => {
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
   return date.getTime() < todayStart
 }
+
+const latestContractSubscriptionEndDate = computed(() => {
+  const dates = contractSubscriptions.value
+    .map(contract => normalizeContractDate(contract?.supportEndDate || contract?.endDate))
+    .filter(Boolean)
+    .sort()
+  return dates.at(-1) || ''
+})
+
+const customerSubscriptionEndDateText = computed(() => {
+  return latestContractSubscriptionEndDate.value || customerData.value?.subscriptionEndDate || ''
+})
+
+const hasActiveContractSubscription = computed(() => {
+  const latestEndDate = latestContractSubscriptionEndDate.value
+  return latestEndDate ? !isSubscriptionDateExpired(latestEndDate) : false
+})
+
+const customerServiceStatusText = computed(() => {
+  if (hasActiveContractSubscription.value) {
+    const status = customerData.value?.serviceStatus || ''
+    return status && status !== '已到期' ? status : '服务中'
+  }
+  const supportExpired = customerData.value?.supportExpired
+  if (supportExpired === true || isSubscriptionDateExpired(customerSubscriptionEndDateText.value)) {
+    return '已到期'
+  }
+  return customerData.value?.serviceStatus || ''
+})
 
 const getContractServiceShortName = (contract) => {
   const serviceType = String(contract?.serviceTypeName || '').trim()

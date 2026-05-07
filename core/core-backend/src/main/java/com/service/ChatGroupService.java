@@ -115,13 +115,23 @@ public class ChatGroupService {
                     "     where issue_category = '产品缺陷' AND deleted_at IS NULL " +
                     "     group by room_id " +
                     " ), " +
-                    " subscription_info as ( " +
+                    " subscription_group as ( " +
                     "     select client_id, " +
-                    "            group_chat_name, " +
-                    "            from_unixtime(max(support_subscription.support_end_date)/1000,'%Y-%m-%d') subscription_end_date " +
+                    "            group_chat_name " +
                     "     from support_subscription " +
+                    "     where group_chat_name IS NOT NULL " +
+                    "       and group_chat_name != '' " +
                     "     group by client_id, " +
                     "              group_chat_name " +
+                    " ), " +
+                    " subscription_info as ( " +
+                    "     select subscription_group.client_id, " +
+                    "            subscription_group.group_chat_name, " +
+                    "            from_unixtime(max(support_subscription.support_end_date)/1000,'%Y-%m-%d') subscription_end_date " +
+                    "     from subscription_group " +
+                    "     left join support_subscription on support_subscription.client_id = subscription_group.client_id " +
+                    "     group by subscription_group.client_id, " +
+                    "              subscription_group.group_chat_name " +
                     " ) " +
                     " " +
                     " select support_client.name, " +
@@ -245,7 +255,10 @@ public class ChatGroupService {
         if (data == null) {
             return;
         }
-        if (isSubscriptionExpired(data.getSubscriptionEndDate())) {
+        LocalDate subscriptionEndDate = parseSubscriptionEndDate(data.getSubscriptionEndDate());
+        boolean subscriptionExpired = subscriptionEndDate != null
+                && subscriptionEndDate.isBefore(LocalDate.now(ZONE_SHANGHAI));
+        if (subscriptionExpired) {
             data.setSupportExpired(true);
             data.setServiceStatus("已到期");
             return;
@@ -275,7 +288,7 @@ public class ChatGroupService {
                 return;
             }
             Boolean supportExpired = item.getBoolean("supportExpired");
-            if (Boolean.TRUE.equals(supportExpired)) {
+            if (Boolean.TRUE.equals(supportExpired) && subscriptionEndDate == null) {
                 data.setSupportExpired(true);
                 data.setServiceStatus("已到期");
                 return;
@@ -419,14 +432,19 @@ public class ChatGroupService {
     }
 
     private boolean isSubscriptionExpired(String subscriptionEndDate) {
+        LocalDate date = parseSubscriptionEndDate(subscriptionEndDate);
+        return date != null && date.isBefore(LocalDate.now(ZONE_SHANGHAI));
+    }
+
+    private LocalDate parseSubscriptionEndDate(String subscriptionEndDate) {
         String value = trim(subscriptionEndDate);
         if (value.isEmpty()) {
-            return false;
+            return null;
         }
         try {
-            return LocalDate.parse(value).isBefore(LocalDate.now(ZONE_SHANGHAI));
+            return LocalDate.parse(value);
         } catch (Exception ignored) {
-            return false;
+            return null;
         }
     }
 
