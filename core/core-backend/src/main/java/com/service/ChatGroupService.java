@@ -262,6 +262,7 @@ public class ChatGroupService {
         if (clientName.isEmpty()) {
             return;
         }
+        data.setServiceStatus("交付中");
 
         try {
             String url = cscrmBaseUrl + cscrmApiPath +
@@ -290,7 +291,7 @@ public class ChatGroupService {
             data.setIsCompleted(isCompleted);
             if (isCompleted != null && isCompleted == 1) {
                 data.setServiceStatus("服务中");
-            } else if (isCompleted != null && isCompleted == 0) {
+            } else {
                 data.setServiceStatus("交付中");
             }
         } catch (Exception e) {
