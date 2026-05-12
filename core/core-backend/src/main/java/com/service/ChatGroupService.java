@@ -5,6 +5,7 @@ import com.model.AcceptanceStatusData;
 import com.model.ContractSubscription;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
+import com.model.ImplementationProductOption;
 import com.model.MaintenanceCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ProductVersionSnapshot;
@@ -69,7 +70,7 @@ public class ChatGroupService {
     private static final List<Long> OFFLINE_DEPT_IDS = List.of(129L, 131L, 130L, 145L, 146L, 126L);
 
     // 版本聚合产品ID映射
-    private static final List<Long> MAXKB_PRODUCT_IDS = Arrays.asList(2009L, 2013L);
+    private static final List<Long> MAXKB_PRODUCT_IDS = Arrays.asList(2009L, 2012L, 2013L);
     private static final List<Long> DATAEASE_PRODUCT_IDS = Arrays.asList(2003L, 2008L);
 
     @Resource
@@ -77,6 +78,23 @@ public class ChatGroupService {
 
     private static final String ACCEPTANCE_REPORT_REQUIRED_ID = "ID01lceprWXBrp";
     private static final String IMPLEMENTATION_DEFAULT_VALIDATION_VALUE = "正常，满足客户使用";
+    private static final String IMPLEMENTATION_FORM_TYPE_JS = "JS";
+    private static final String IMPLEMENTATION_FORM_TYPE_MK = "MK";
+    private static final String IMPLEMENTATION_FORM_TYPE_DE = "DE";
+    private static final String IMPLEMENTATION_FORM_TYPE_SQLBOT = "SQLBOT";
+    private static final String IMPLEMENTATION_FORM_TYPE_GENERIC = "GENERIC";
+    private static final List<ImplementationProductSpec> IMPLEMENTATION_PRODUCT_SPECS = List.of(
+            new ImplementationProductSpec(2001L, "JumpServer", "JS", "JumpServer", IMPLEMENTATION_FORM_TYPE_JS,
+                    List.of("JUMPSERVER"), List.of()),
+            new ImplementationProductSpec(2003L, "DataEase", "DE", "DataEaseV2", IMPLEMENTATION_FORM_TYPE_DE,
+                    List.of("DATAEASE"), List.of()),
+            new ImplementationProductSpec(2009L, "MaxKB 专业版V2", "MK", "MaxKBV2_PRO", IMPLEMENTATION_FORM_TYPE_MK,
+                    List.of("MAXKB"), List.of("专业", "PRO", "PROFESSIONAL")),
+            new ImplementationProductSpec(2013L, "MaxKB 企业版V2", "MK", "MaxKBV2_EE", IMPLEMENTATION_FORM_TYPE_MK,
+                    List.of("MAXKB"), List.of("企业", "EE", "ENTERPRISE")),
+            new ImplementationProductSpec(2011L, "SQLBot 专业版", "SQLBOT", "SQLBot", IMPLEMENTATION_FORM_TYPE_SQLBOT,
+                    List.of("SQLBOT"), List.of())
+    );
 
     public CustomerData getCustomerData(String extChatId) {
         String normalizedExtChatId = trimToNull(extChatId);
@@ -87,10 +105,26 @@ public class ChatGroupService {
     }
 
     private CustomerData queryCustomerData(String extChatId) {
+        long totalStartNs = System.nanoTime();
+        CustomerData data = new CustomerData();
+
+        // 1. 通过 API 获取客户名称和订阅信息
+        SubscriptionContext subscription = resolveProductAwareSubscriptionContextFromApi(extChatId);
+        if (subscription != null) {
+            data.setName(resolveCustomerName(subscription.clientName, extChatId));
+            data.setClientId(subscription.clientId);
+            data.setProductId(subscription.productId);
+            data.setRegionId(subscription.regionId);
+            data.setSubscriptionEndDate(subscription.supportEndDate);
+        } else {
+            data.setName("未知客户");
+        }
+
+        // 2. 查询工单计数（保留 JDBC 查库）
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            long totalStartNs = System.nanoTime();
-            String sql = "with ticket_count as ( " +
+            long ticketQueryStartNs = System.nanoTime();
+            String ticketSql = "with ticket_count as ( " +
                     "     select room_id, " +
                     "            sum(if(resolved, 0, 1)) not_resolved_ticket_count, " +
                     "            count(1) all_ticket_count, " +
@@ -114,88 +148,47 @@ public class ChatGroupService {
                     "     from chat_analysis_tickets " +
                     "     where issue_category = '产品缺陷' AND deleted_at IS NULL " +
                     "     group by room_id " +
-                    " ), " +
-                    " subscription_group as ( " +
-                    "     select client_id, " +
-                    "            group_chat_name " +
-                    "     from support_subscription " +
-                    "     where group_chat_name IS NOT NULL " +
-                    "       and group_chat_name != '' " +
-                    "     group by client_id, " +
-                    "              group_chat_name " +
-                    " ), " +
-                    " subscription_info as ( " +
-                    "     select subscription_group.client_id, " +
-                    "            subscription_group.group_chat_name, " +
-                    "            from_unixtime(max(support_subscription.support_end_date)/1000,'%Y-%m-%d') subscription_end_date " +
-                    "     from subscription_group " +
-                    "     left join support_subscription on support_subscription.client_id = subscription_group.client_id " +
-                    "     group by subscription_group.client_id, " +
-                    "              subscription_group.group_chat_name " +
                     " ) " +
-                    " " +
-                    " select support_client.name, " +
-                    "        group_chat.name as chat_name, " +
-                    "        subscription_info.client_id, " +
-                    "        subscription_info.subscription_end_date, " +
-                    "        ticket_count.not_resolved_ticket_count, " +
+                    " select ticket_count.not_resolved_ticket_count, " +
                     "        ticket_count.all_ticket_count, " +
                     "        ticket_count.critical_ticket_count, " +
                     "        issue_count.all_issue_count, " +
                     "        issue_count.not_resolved_issue_count, " +
                     "        bug_count.all_bug_count, " +
                     "        bug_count.not_resolved_bug_count " +
-                    " from group_chat " +
-                    " left join subscription_info on group_chat.name = subscription_info.group_chat_name " +
-                    " left join support_client on subscription_info.client_id = support_client.id " +
-                    " left join ticket_count on ticket_count.room_id = group_chat.ext_chat_id " +
-                    " left join issue_count on issue_count.room_id = group_chat.ext_chat_id " +
-                    " left join bug_count on bug_count.room_id = group_chat.ext_chat_id " +
-                    " where ext_chat_id = ?";
-
-            long baseQueryStartNs = System.nanoTime();
-            var result = com.util.JdbcUtils.query(sql, extChatId);
-            long baseQueryCostMs = (System.nanoTime() - baseQueryStartNs) / 1_000_000;
-            CustomerData data = new CustomerData();
-
-            if (!result.isEmpty()) {
-                Object[] row = result.get(0);
-                String clientName = row[0] != null ? row[0].toString() : null;
-                data.setName(resolveCustomerName(clientName, extChatId));
-                data.setClientId(row[2] != null ? Long.parseLong(row[2].toString()) : null);
-                data.setSubscriptionEndDate(row[3] != null ? row[3].toString() : null);
-                data.setNotResolvedTicketCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
-                data.setAllTicketCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
-                data.setCriticalTicketCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
-                data.setAllIssueCount(row[7] != null ? Integer.parseInt(row[7].toString()) : 0);
-                data.setNotResolvedIssueCount(row[8] != null ? Integer.parseInt(row[8].toString()) : 0);
-                data.setAllBugCount(row[9] != null ? Integer.parseInt(row[9].toString()) : 0);
-                data.setNotResolvedBugCount(row[10] != null ? Integer.parseInt(row[10].toString()) : 0);
-                long productMetaStartNs = System.nanoTime();
-                fillCustomerProductMeta(extChatId, data);
-                long productMetaCostMs = (System.nanoTime() - productMetaStartNs) / 1_000_000;
-                long serviceStatusStartNs = System.nanoTime();
-                fillCustomerServiceStatus(data);
-                long serviceStatusCostMs = (System.nanoTime() - serviceStatusStartNs) / 1_000_000;
-
-                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs={}, serviceStatusMs={}, acceptanceMs=0, totalMs={}",
-                        extChatId,
-                        baseQueryCostMs,
-                        productMetaCostMs,
-                        serviceStatusCostMs,
-                        (System.nanoTime() - totalStartNs) / 1_000_000);
-            } else {
-                data.setName("未知客户");
-                LOGGER.info("getCustomerData timing extChatId={}, baseQueryMs={}, productMetaMs=0, acceptanceMs=0, totalMs={}",
-                        extChatId,
-                        baseQueryCostMs,
-                        (System.nanoTime() - totalStartNs) / 1_000_000);
+                    " from ticket_count " +
+                    " left join issue_count on issue_count.room_id = ticket_count.room_id " +
+                    " left join bug_count on bug_count.room_id = ticket_count.room_id " +
+                    " where ticket_count.room_id = ?";
+            var ticketResult = com.util.JdbcUtils.query(ticketSql, extChatId);
+            long ticketQueryCostMs = (System.nanoTime() - ticketQueryStartNs) / 1_000_000;
+            if (!ticketResult.isEmpty()) {
+                Object[] row = ticketResult.get(0);
+                data.setNotResolvedTicketCount(row[0] != null ? Integer.parseInt(row[0].toString()) : 0);
+                data.setAllTicketCount(row[1] != null ? Integer.parseInt(row[1].toString()) : 0);
+                data.setCriticalTicketCount(row[2] != null ? Integer.parseInt(row[2].toString()) : 0);
+                data.setAllIssueCount(row[3] != null ? Integer.parseInt(row[3].toString()) : 0);
+                data.setNotResolvedIssueCount(row[4] != null ? Integer.parseInt(row[4].toString()) : 0);
+                data.setAllBugCount(row[5] != null ? Integer.parseInt(row[5].toString()) : 0);
+                data.setNotResolvedBugCount(row[6] != null ? Integer.parseInt(row[6].toString()) : 0);
             }
 
-            return data;
+            // 3. 补充产品元数据和服务状态
+            long productMetaStartNs = System.nanoTime();
+            fillCustomerProductMeta(extChatId, data);
+            long productMetaCostMs = (System.nanoTime() - productMetaStartNs) / 1_000_000;
+            long serviceStatusStartNs = System.nanoTime();
+            fillCustomerServiceStatus(data);
+            long serviceStatusCostMs = (System.nanoTime() - serviceStatusStartNs) / 1_000_000;
+
+            LOGGER.info("getCustomerData timing extChatId={}, ticketQueryMs={}, productMetaMs={}, serviceStatusMs={}, totalMs={}",
+                    extChatId, ticketQueryCostMs, productMetaCostMs, serviceStatusCostMs,
+                    (System.nanoTime() - totalStartNs) / 1_000_000);
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
+
+        return data;
     }
 
     private String resolveCustomerName(String clientName, String extChatId) {
@@ -336,24 +329,13 @@ public class ChatGroupService {
         return null;
     }
 
-    private String resolveContractClientName(String extChatId) {
-        try {
-            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
-            if (subscription != null) {
-                return trimToNull(subscription.clientName);
-            }
-        } catch (Exception e) {
-            LOGGER.warn("resolveContractClientName failed extChatId={}, err={}", extChatId, e.getMessage());
-        }
-        return null;
-    }
-
-    private List<ContractSubscription> fetchContractSubscriptions(String clientName) throws Exception {
+    private List<ContractSubscription> fetchContractSubscriptions(String clientName, String productAlias) throws Exception {
         List<ContractSubscription> subscriptions = new ArrayList<>();
         String normalizedClientName = trimToNull(clientName);
         if (normalizedClientName == null) {
             return subscriptions;
         }
+        String normalizedProductAlias = normalizeImplementationFormType(productAlias);
 
         String url = cscrmBaseUrl + cscrmApiPath +
                 "/support-info/subscriptions?" +
@@ -378,11 +360,14 @@ public class ChatGroupService {
 
         for (int i = 0; i < items.size(); i++) {
             JSONObject item = items.getJSONObject(i);
-            if (item == null || !matchesContractSubscription(item, normalizedClientName)) {
+            if (item == null
+                    || !matchesContractSubscription(item, normalizedClientName)
+                    || !matchesContractProductAlias(item, normalizedProductAlias)) {
                 continue;
             }
             subscriptions.add(toContractSubscription(item));
         }
+        sortContractSubscriptionsDesc(subscriptions);
         return subscriptions;
     }
 
@@ -394,6 +379,67 @@ public class ChatGroupService {
         JSONObject client = item.getJSONObject("client");
         String clientName = client != null ? trimToNull(client.getString("name")) : null;
         return normalizedExact.equals(clientName);
+    }
+
+    private boolean matchesContractProductAlias(JSONObject item, String productAlias) {
+        if (!isSupportedImplementationAlias(productAlias)) {
+            return true;
+        }
+        JSONObject productService = item.getJSONObject("productService");
+        Long productId = productService != null ? productService.getLong("productId") : null;
+        String productName = productService != null ? trimToNull(productService.getString("name")) : null;
+        String category = trimToNull(item.getString("category"));
+        String value = (firstNonBlank(productName, category, "")).toUpperCase(Locale.ROOT);
+        String categoryValue = category == null ? "" : category.toUpperCase(Locale.ROOT);
+        return switch (productAlias) {
+            case "JS" -> Long.valueOf(2001L).equals(productId)
+                    || "JS".equals(categoryValue)
+                    || "JUMPSERVER".equals(categoryValue)
+                    || value.contains("JUMPSERVER")
+                    || value.contains("JS");
+            case "MK" -> (productId != null && (MAXKB_PRODUCT_IDS.contains(productId) || Long.valueOf(2012L).equals(productId)))
+                    || "MK".equals(categoryValue)
+                    || "MAXKB".equals(categoryValue)
+                    || value.contains("MAXKB")
+                    || value.contains("MK");
+            case "DE" -> (productId != null && DATAEASE_PRODUCT_IDS.contains(productId))
+                    || "DE".equals(categoryValue)
+                    || "DATAEASE".equals(categoryValue)
+                    || value.contains("DATAEASE")
+                    || value.contains("DE");
+            case "SQLBOT" -> Long.valueOf(2011L).equals(productId)
+                    || "SQLBOT".equals(categoryValue)
+                    || value.contains("SQLBOT");
+            default -> true;
+        };
+    }
+
+    private void sortContractSubscriptionsDesc(List<ContractSubscription> subscriptions) {
+        subscriptions.sort((left, right) -> {
+            int startCompare = Long.compare(
+                    toContractDateSortValue(right.getStartDate()),
+                    toContractDateSortValue(left.getStartDate())
+            );
+            if (startCompare != 0) {
+                return startCompare;
+            }
+            int endCompare = Long.compare(
+                    toContractDateSortValue(right.getSupportEndDate()),
+                    toContractDateSortValue(left.getSupportEndDate())
+            );
+            if (endCompare != 0) {
+                return endCompare;
+            }
+            return Long.compare(
+                    right.getId() != null ? right.getId() : 0L,
+                    left.getId() != null ? left.getId() : 0L
+            );
+        });
+    }
+
+    private long toContractDateSortValue(String value) {
+        LocalDate date = parseSubscriptionEndDate(value);
+        return date != null ? date.toEpochDay() : 0L;
     }
 
     private ContractSubscription toContractSubscription(JSONObject item) {
@@ -704,67 +750,184 @@ public class ChatGroupService {
     }
 
     private List<MaintenanceRecord> queryMaintenanceRecords(String extChatId) {
+        try {
+            SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
+            if (subscription != null && subscription.subscriptionId != null && subscription.subscriptionId > 0
+                    && subscription.clientName != null) {
+                List<MaintenanceRecord> records = fetchMaintenanceRecordsByClientName(subscription.clientName);
+                Long subId = subscription.subscriptionId;
+                List<MaintenanceRecord> filtered = new ArrayList<>();
+                for (MaintenanceRecord r : records) {
+                    if (subId.equals(r.getSubscriptionId())) {
+                        filtered.add(r);
+                    }
+                }
+                return filtered;
+            }
+            return fetchMaintenanceRecordsByGroupId(extChatId);
+        } catch (Exception e) {
+            LOGGER.warn("queryMaintenanceRecords failed extChatId={}, err={}", extChatId, e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    private List<MaintenanceRecord> fetchMaintenanceRecordsByClientName(String clientName) throws Exception {
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/maintenances?clientName=" +
+                URLEncoder.encode(clientName, StandardCharsets.UTF_8) +
+                "&page=1&page_size=50";
+        return parseMaintenanceRecordsFromResponse(requestWithDnsRetry(url), "clientName=" + clientName);
+    }
+
+    private List<MaintenanceRecord> fetchMaintenanceRecordsByGroupId(String extChatId) throws Exception {
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/maintenances?groupid=" +
+                URLEncoder.encode(extChatId, StandardCharsets.UTF_8) +
+                "&page=1&page_size=50";
+        List<MaintenanceRecord> records = parseMaintenanceRecordsFromResponse(requestWithDnsRetry(url), "groupid=" + extChatId);
+        if (!records.isEmpty()) {
+            return records;
+        }
+        return fetchMaintenanceRecordsByGroupChatIdFromDb(extChatId);
+    }
+
+    private List<MaintenanceRecord> fetchMaintenanceRecordsByGroupChatIdFromDb(String extChatId) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
-            Long subscriptionId = subscription != null ? subscription.subscriptionId : null;
-            if (subscriptionId == null) {
-                return new ArrayList<>();
-            }
-
-            String productAlias = getProductAliasByExtChatId(extChatId);
-            String sql = "SELECT sm.id, " +
-                    "       sm.status, " +
-                    "       FROM_UNIXTIME(sm.deployment_time/1000, '%Y-%m-%d') as deployment_time, " +
-                    "       sm.deployment_method, " +
-                    "       sm.template, " +
-                    "       sm.creator_name, " +
-                    "       sm.version, " +
-                    "       sm.content, " +
-                    "       FROM_UNIXTIME(sm.create_time/1000, '%Y-%m-%d') as create_time " +
-                    "FROM support_maintenance sm " +
-                    "WHERE sm.subscription_id = ? " +
-                    "ORDER BY sm.id DESC";
-
-            var result = com.util.JdbcUtils.query(sql, subscriptionId);
+            String sql = "SELECT id, subscription_id, status, deployment_time, deployment_method, template, " +
+                    "creator_name, created_by, create_time, version, content " +
+                    "FROM support_maintenance " +
+                    "WHERE group_chat_id = ? " +
+                    "ORDER BY CASE WHEN create_time IS NULL OR create_time = 0 THEN id ELSE create_time END DESC, id DESC " +
+                    "LIMIT 50";
+            var result = com.util.JdbcUtils.query(sql, extChatId);
             List<MaintenanceRecord> records = new ArrayList<>();
-
             for (Object[] row : result) {
-                ImplementationContentSnapshot snapshot = parseImplementationContentSnapshot(row[7] != null ? row[7].toString() : null);
-                String resolvedTemplate = firstNonBlank(
-                        row[4] != null ? row[4].toString() : null,
-                        snapshot.template
-                );
-                if (productAlias != null && !matchesProductAlias(productAlias, resolvedTemplate)) {
-                    continue;
-                }
+                JSONObject item = new JSONObject(true);
+                item.put("id", row[0]);
+                item.put("subscriptionId", row[1]);
+                item.put("status", row[2]);
+                item.put("deployment_time", row[3]);
+                item.put("deploymentMethod", row[4]);
+                item.put("template", row[5]);
+                item.put("creatorName", row[6]);
+                item.put("createdBy", row[7]);
+                item.put("createTime", row[8]);
+                item.put("version", row[9]);
+                item.put("content", row[10]);
+                records.add(toMaintenanceRecord(item));
+            }
+            return records;
+        } catch (Exception e) {
+            LOGGER.warn("fetchMaintenanceRecordsByGroupChatIdFromDb failed extChatId={}, err={}", extChatId, e.getMessage());
+            return new ArrayList<>();
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
 
-                MaintenanceRecord record = new MaintenanceRecord();
-                record.setId(row[0] != null ? Long.parseLong(row[0].toString()) : null);
-                record.setStatus(row[1] != null ? row[1].toString() : null);
-                record.setDeploymentTime(firstNonBlank(
-                        normalizeLegacyDeploymentTime(row[2] != null ? row[2].toString() : null),
-                        snapshot.deploymentTime
-                ));
-                record.setDeploymentMethod(firstNonBlank(
-                        row[3] != null ? row[3].toString() : null,
-                        snapshot.deploymentMethod
-                ));
-                record.setTemplate(resolvedTemplate);
-                record.setCreatorName(row[5] != null ? row[5].toString() : null);
-                record.setVersion(firstNonBlank(
-                        row[6] != null ? row[6].toString() : null,
-                        snapshot.version
-                ));
-                record.setContent(buildImplementationDisplayContent(snapshot, row[7] != null ? row[7].toString() : null));
-                record.setCreateTime(firstNonBlank(
-                        normalizeLegacyDeploymentTime(row[8] != null ? row[8].toString() : null),
-                        snapshot.deploymentTime
-                ));
-                records.add(record);
+    private List<MaintenanceRecord> parseMaintenanceRecordsFromResponse(String response, String queryDesc) throws Exception {
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code == null || code != 0) {
+            LOGGER.warn("fetchMaintenanceRecords non-zero code query={}, code={}", queryDesc, code);
+            return new ArrayList<>();
+        }
+        JSONObject data = responseJson.getJSONObject("data");
+        JSONArray items = data != null ? data.getJSONArray("items") : null;
+        if (items == null || items.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<MaintenanceRecord> records = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            if (item == null) continue;
+            records.add(toMaintenanceRecord(item));
+        }
+        return records;
+    }
+
+    private List<MaintenanceRecord> fetchMaintenanceRecordsFromApi(String extChatId) throws Exception {
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/maintenances?groupid=" +
+                URLEncoder.encode(extChatId, StandardCharsets.UTF_8) +
+                "&page=1&page_size=50";
+        String response = requestWithDnsRetry(url);
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code == null || code != 0) {
+            LOGGER.warn("fetchMaintenanceRecordsFromApi non-zero code extChatId={}, code={}", extChatId, code);
+            return new ArrayList<>();
+        }
+        JSONObject data = responseJson.getJSONObject("data");
+        JSONArray items = data != null ? data.getJSONArray("items") : null;
+        if (items == null || items.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<MaintenanceRecord> records = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            if (item == null) continue;
+            records.add(toMaintenanceRecord(item));
+        }
+        return records;
+    }
+
+    private MaintenanceRecord toMaintenanceRecord(JSONObject item) {
+        String contentStr = item.getString("content");
+        ImplementationContentSnapshot snapshot = parseImplementationContentSnapshot(contentStr);
+        String resolvedTemplate = firstNonBlank(item.getString("template"), snapshot.template);
+        MaintenanceRecord record = new MaintenanceRecord();
+        record.setId(item.getLong("id"));
+        record.setSubscriptionId(item.getLong("subscriptionId"));
+        record.setStatus(item.getString("status"));
+        record.setDeploymentTime(firstNonBlank(
+                normalizeLegacyDeploymentTime(item.getString("deployment_time")),
+                normalizeLegacyDeploymentTime(item.getString("deploymentTime")),
+                snapshot.deploymentTime
+        ));
+        record.setDeploymentMethod(firstNonBlank(item.getString("deploymentMethod"), item.getString("deployment_method"), snapshot.deploymentMethod));
+        record.setTemplate(resolvedTemplate);
+        record.setCreatorName(firstNonBlank(
+                item.getString("creatorName"),
+                item.getString("creator_name"),
+                resolveImplementationCreatorName(firstNonBlank(item.getString("createdBy"), item.getString("created_by")))
+        ));
+        record.setVersion(firstNonBlank(item.getString("version"), snapshot.version));
+        record.setContent(buildImplementationDisplayContent(snapshot, contentStr));
+        record.setCreateTime(firstNonBlank(
+                normalizeLegacyDeploymentTime(item.getString("createTime")),
+                normalizeLegacyDeploymentTime(item.getString("create_time")),
+                snapshot.deploymentTime
+        ));
+        return record;
+    }
+
+    private String resolveImplementationCreatorName(String createdBy) {
+        String normalizedCreatedBy = trimToNull(createdBy);
+        if (normalizedCreatedBy == null) {
+            return null;
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String supportUserSql = "SELECT su.name, su.username, su.email " +
+                    "FROM support_user su WHERE su.user_id = ? LIMIT 1";
+            var supportUserResult = com.util.JdbcUtils.query(supportUserSql, normalizedCreatedBy);
+            if (!supportUserResult.isEmpty()) {
+                Object[] row = supportUserResult.get(0);
+                String name = row[0] != null ? row[0].toString() : null;
+                String username = row[1] != null ? row[1].toString() : null;
+                String email = row[2] != null ? row[2].toString() : null;
+                String staffName = resolveStaffNameByEmailOrName(email, name);
+                return firstNonBlank(staffName, name, username, email);
             }
 
-            return records;
+            String staffName = resolveStaffNameByExtId(normalizedCreatedBy);
+            return firstNonBlank(staffName, normalizedCreatedBy);
+        } catch (Exception e) {
+            LOGGER.warn("resolveImplementationCreatorName failed createdBy={}, err={}", normalizedCreatedBy, e.getMessage());
+            return normalizedCreatedBy;
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
@@ -1095,6 +1258,27 @@ public class ChatGroupService {
         return null;
     }
 
+    private String resolveStaffNameByEmailOrName(String email, String name) {
+        String normalizedEmail = trimToNull(email);
+        String normalizedName = trimToNull(name);
+        if (normalizedEmail == null && normalizedName == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT s.name FROM staff s " +
+                    "WHERE (? IS NOT NULL AND s.email = ?) " +
+                    "   OR (? IS NOT NULL AND s.name = ?) " +
+                    "LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedEmail, normalizedEmail, normalizedName, normalizedName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return result.get(0)[0].toString();
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
     public ImplementationCreateContext getImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
         String normalizedExtChatId = trimToNull(extChatId);
         if (normalizedExtChatId == null) {
@@ -1107,36 +1291,291 @@ public class ChatGroupService {
     private ImplementationCreateContext queryImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            SubscriptionContext subscription = resolvePrimarySubscriptionContext(extChatId);
-            if (subscription == null || subscription.subscriptionId == null) {
-                throw new Exception("未找到当前群聊对应的有效订阅");
+            List<ImplementationProductOption> productOptions = queryImplementationProductOptions();
+            SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
+            if (!hasSubscription(subscription)) {
+                ImplementationCreateContext context = new ImplementationCreateContext();
+                String draftRegionId = resolveRegionIdBySubmitter(loginUserId);
+                context.setDefaultSubmitterUserId(loginUserId);
+                context.setDefaultSubmitterName(resolveSubmitterName(loginUserId));
+                context.setRegionId(draftRegionId);
+                context.setRegionName(resolveRegionName(draftRegionId));
+                context.setProductOptions(productOptions);
+                context.setDraftMode(true);
+                context.setSubscriptionDisplayText("客户信息待补全");
+                return context;
             }
-            String implementationProductAlias = resolveImplementationProductAlias(subscription, extChatId);
-            if (implementationProductAlias == null) {
-                throw new Exception("当前群聊暂不支持新增实施记录");
-            }
-
-            ImplementationCreateContext context = new ImplementationCreateContext();
-            context.setSubscriptionId(subscription.subscriptionId);
-            context.setClientId(subscription.clientId);
-            context.setClientName(subscription.clientName);
-            context.setContractNumber(subscription.contractNumber);
-            context.setProductId(subscription.productId);
-            context.setProductName(subscription.productName);
-            context.setServiceTypeName(subscription.serviceTypeName);
-            context.setSalesName(resolveSalesName(subscription.clientId));
-            context.setRegionId(subscription.regionId);
-            context.setRegionName(resolveRegionName(subscription.regionId));
-            context.setSubscriptionStartDate(subscription.subscriptionStartDate);
-            context.setSupportEndDate(subscription.supportEndDate);
-            context.setDefaultSubmitterUserId(loginUserId);
-            context.setDefaultSubmitterName(resolveSubmitterName(loginUserId));
-            context.setProductAlias(implementationProductAlias);
-            context.setSubscriptionDisplayText(buildSubscriptionDisplayText(subscription));
-            return context;
+            return buildImplementationCreateContext(subscription, extChatId, loginUserId, productOptions);
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
+    }
+
+    private ImplementationCreateContext buildImplementationCreateContext(
+            SubscriptionContext subscription,
+            String extChatId,
+            String loginUserId,
+            List<ImplementationProductOption> productOptions) {
+        String implementationProductAlias = resolveImplementationProductAlias(subscription, extChatId);
+        ImplementationProductOption productOption = resolveProductOption(productOptions, subscription.productId, subscription.productName);
+        String template = resolveImplementationTemplate(implementationProductAlias, productOption, subscription.productName);
+        String formType = resolveImplementationFormType(implementationProductAlias, productOption, null);
+
+        ImplementationCreateContext context = new ImplementationCreateContext();
+        context.setSubscriptionId(subscription.subscriptionId);
+        context.setClientId(subscription.clientId);
+        context.setClientName(subscription.clientName);
+        context.setContractNumber(subscription.contractNumber);
+        context.setProductId(subscription.productId);
+        context.setProductName(subscription.productName);
+        context.setServiceTypeName(subscription.serviceTypeName);
+        context.setSalesName(resolveSalesName(subscription.clientId));
+        context.setRegionId(subscription.regionId);
+        context.setRegionName(resolveRegionName(subscription.regionId));
+        context.setSubscriptionStartDate(subscription.subscriptionStartDate);
+        context.setSupportEndDate(subscription.supportEndDate);
+        context.setDefaultSubmitterUserId(loginUserId);
+        context.setDefaultSubmitterName(resolveSubmitterName(loginUserId));
+        context.setProductAlias(implementationProductAlias);
+        context.setTemplate(template);
+        context.setFormType(formType);
+        context.setProductOptions(productOptions);
+        context.setDraftMode(false);
+        context.setSubscriptionDisplayText(buildSubscriptionDisplayText(subscription));
+        return context;
+    }
+
+    public List<ImplementationProductOption> getImplementationProductOptions() {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            return queryImplementationProductOptions();
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private List<ImplementationProductOption> queryImplementationProductOptions() {
+        List<ProductServiceRow> productRows = queryProductServiceRows();
+        List<ImplementationProductOption> options = new ArrayList<>();
+        for (ImplementationProductSpec spec : IMPLEMENTATION_PRODUCT_SPECS) {
+            Long productId = resolveImplementationProductId(productRows, spec);
+            options.add(new ImplementationProductOption(
+                    productId,
+                    spec.productName,
+                    spec.productAlias,
+                    spec.template,
+                    spec.formType
+            ));
+        }
+        return options;
+    }
+
+    private List<ProductServiceRow> queryProductServiceRows() {
+        List<ProductServiceRow> rows = new ArrayList<>();
+        try {
+            String sql = "SELECT sps.product_id, sps.name " +
+                    "FROM support_product_service sps " +
+                    "WHERE sps.product_id IS NOT NULL " +
+                    "  AND sps.name IS NOT NULL " +
+                    "  AND sps.name != '' " +
+                    "ORDER BY sps.product_id";
+            var result = com.util.JdbcUtils.query(sql);
+            for (Object[] row : result) {
+                Long productId = toLong(row[0]);
+                String productName = trimToNull(toStringValue(row[1]));
+                if (productId != null && productName != null) {
+                    rows.add(new ProductServiceRow(productId, productName));
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("queryProductServiceRows failed, use fallback implementation product ids: {}", e.getMessage());
+        }
+        return rows;
+    }
+
+    private Long resolveImplementationProductId(List<ProductServiceRow> productRows, ImplementationProductSpec spec) {
+        if (productRows != null && !productRows.isEmpty()) {
+            for (ProductServiceRow row : productRows) {
+                if (matchesImplementationProductSpec(row.productName, spec)) {
+                    return row.productId;
+                }
+            }
+        }
+        return spec.fallbackProductId;
+    }
+
+    private boolean matchesImplementationProductSpec(String productName, ImplementationProductSpec spec) {
+        String value = productName == null ? "" : productName.toUpperCase(Locale.ROOT);
+        for (String keyword : spec.requiredKeywords) {
+            if (!value.contains(keyword.toUpperCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        if (spec.preferredKeywords.isEmpty()) {
+            return true;
+        }
+        for (String keyword : spec.preferredKeywords) {
+            if (value.contains(keyword.toUpperCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ImplementationProductOption buildImplementationProductOption(Long productId, String productName, String latestTemplate) {
+        String productAlias = inferImplementationProductAlias(productId, productName);
+        String formType = switch (productAlias) {
+            case "JS" -> IMPLEMENTATION_FORM_TYPE_JS;
+            case "MK" -> IMPLEMENTATION_FORM_TYPE_MK;
+            case "DE" -> IMPLEMENTATION_FORM_TYPE_DE;
+            case "SQLBOT" -> IMPLEMENTATION_FORM_TYPE_SQLBOT;
+            default -> IMPLEMENTATION_FORM_TYPE_GENERIC;
+        };
+        String template = switch (productAlias) {
+            case "JS" -> "JumpServer";
+            case "MK" -> resolveMaxKbImplementationTemplate(productId, productName, latestTemplate);
+            case "DE" -> "DataEaseV2";
+            case "SQLBOT" -> firstNonBlank(latestTemplate, "SQLBot");
+            default -> firstNonBlank(latestTemplate, productName);
+        };
+        return new ImplementationProductOption(productId, productName, productAlias, template, formType);
+    }
+
+    private String resolveMaxKbImplementationTemplate(Long productId, String productName, String latestTemplate) {
+        String value = productName == null ? "" : productName.toUpperCase(Locale.ROOT);
+        if (Long.valueOf(2013L).equals(productId) ||
+                value.contains("企业") ||
+                value.contains("EE") ||
+                value.contains("ENTERPRISE")) {
+            return "MaxKBV2_EE";
+        }
+        if (Long.valueOf(2009L).equals(productId) ||
+                value.contains("专业") ||
+                value.contains("PRO") ||
+                value.contains("PROFESSIONAL")) {
+            return "MaxKBV2_PRO";
+        }
+        return firstNonBlank(latestTemplate, "MaxKBV2_PRO");
+    }
+
+    private String inferImplementationProductAlias(Long productId, String productName) {
+        if (productId != null) {
+            if (productId == 2001L) {
+                return "JS";
+            }
+            if (MAXKB_PRODUCT_IDS.contains(productId)) {
+                return "MK";
+            }
+            if (DATAEASE_PRODUCT_IDS.contains(productId)) {
+                return "DE";
+            }
+        }
+        String value = productName == null ? "" : productName.toUpperCase(Locale.ROOT);
+        if (value.contains("JUMPSERVER") || value.contains("JS")) {
+            return "JS";
+        }
+        if (value.contains("MAXKB") || value.contains("MK")) {
+            return "MK";
+        }
+        if (value.contains("DATAEASE") || value.contains("DE")) {
+            return "DE";
+        }
+        if (value.contains("SQLBOT")) {
+            return "SQLBOT";
+        }
+        return "OTHER";
+    }
+
+    private ImplementationProductOption resolveProductOption(List<ImplementationProductOption> productOptions, Long productId, String productName) {
+        if (productOptions != null && productId != null) {
+            for (ImplementationProductOption option : productOptions) {
+                if (productId.equals(option.getProductId())) {
+                    return option;
+                }
+            }
+        }
+        if (productId != null || trimToNull(productName) != null) {
+            return buildImplementationProductOption(productId, productName, null);
+        }
+        return null;
+    }
+
+    private ImplementationProductOption resolveFixedImplementationProductOption(Long productId, String template, String formType) {
+        String normalizedTemplate = trimToNull(template);
+        String normalizedFormType = normalizeImplementationFormType(formType);
+        for (ImplementationProductSpec spec : IMPLEMENTATION_PRODUCT_SPECS) {
+            if (productId != null && productId.equals(spec.fallbackProductId)) {
+                return new ImplementationProductOption(
+                        spec.fallbackProductId,
+                        spec.productName,
+                        spec.productAlias,
+                        spec.template,
+                        spec.formType
+                );
+            }
+            if (normalizedTemplate != null && normalizedTemplate.equals(spec.template)) {
+                return new ImplementationProductOption(
+                        spec.fallbackProductId,
+                        spec.productName,
+                        spec.productAlias,
+                        spec.template,
+                        spec.formType
+                );
+            }
+            if (normalizedFormType != null && normalizedFormType.equals(spec.formType)) {
+                return new ImplementationProductOption(
+                        productId != null ? productId : spec.fallbackProductId,
+                        spec.productName,
+                        spec.productAlias,
+                        spec.template,
+                        spec.formType
+                );
+            }
+        }
+        return buildImplementationProductOption(productId, null, normalizedTemplate);
+    }
+
+    private String resolveImplementationTemplate(String implementationProductAlias, ImplementationProductOption productOption, String productName) {
+        if (productOption != null && trimToNull(productOption.getTemplate()) != null) {
+            return trimToNull(productOption.getTemplate());
+        }
+        return switch (nullToEmpty(implementationProductAlias)) {
+            case "JS" -> "JumpServer";
+            case "MK" -> "MaxKBV2_PRO";
+            case "DE" -> "DataEaseV2";
+            case "SQLBOT" -> "SQLBot";
+            default -> firstNonBlank(productName, "Default");
+        };
+    }
+
+    private String resolveImplementationFormType(String implementationProductAlias, ImplementationProductOption productOption, String requestFormType) {
+        String normalizedRequestFormType = normalizeImplementationFormType(requestFormType);
+        if (normalizedRequestFormType != null) {
+            return normalizedRequestFormType;
+        }
+        if (productOption != null) {
+            String normalizedOptionFormType = normalizeImplementationFormType(productOption.getFormType());
+            if (normalizedOptionFormType != null) {
+                return normalizedOptionFormType;
+            }
+        }
+        String normalizedAlias = normalizeImplementationFormType(implementationProductAlias);
+        return normalizedAlias != null ? normalizedAlias : IMPLEMENTATION_FORM_TYPE_GENERIC;
+    }
+
+    private String normalizeImplementationFormType(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        return switch (upper) {
+            case "JS", "JUMPSERVER" -> IMPLEMENTATION_FORM_TYPE_JS;
+            case "MK", "MAXKB" -> IMPLEMENTATION_FORM_TYPE_MK;
+            case "DE", "DATAEASE" -> IMPLEMENTATION_FORM_TYPE_DE;
+            case "SQLBOT" -> IMPLEMENTATION_FORM_TYPE_SQLBOT;
+            default -> IMPLEMENTATION_FORM_TYPE_GENERIC;
+        };
     }
 
     public MaintenanceCreateContext getMaintenanceCreateContext(String extChatId, String loginUserId) throws Exception {
@@ -1247,13 +1686,22 @@ public class ChatGroupService {
     }
 
     public JSONObject createImplementationRecord(CreateImplementationRecordRequest request, String loginUserId) throws Exception {
-        if (request.getSubscriptionId() == null) {
-            throw new Exception("缺少订阅ID");
+        String extChatId = trimToNull(request.getExtChatId());
+        if (extChatId == null) {
+            throw new Exception("缺少群聊ID");
         }
-        if (request.getClientId() == null) {
+
+        SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
+        boolean draftMode = !hasSubscription(subscription);
+
+        if (!draftMode && subscription.clientId == null && request.getClientId() == null) {
             throw new Exception("缺少客户ID");
         }
-        if (request.getProductId() == null) {
+        Long selectedProductId = request.getSelectedProductId() != null ? request.getSelectedProductId() : request.getProductId();
+        if (selectedProductId == null && !draftMode) {
+            selectedProductId = subscription.productId;
+        }
+        if (selectedProductId == null) {
             throw new Exception("缺少产品ID");
         }
         if (request.getDeploymentDate() == null || request.getDeploymentDate().isEmpty()) {
@@ -1265,29 +1713,68 @@ public class ChatGroupService {
         if (request.getVersion() == null || request.getVersion().isEmpty()) {
             throw new Exception("缺少软件版本");
         }
-        String implementationProductAlias = resolveImplementationProductAlias(resolvePrimarySubscriptionContext(request.getExtChatId()), request.getExtChatId());
-        if (implementationProductAlias == null) {
-            throw new Exception("当前群聊暂不支持新增实施记录");
+        ImplementationProductOption productOption;
+        String implementationProductAlias;
+        if (draftMode) {
+            productOption = resolveFixedImplementationProductOption(selectedProductId, request.getTemplate(), request.getFormType());
+            implementationProductAlias = productOption != null
+                    ? productOption.getProductAlias()
+                    : normalizeImplementationFormType(request.getFormType());
+        } else {
+            List<ImplementationProductOption> productOptions = queryImplementationProductOptions();
+            productOption = resolveProductOption(productOptions, selectedProductId, null);
+            implementationProductAlias = resolveImplementationProductAlias(subscription, extChatId);
         }
-        validateImplementationRequestByProduct(implementationProductAlias, request);
+        String formType = resolveImplementationFormType(implementationProductAlias, productOption, request.getFormType());
+        String template = resolveImplementationTemplate(implementationProductAlias, productOption, request.getTemplate());
+        validateImplementationRequestByProduct(formType, request);
 
-        String regionId = request.getRegionId();
-        if (regionId == null || regionId.isEmpty()) {
-            regionId = resolveRegionId(request.getClientId(), request.getExtChatId());
+        String regionId = trimToNull(request.getRegionId());
+        String submitterName = trimToNull(request.getSubmitterName());
+        SupportUserResolution resolution;
+        String originalUserId;
+        if (submitterName != null) {
+            ImplementationSubmitterResolution submitterResolution = resolveImplementationSubmitter(submitterName);
+            originalUserId = submitterResolution.staffExtId;
+            resolution = submitterResolution.supportUserResolution;
+            if (draftMode && regionId == null) {
+                regionId = resolveRegionIdBySubmitter(submitterResolution.staffExtId);
+            }
+        } else {
+            originalUserId = request.getEditorUserId();
+            if (originalUserId == null || originalUserId.isEmpty()) {
+                originalUserId = loginUserId;
+            }
+            if (originalUserId == null || originalUserId.isEmpty()) {
+                throw new Exception("缺少提交人ID");
+            }
+            if (draftMode) {
+                DraftSubmitterResolution submitterResolution = resolveDraftSubmitter(originalUserId);
+                if (regionId == null) {
+                    regionId = submitterResolution.regionId;
+                }
+                resolution = submitterResolution.supportUserResolution;
+            } else {
+                resolution = resolveSupportUserIdDetails(originalUserId);
+            }
         }
-        if (regionId == null || regionId.isEmpty()) {
+        if (!draftMode && regionId == null) {
+            Long clientId = subscription.clientId != null ? subscription.clientId : request.getClientId();
+            regionId = resolveRegionId(clientId, extChatId);
+        }
+        if (regionId == null) {
+            if (draftMode) {
+                throw new Exception("缺少区域ID，无法根据提交人识别区域");
+            }
             throw new Exception("缺少区域ID，无法提交实施记录");
         }
 
-        String originalUserId = request.getEditorUserId();
-        if (originalUserId == null || originalUserId.isEmpty()) {
-            originalUserId = loginUserId;
+        if (!hasResolvedSupportUserId(resolution)) {
+            if (submitterName != null) {
+                throw new Exception("实施人未配置 support_user，请重新选择: " + submitterName);
+            }
+            throw new Exception("提交人未配置 support_user 或无法映射为 UUID: " + originalUserId);
         }
-        if (originalUserId == null || originalUserId.isEmpty()) {
-            throw new Exception("缺少提交人ID");
-        }
-
-        SupportUserResolution resolution = resolveSupportUserIdDetails(originalUserId);
         String editorUserId = resolution.resolvedUserId;
         LOGGER.info(
                 "createImplementationRecord owner resolution originalUserId={}, resolvedOwnerId={}, uuidCandidate={}, " +
@@ -1306,12 +1793,15 @@ public class ChatGroupService {
                 resolution.fallbackToOriginal
         );
 
-        JSONObject payload = new JSONObject();
-        payload.put("subscriptionId", request.getSubscriptionId());
-        payload.put("status", "DEPLOYED");
+        JSONObject payload = new JSONObject(true);
+        payload.put("subscriptionId", draftMode ? 0L : subscription.subscriptionId);
+        payload.put("chat_id", extChatId);
+        payload.put("groupChatId", extChatId);
+        payload.put("group_chat_id", extChatId);
+        payload.put("status", draftMode ? "DRAFT" : "DEPLOYED");
         payload.put("editorUserId", editorUserId);
         payload.put("regionId", regionId);
-        payload.put("content", buildImplementationContent(implementationProductAlias, request));
+        payload.put("content", buildImplementationContent(formType, template, request));
 
         String url = cscrmBaseUrl + cscrmApiPath + "/support-info/maintenances";
         LOGGER.info("createImplementationRecord request url={}, payload={}", url, payload.toJSONString());
@@ -1327,7 +1817,43 @@ public class ChatGroupService {
             }
             throw new Exception(message != null ? message : "新增实施记录失败");
         }
-        return responseJson.getJSONObject("data");
+        JSONObject data = responseJson.getJSONObject("data");
+        if (draftMode) {
+            validateDraftCreateResponse(extChatId, regionId, data);
+        }
+        if (data != null && data.getLong("id") != null) {
+            data.put("record", toMaintenanceRecord(data));
+        }
+        return data;
+    }
+
+    private void validateDraftCreateResponse(String extChatId, String expectedRegionId, JSONObject data) throws Exception {
+        Long createdId = data != null ? data.getLong("id") : null;
+        if (createdId == null || createdId <= 0) {
+            throw new Exception("CSCRM接口未返回草稿记录ID，新增草稿未确认写入");
+        }
+        String status = trimToNull(data.getString("status"));
+        if (!"DRAFT".equalsIgnoreCase(status)) {
+            throw new Exception("CSCRM接口未返回草稿状态，新增草稿未确认写入");
+        }
+        String returnedGroupChatId = firstNonBlank(
+                data.getString("group_chat_id"),
+                data.getString("groupChatId"),
+                data.getString("chat_id")
+        );
+        if (!extChatId.equals(returnedGroupChatId)) {
+            throw new Exception("CSCRM接口返回的群聊ID不匹配，新增草稿未确认写入");
+        }
+        String returnedRegionId = firstNonBlank(data.getString("region_id"), data.getString("regionId"));
+        if (returnedRegionId == null) {
+            throw new Exception("CSCRM接口未返回区域ID，新增草稿未确认写入");
+        }
+        if (trimToNull(expectedRegionId) != null && !expectedRegionId.equals(returnedRegionId)) {
+            throw new Exception("CSCRM接口返回的区域ID不匹配，新增草稿未确认写入");
+        }
+        if (trimToNull(data.getString("content")) == null) {
+            throw new Exception("CSCRM接口未返回草稿内容，新增草稿未确认写入");
+        }
     }
 
     private void validateImplementationRequestByProduct(String implementationProductAlias, CreateImplementationRecordRequest request) throws Exception {
@@ -1410,6 +1936,32 @@ public class ChatGroupService {
                     throw new Exception("缺少客户核心关注点");
                 }
             }
+            case "SQLBOT" -> {
+                if (isBlank(request.getBackupMethod())) {
+                    throw new Exception("缺少备份方式");
+                }
+                if (isBlank(request.getDatabaseExternal())) {
+                    throw new Exception("缺少 PostgreSQL 外置配置");
+                }
+                if (isBlank(request.getDeploymentArchitecture())) {
+                    throw new Exception("缺少部署架构");
+                }
+                if (isBlank(request.getDataSourceType())) {
+                    throw new Exception("缺少数据源类型");
+                }
+                if (isBlank(request.getAiModelType())) {
+                    throw new Exception("缺少 AI模型类型");
+                }
+                if (request.getAuthMethods() == null || request.getAuthMethods().isEmpty()) {
+                    throw new Exception("缺少第三方平台对接");
+                }
+                if (isBlank(request.getEmbeddedMode())) {
+                    throw new Exception("缺少嵌入集成配置");
+                }
+            }
+            case "GENERIC" -> {
+                // 通用产品只校验公共字段，公共字段已在入口统一校验。
+            }
             default -> throw new Exception("当前群聊暂不支持新增实施记录");
         }
     }
@@ -1422,18 +1974,34 @@ public class ChatGroupService {
 
         com.util.JdbcUtils.setCscrmConfig();
         try {
-            String clientName = resolveContractClientName(normalizedExtChatId);
-            List<ContractSubscription> subscriptions = fetchContractSubscriptions(clientName);
-            LOGGER.info("getContractSubscriptions by clientName extChatId={}, clientName={}, count={}",
-                    normalizedExtChatId, clientName, subscriptions.size());
+            SubscriptionContext subscription = resolveImplementationSubscriptionContext(normalizedExtChatId);
+            String clientName = subscription != null ? trimToNull(subscription.clientName) : null;
+            String productAlias = resolveContractProductAlias(normalizedExtChatId, subscription);
+            List<ContractSubscription> subscriptions = fetchContractSubscriptions(clientName, productAlias);
+            LOGGER.info("getContractSubscriptions by clientName extChatId={}, clientName={}, productAlias={}, count={}",
+                    normalizedExtChatId, clientName, productAlias, subscriptions.size());
             return subscriptions;
         } finally {
             com.util.JdbcUtils.clearConfig();
         }
     }
 
+    private String resolveContractProductAlias(String extChatId, SubscriptionContext subscription) {
+        String groupAlias = getProductAliasByExtChatId(extChatId);
+        if (isSupportedImplementationAlias(groupAlias)) {
+            return groupAlias;
+        }
+        return resolveImplementationProductAlias(subscription, extChatId);
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean hasSubscription(SubscriptionContext subscription) {
+        return subscription != null
+                && subscription.subscriptionId != null
+                && subscription.subscriptionId > 0;
     }
 
     private boolean hasResolvedSupportUserId(SupportUserResolution resolution) {
@@ -1443,11 +2011,99 @@ public class ChatGroupService {
                 && !resolution.fallbackToOriginal;
     }
 
-    private JSONObject buildImplementationContent(String implementationProductAlias, CreateImplementationRecordRequest request) throws Exception {
-        return switch (implementationProductAlias) {
-            case "JS" -> buildJumpServerImplementationContent(request);
-            case "MK" -> buildMaxKbImplementationContent(request);
-            case "DE" -> buildDataEaseImplementationContent(request);
+    private DraftSubmitterResolution resolveDraftSubmitter(String submitterUserId) {
+        DraftSubmitterResolution draftResolution = new DraftSubmitterResolution();
+        SupportUserResolution userResolution = new SupportUserResolution(submitterUserId);
+        draftResolution.supportUserResolution = userResolution;
+
+        String normalizedSubmitterUserId = trimToNull(submitterUserId);
+        if (normalizedSubmitterUserId == null) {
+            userResolution.fallbackToOriginal = true;
+            return draftResolution;
+        }
+        if (isUuid(normalizedSubmitterUserId)) {
+            userResolution.uuidCandidate = true;
+            userResolution.resolvedUserId = normalizedSubmitterUserId;
+            draftResolution.regionId = resolveRegionIdBySubmitter(normalizedSubmitterUserId);
+            return draftResolution;
+        }
+
+        Long departmentId = null;
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            try {
+                String staffSql = "SELECT sd.ext_department_id, s.name, s.email " +
+                        "FROM staff s " +
+                        "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                        "WHERE s.ext_id = ? LIMIT 1";
+                var staffResult = com.util.JdbcUtils.query(staffSql, normalizedSubmitterUserId);
+                if (!staffResult.isEmpty()) {
+                    userResolution.staffHit = true;
+                    departmentId = toLong(staffResult.get(0)[0]);
+                    userResolution.staffName = staffResult.get(0)[1] != null ? staffResult.get(0)[1].toString() : null;
+                    userResolution.staffEmail = staffResult.get(0)[2] != null ? staffResult.get(0)[2].toString() : null;
+                }
+            } catch (Exception ignored) {
+                // ignore and try direct support_user match
+            }
+
+            String regionName = resolveRegionNameByDepartmentId(departmentId);
+            if (regionName != null) {
+                draftResolution.regionId = resolveRegionIdByName(regionName);
+                LOGGER.info("resolveDraftSubmitter region submitterUserId={}, departmentId={}, regionName={}, regionId={}",
+                        normalizedSubmitterUserId, departmentId, regionName, draftResolution.regionId);
+            }
+
+            String staffEmail = trimToNull(userResolution.staffEmail);
+            String staffName = trimToNull(userResolution.staffName);
+            if (staffEmail != null || staffName != null) {
+                try {
+                    String supportSql = "SELECT su.user_id FROM support_user su " +
+                            "WHERE (? IS NOT NULL AND su.email = ?) " +
+                            "   OR (? IS NOT NULL AND su.name = ?) " +
+                            "LIMIT 1";
+                    var supportResult = com.util.JdbcUtils.query(supportSql, staffEmail, staffEmail, staffName, staffName);
+                    if (!supportResult.isEmpty() && supportResult.get(0)[0] != null) {
+                        userResolution.supportUserByStaffHit = true;
+                        userResolution.supportUserByStaffId = supportResult.get(0)[0].toString();
+                        userResolution.resolvedUserId = userResolution.supportUserByStaffId;
+                        return draftResolution;
+                    }
+                } catch (Exception ignored) {
+                    // ignore and try direct support_user match
+                }
+            }
+
+            try {
+                String supportSql = "SELECT su.user_id FROM support_user su " +
+                        "WHERE su.username = ? OR su.name = ? OR su.email = ? LIMIT 1";
+                var supportResult = com.util.JdbcUtils.query(supportSql,
+                        normalizedSubmitterUserId, normalizedSubmitterUserId, normalizedSubmitterUserId);
+                if (!supportResult.isEmpty() && supportResult.get(0)[0] != null) {
+                    userResolution.directSupportUserHit = true;
+                    userResolution.directSupportUserId = supportResult.get(0)[0].toString();
+                    userResolution.resolvedUserId = userResolution.directSupportUserId;
+                    return draftResolution;
+                }
+            } catch (Exception ignored) {
+                // ignore and fallback below
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+
+        userResolution.resolvedUserId = normalizedSubmitterUserId;
+        userResolution.fallbackToOriginal = true;
+        return draftResolution;
+    }
+
+    private JSONObject buildImplementationContent(String formType, String template, CreateImplementationRecordRequest request) throws Exception {
+        return switch (formType) {
+            case "JS" -> buildJumpServerImplementationContent(template, request);
+            case "MK" -> buildMaxKbImplementationContent(template, request);
+            case "DE" -> buildDataEaseImplementationContent(template, request);
+            case "SQLBOT" -> buildSqlBotImplementationContent(template, request);
+            case "GENERIC" -> buildGenericImplementationContent(template, request);
             default -> throw new Exception("当前群聊暂不支持新增实施记录");
         };
     }
@@ -1588,6 +2244,53 @@ public class ChatGroupService {
         return resolution.resolvedUserId;
     }
 
+    private ImplementationSubmitterResolution resolveImplementationSubmitter(String submitterName) throws Exception {
+        String normalizedSubmitterName = trimToNull(submitterName);
+        if (normalizedSubmitterName == null) {
+            throw new Exception("缺少实施人");
+        }
+
+        String staffExtId = null;
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String sql = "SELECT s.ext_id FROM staff s WHERE s.name = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedSubmitterName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                staffExtId = result.get(0)[0].toString();
+            }
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+
+        if (isBlank(staffExtId)) {
+            throw new Exception("未找到实施人: " + normalizedSubmitterName);
+        }
+
+        SupportUserResolution resolution = resolveSupportUserIdDetails(staffExtId);
+        LOGGER.info(
+                "createImplementationRecord submitter resolution submitterName={}, staffExtId={}, resolvedOwnerId={}, uuidCandidate={}, " +
+                        "staffHit={}, staffName={}, staffEmail={}, directSupportUserHit={}, directSupportUserId={}, " +
+                        "supportUserByStaffHit={}, supportUserByStaffId={}, fallbackToOriginal={}",
+                normalizedSubmitterName,
+                staffExtId,
+                resolution.resolvedUserId,
+                resolution.uuidCandidate,
+                resolution.staffHit,
+                resolution.staffName,
+                resolution.staffEmail,
+                resolution.directSupportUserHit,
+                resolution.directSupportUserId,
+                resolution.supportUserByStaffHit,
+                resolution.supportUserByStaffId,
+                resolution.fallbackToOriginal
+        );
+
+        ImplementationSubmitterResolution submitterResolution = new ImplementationSubmitterResolution();
+        submitterResolution.staffExtId = staffExtId;
+        submitterResolution.supportUserResolution = resolution;
+        return submitterResolution;
+    }
+
     private static final class SupportUserResolution {
         private final String originalCandidate;
         private String resolvedUserId;
@@ -1606,90 +2309,173 @@ public class ChatGroupService {
         }
     }
 
-    private SubscriptionContext resolvePrimarySubscriptionContext(String extChatId) {
-        String productAlias = getProductAliasByExtChatId(extChatId);
-        String directSql = "SELECT " +
-                "  ss.id, " +
-                "  ss.client_id, " +
-                "  sc.name, " +
-                "  ss.contract_number, " +
-                "  sps.product_id, " +
-                "  sps.name, " +
-                "  ss.region_id, " +
-                "  FROM_UNIXTIME(ss.start_date / 1000, '%Y-%m-%d') AS subscription_start_date, " +
-                "  FROM_UNIXTIME(ss.support_end_date / 1000, '%Y-%m-%d') AS support_end_date " +
-                "FROM group_chat gc " +
-                "INNER JOIN support_subscription ss ON ss.group_chat_name = gc.name " +
-                "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
-                "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
-                "WHERE gc.ext_chat_id = ? " +
-                "  AND ss.client_id IS NOT NULL " +
-                "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
-                "LIMIT 1";
-        var directResult = com.util.JdbcUtils.query(directSql, extChatId);
-        if (directResult.isEmpty()) {
-            Long clientId = resolvePrimaryClientId(extChatId);
-            if (clientId == null) {
+    private static final class DraftSubmitterResolution {
+        private String regionId;
+        private SupportUserResolution supportUserResolution;
+    }
+
+    private static final class ImplementationSubmitterResolution {
+        private String staffExtId;
+        private SupportUserResolution supportUserResolution;
+    }
+
+    private SubscriptionContext fetchSubscriptionContextFromApi(String extChatId) {
+        try {
+            String url = cscrmBaseUrl + cscrmApiPath +
+                    "/support-info/subscriptions/latest-by-group?groupid=" +
+                    URLEncoder.encode(extChatId, StandardCharsets.UTF_8);
+            String response = requestWithDnsRetry(url);
+            JSONObject responseJson = JSONObject.parseObject(response);
+            Integer code = responseJson.getInteger("code");
+            if (code == null || code != 0) {
+                LOGGER.warn("fetchSubscriptionContextFromApi non-zero code extChatId={}, code={}", extChatId, code);
                 return null;
             }
-            String sql = "SELECT " +
-                    "  ss.id, " +
-                    "  ss.client_id, " +
-                    "  sc.name, " +
-                    "  ss.contract_number, " +
-                    "  sps.product_id, " +
-                    "  sps.name, " +
-                    "  ss.region_id, " +
-                    "  FROM_UNIXTIME(ss.start_date / 1000, '%Y-%m-%d') AS subscription_start_date, " +
-                    "  FROM_UNIXTIME(ss.support_end_date / 1000, '%Y-%m-%d') AS support_end_date " +
-                    "FROM support_subscription ss " +
-                    "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
-                    "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
-                    "WHERE ss.client_id = ? " +
-                    "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
-                    "LIMIT 20";
-            var result = com.util.JdbcUtils.query(sql, clientId);
-            SubscriptionContext fallback = null;
-            for (Object[] row : result) {
-                SubscriptionContext clientContext = toSubscriptionContext(row);
-                if (fallback == null) {
-                    fallback = clientContext;
-                }
-                if (matchesProductAlias(productAlias, clientContext.productName)) {
-                    LOGGER.info("resolvePrimarySubscriptionContext by client success extChatId={}, clientId={}, subscriptionId={}, productAlias={}, productName={}",
-                            extChatId, clientId, clientContext.subscriptionId, productAlias, clientContext.productName);
-                    return clientContext;
-                }
+            JSONObject data = responseJson.getJSONObject("data");
+            if (data == null) {
+                return null;
             }
-            if (fallback != null) {
-                LOGGER.info("resolvePrimarySubscriptionContext by client fallback extChatId={}, clientId={}, subscriptionId={}, productAlias={}, productName={}",
-                        extChatId, clientId, fallback.subscriptionId, productAlias, fallback.productName);
-                return fallback;
-            }
+            SubscriptionContext context = toSubscriptionContext(data);
+            String source = data.getString("source");
+            LOGGER.info("fetchSubscriptionContextFromApi success extChatId={}, subscriptionId={}, clientId={}, source={}",
+                    extChatId, context.subscriptionId, context.clientId, source);
+            return context;
+        } catch (Exception e) {
+            LOGGER.warn("fetchSubscriptionContextFromApi failed extChatId={}, err={}", extChatId, e.getMessage());
             return null;
         }
-        SubscriptionContext context = toSubscriptionContext(directResult.get(0));
-        LOGGER.info("resolvePrimarySubscriptionContext by direct group success extChatId={}, subscriptionId={}, productAlias={}, productName={}",
-                extChatId, context.subscriptionId, productAlias, context.productName);
+    }
+
+    private SubscriptionContext fetchSubscriptionContextForImplementation(String extChatId) throws Exception {
+        String url = cscrmBaseUrl + cscrmApiPath +
+                "/support-info/subscriptions/latest-by-group?groupid=" +
+                URLEncoder.encode(extChatId, StandardCharsets.UTF_8);
+        String response = requestWithDnsRetry(url);
+        JSONObject responseJson = JSONObject.parseObject(response);
+        Integer code = responseJson.getInteger("code");
+        if (code == null || code != 0) {
+            throw new Exception(firstNonBlank(
+                    responseJson.getString("message"),
+                    responseJson.getString("msg"),
+                    "查询群聊订阅失败"
+            ));
+        }
+        JSONObject data = responseJson.getJSONObject("data");
+        if (data == null) {
+            return null;
+        }
+        SubscriptionContext context = toSubscriptionContext(data);
+        String source = data.getString("source");
+        LOGGER.info("fetchSubscriptionContextForImplementation success extChatId={}, subscriptionId={}, clientId={}, source={}",
+                extChatId, context.subscriptionId, context.clientId, source);
         return context;
     }
 
-    private Long resolvePrimaryClientId(String extChatId) {
-        String sql = "SELECT ss.client_id " +
-                "FROM group_chat gc " +
-                "INNER JOIN support_subscription ss ON ss.group_chat_name = gc.name " +
-                "WHERE gc.ext_chat_id = ? " +
-                "  AND ss.client_id IS NOT NULL " +
-                "ORDER BY COALESCE(ss.support_end_date, 0) DESC, ss.id DESC " +
-                "LIMIT 1";
-        var result = com.util.JdbcUtils.query(sql, extChatId);
-        if (result.isEmpty() || result.get(0)[0] == null) {
-            return null;
-        }
-        return toLong(result.get(0)[0]);
+    private SubscriptionContext resolveProductAwareSubscriptionContextFromApi(String extChatId) {
+        return resolveProductAwareSubscriptionContext(extChatId, fetchSubscriptionContextFromApi(extChatId));
     }
 
-    private SubscriptionContext toSubscriptionContext(Object[] row) {
+    private SubscriptionContext resolveImplementationSubscriptionContext(String extChatId) throws Exception {
+        return resolveProductAwareSubscriptionContext(extChatId, fetchSubscriptionContextForImplementation(extChatId));
+    }
+
+    private SubscriptionContext resolveProductAwareSubscriptionContext(String extChatId, SubscriptionContext latest) {
+        String groupAlias = getProductAliasByExtChatId(extChatId);
+        if (!isSupportedImplementationAlias(groupAlias)) {
+            return latest;
+        }
+
+        if (hasSubscription(latest) && matchesProductAlias(groupAlias, latest.productName)) {
+            return latest;
+        }
+
+        SubscriptionContext matched = queryImplementationSubscriptionByGroupProduct(extChatId, latest, groupAlias);
+        if (hasSubscription(matched)) {
+            LOGGER.info(
+                    "resolveImplementationSubscriptionContext product matched extChatId={}, groupAlias={}, latestSubscriptionId={}, latestProduct={}, matchedSubscriptionId={}, matchedProduct={}",
+                    extChatId,
+                    groupAlias,
+                    latest != null ? latest.subscriptionId : null,
+                    latest != null ? latest.productName : null,
+                    matched.subscriptionId,
+                    matched.productName
+            );
+            return matched;
+        }
+
+        if (hasSubscription(latest)) {
+            LOGGER.warn(
+                    "resolveImplementationSubscriptionContext product mismatch but no matched subscription extChatId={}, groupAlias={}, latestSubscriptionId={}, latestProduct={}",
+                    extChatId,
+                    groupAlias,
+                    latest.subscriptionId,
+                    latest.productName
+            );
+        }
+        return latest;
+    }
+
+    private SubscriptionContext queryImplementationSubscriptionByGroupProduct(
+            String extChatId,
+            SubscriptionContext latest,
+            String productAlias) {
+        try {
+            List<Object> params = new ArrayList<>();
+            params.add(extChatId);
+
+            StringBuilder sql = new StringBuilder("SELECT ss.id, " +
+                    "       ss.client_id, " +
+                    "       sc.name, " +
+                    "       ss.contract_number, " +
+                    "       sps.product_id, " +
+                    "       sps.name, " +
+                    "       ss.region_id, " +
+                    "       ss.start_date, " +
+                    "       ss.support_end_date " +
+                    "FROM group_chat gc " +
+                    "INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                    "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
+                    "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
+                    "WHERE gc.ext_chat_id = ? ");
+            if (latest != null && latest.clientId != null) {
+                sql.append("AND ss.client_id = ? ");
+                params.add(latest.clientId);
+            } else if (latest != null && trimToNull(latest.clientName) != null) {
+                sql.append("AND sc.name = ? ");
+                params.add(trimToNull(latest.clientName));
+            }
+            sql.append("AND ").append(buildProductAliasSqlCondition(productAlias)).append(" ");
+            sql.append("ORDER BY ss.support_end_date DESC, ss.id DESC LIMIT 1");
+
+            var result = com.util.JdbcUtils.query(sql.toString(), params.toArray());
+            if (result.isEmpty()) {
+                return null;
+            }
+            SubscriptionContext context = toSubscriptionContextFromRow(result.get(0));
+            if (latest != null) {
+                context.clientName = firstNonBlank(context.clientName, latest.clientName);
+                context.regionId = firstNonBlank(context.regionId, latest.regionId);
+                context.serviceTypeName = firstNonBlank(context.serviceTypeName, latest.serviceTypeName, "授权服务");
+            }
+            return context;
+        } catch (Exception e) {
+            LOGGER.warn("queryImplementationSubscriptionByGroupProduct failed extChatId={}, productAlias={}, err={}",
+                    extChatId, productAlias, e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildProductAliasSqlCondition(String productAlias) {
+        return switch (productAlias) {
+            case "JS" -> "(sps.product_id = 2001 OR UPPER(COALESCE(sps.name, '')) LIKE '%JUMPSERVER%' OR UPPER(COALESCE(sps.name, '')) LIKE '%JS%')";
+            case "MK" -> "(sps.product_id IN (2009, 2013) OR UPPER(COALESCE(sps.name, '')) LIKE '%MAXKB%' OR UPPER(COALESCE(sps.name, '')) LIKE '%MK%')";
+            case "DE" -> "(sps.product_id IN (2003, 2008) OR UPPER(COALESCE(sps.name, '')) LIKE '%DATAEASE%' OR UPPER(COALESCE(sps.name, '')) LIKE '%DE%')";
+            case "SQLBOT" -> "(sps.product_id = 2011 OR UPPER(COALESCE(sps.name, '')) LIKE '%SQLBOT%')";
+            default -> "1 = 0";
+        };
+    }
+
+    private SubscriptionContext toSubscriptionContextFromRow(Object[] row) {
         SubscriptionContext context = new SubscriptionContext();
         context.subscriptionId = toLong(row[0]);
         context.clientId = toLong(row[1]);
@@ -1698,10 +2484,32 @@ public class ChatGroupService {
         context.productId = toLong(row[4]);
         context.productName = toStringValue(row[5]);
         context.regionId = toStringValue(row[6]);
-        context.subscriptionStartDate = toStringValue(row[7]);
-        context.supportEndDate = toStringValue(row[8]);
+        context.subscriptionStartDate = formatEpochMillisDate(toStringValue(row[7]));
+        context.supportEndDate = formatEpochMillisDate(toStringValue(row[8]));
         context.serviceTypeName = "授权服务";
         return context;
+    }
+
+    private SubscriptionContext toSubscriptionContext(JSONObject data) {
+        SubscriptionContext context = new SubscriptionContext();
+        context.subscriptionId = data.getLong("id");
+        context.clientId = data.getLong("client_id");
+        context.clientName = data.getString("client_name");
+        context.contractNumber = data.getString("contract_number");
+        context.productId = data.getLong("product_id");
+        context.productName = data.getString("product_name");
+        context.regionId = data.getString("region_id");
+        context.subscriptionStartDate = data.getString("subscription_start_date");
+        context.supportEndDate = data.getString("support_end_date");
+        context.serviceTypeName = "授权服务";
+        return context;
+    }
+
+    private boolean isSupportedImplementationAlias(String productAlias) {
+        return "JS".equals(productAlias)
+                || "MK".equals(productAlias)
+                || "DE".equals(productAlias)
+                || "SQLBOT".equals(productAlias);
     }
 
     private boolean matchesProductAlias(String productAlias, String productName) {
@@ -1740,9 +2548,12 @@ public class ChatGroupService {
             if (matchesProductAlias("DE", subscription.productName)) {
                 return "DE";
             }
+            if (matchesProductAlias("SQLBOT", subscription.productName)) {
+                return "SQLBOT";
+            }
         }
         String groupAlias = getProductAliasByExtChatId(extChatId);
-        if ("JS".equals(groupAlias) || "MK".equals(groupAlias) || "DE".equals(groupAlias)) {
+        if (isSupportedImplementationAlias(groupAlias)) {
             return groupAlias;
         }
         return null;
@@ -1813,9 +2624,9 @@ public class ChatGroupService {
         return String.join(" - ", parts);
     }
 
-    private JSONObject buildJumpServerImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+    private JSONObject buildJumpServerImplementationContent(String template, CreateImplementationRecordRequest request) throws Exception {
         JSONArray elements = new JSONArray();
-        addImplementationElement(elements, "template", "JumpServer");
+        addImplementationElement(elements, "template", firstNonBlank(template, "JumpServer"));
         addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
         addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
         addImplementationElement(elements, "version", request.getVersion());
@@ -1840,9 +2651,9 @@ public class ChatGroupService {
         return content;
     }
 
-    private JSONObject buildMaxKbImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+    private JSONObject buildMaxKbImplementationContent(String template, CreateImplementationRecordRequest request) throws Exception {
         JSONArray elements = new JSONArray();
-        addImplementationElement(elements, "template", "MaxKBV2_PRO");
+        addImplementationElement(elements, "template", firstNonBlank(template, "MaxKBV2_PRO"));
         addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
         addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
         addImplementationElement(elements, "version", request.getVersion());
@@ -1856,9 +2667,9 @@ public class ChatGroupService {
         return content;
     }
 
-    private JSONObject buildDataEaseImplementationContent(CreateImplementationRecordRequest request) throws Exception {
+    private JSONObject buildDataEaseImplementationContent(String template, CreateImplementationRecordRequest request) throws Exception {
         JSONArray elements = new JSONArray();
-        addImplementationElement(elements, "template", "DataEaseV2");
+        addImplementationElement(elements, "template", firstNonBlank(template, "DataEaseV2"));
         addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
         addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
         addImplementationElement(elements, "version", request.getVersion());
@@ -1873,6 +2684,43 @@ public class ChatGroupService {
         addImplementationElement(elements, "form4prop7", request.getCustomerJoined());
         addImplementationElement(elements, "form4prop3", request.getAnalysisDirection());
         addImplementationElement(elements, "form4prop4", nullToEmpty(trimToNull(request.getCustomerFocus())));
+        addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
+        addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
+        JSONObject content = new JSONObject();
+        content.put("elements", elements);
+        return content;
+    }
+
+    private JSONObject buildSqlBotImplementationContent(String template, CreateImplementationRecordRequest request) throws Exception {
+        JSONArray elements = new JSONArray();
+        addImplementationElement(elements, "template", firstNonBlank(template, "SQLBot"));
+        addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
+        addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
+        addImplementationElement(elements, "version", request.getVersion());
+        addImplementationElement(elements, "form1prop3", request.getDeploymentArchitecture());
+        addImplementationElement(elements, "backupMethod", request.getBackupMethod());
+        addImplementationElement(elements, "form1prop1", request.getDatabaseExternal());
+        addImplementationElement(elements, "form4prop1", request.getDataSourceType());
+        addImplementationElement(elements, "form4prop2", request.getAiModelType());
+        addImplementationElement(elements, "form4prop6", request.getEmbeddedMode());
+        addImplementationMultiValueElement(elements, "form4prop5", request.getAuthMethods());
+        for (int i = 1; i <= 9; i++) {
+            addImplementationElement(elements, "form2prop" + i, IMPLEMENTATION_DEFAULT_VALIDATION_VALUE);
+        }
+        addImplementationElement(elements, "form2prop10", "已提醒客户，已修改");
+        addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
+        addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
+        JSONObject content = new JSONObject();
+        content.put("elements", elements);
+        return content;
+    }
+
+    private JSONObject buildGenericImplementationContent(String template, CreateImplementationRecordRequest request) throws Exception {
+        JSONArray elements = new JSONArray();
+        addImplementationElement(elements, "template", firstNonBlank(template, request.getTemplate(), "Default"));
+        addImplementationElement(elements, "deploymentTime", String.valueOf(parseDeploymentDateToEpochMillis(request.getDeploymentDate())));
+        addImplementationElement(elements, "deploymentMethod", request.getDeploymentMethod());
+        addImplementationElement(elements, "version", request.getVersion());
         addImplementationElement(elements, "form3prop1", nullToEmpty(trimToNull(request.getRemainingIssues())));
         addImplementationElement(elements, "form3prop2", nullToEmpty(trimToNull(request.getRemark())));
         JSONObject content = new JSONObject();
@@ -1929,10 +2777,10 @@ public class ChatGroupService {
 
     private String normalizeLegacyDeploymentTime(String value) {
         String normalized = trimToNull(value);
-        if ("1970-01-01".equals(normalized)) {
+        if (normalized == null || "1970-01-01".equals(normalized)) {
             return null;
         }
-        return normalized;
+        return formatEpochMillisDate(normalized);
     }
 
     private String trimToNull(String value) {
@@ -2002,7 +2850,13 @@ public class ChatGroupService {
                     case "backupMethod" -> snapshot.backupMethod = value;
                     case "virtualizationType", "form1prop4" -> snapshot.virtualizationType = value;
                     case "form1prop11" -> snapshot.deploymentArchitecture = value;
-                    case "form1prop3" -> snapshot.assetCount = value;
+                    case "form1prop3" -> {
+                        if (isTemplate(snapshot.template, "SQLBot")) {
+                            snapshot.deploymentArchitecture = value;
+                        } else {
+                            snapshot.assetCount = value;
+                        }
+                    }
                     case "form1prop8" -> snapshot.applicationServer = value;
                     case "form1prop5" -> snapshot.databaseExternal = value;
                     case "form1prop6" -> snapshot.redisExternal = value;
@@ -2015,6 +2869,8 @@ public class ChatGroupService {
                             snapshot.deploymentArchitecture = value;
                         } else if (isTemplate(snapshot.template, "DataEase")) {
                             snapshot.dataEaseDatabase = value;
+                        } else if (isTemplate(snapshot.template, "SQLBot")) {
+                            snapshot.databaseExternal = value;
                         }
                     }
                     case "form1prop2" -> {
@@ -2029,9 +2885,17 @@ public class ChatGroupService {
                             snapshot.authMethods = String.join("、", values);
                         } else if (isTemplate(snapshot.template, "DataEase")) {
                             snapshot.dataSourceType = value;
+                        } else if (isTemplate(snapshot.template, "SQLBot")) {
+                            snapshot.dataSourceType = value;
                         }
                     }
-                    case "form4prop2" -> snapshot.dataScale = value;
+                    case "form4prop2" -> {
+                        if (isTemplate(snapshot.template, "SQLBot")) {
+                            snapshot.aiModelType = value;
+                        } else {
+                            snapshot.dataScale = value;
+                        }
+                    }
                     case "form4prop3" -> {
                         if (isTemplate(snapshot.template, "MaxKB")) {
                             snapshot.businessDirections = String.join("、", values);
@@ -2161,6 +3025,14 @@ public class ChatGroupService {
             addImplementationDisplayLine(sections, "客户接入状态", snapshot.customerJoined);
             addImplementationDisplayLine(sections, "分析及展示方向", snapshot.analysisDirection);
             addImplementationDisplayLine(sections, "客户核心关注点", snapshot.customerFocus);
+        } else if (isTemplate(snapshot.template, "SQLBot")) {
+            addImplementationDisplayLine(sections, "部署架构", snapshot.deploymentArchitecture);
+            addImplementationDisplayLine(sections, "备份方式", snapshot.backupMethod);
+            addImplementationDisplayLine(sections, "PostgreSQL 是否外置", snapshot.databaseExternal);
+            addImplementationDisplayLine(sections, "数据源类型", snapshot.dataSourceType);
+            addImplementationDisplayLine(sections, "AI模型类型", snapshot.aiModelType);
+            addImplementationDisplayLine(sections, "是否嵌入集成", snapshot.embeddedMode);
+            addImplementationDisplayLine(sections, "第三方平台对接", snapshot.authMethods);
         }
         addImplementationDisplayBlock(sections, "遗留问题", snapshot.remainingIssues);
         addImplementationDisplayBlock(sections, "备注", snapshot.remark);
@@ -2200,6 +3072,38 @@ public class ChatGroupService {
         private String supportEndDate;
     }
 
+    private static final class ImplementationProductSpec {
+        private final Long fallbackProductId;
+        private final String productName;
+        private final String productAlias;
+        private final String template;
+        private final String formType;
+        private final List<String> requiredKeywords;
+        private final List<String> preferredKeywords;
+
+        private ImplementationProductSpec(Long fallbackProductId, String productName, String productAlias,
+                                          String template, String formType, List<String> requiredKeywords,
+                                          List<String> preferredKeywords) {
+            this.fallbackProductId = fallbackProductId;
+            this.productName = productName;
+            this.productAlias = productAlias;
+            this.template = template;
+            this.formType = formType;
+            this.requiredKeywords = requiredKeywords;
+            this.preferredKeywords = preferredKeywords;
+        }
+    }
+
+    private static final class ProductServiceRow {
+        private final Long productId;
+        private final String productName;
+
+        private ProductServiceRow(Long productId, String productName) {
+            this.productId = productId;
+            this.productName = productName;
+        }
+    }
+
     private static final class ImplementationContentSnapshot {
         private String template;
         private String deploymentTime;
@@ -2222,6 +3126,7 @@ public class ChatGroupService {
         private String dataEaseDatabase;
         private String dorisUsage;
         private String dataSourceType;
+        private String aiModelType;
         private String dataScale;
         private String embeddedMode;
         private String customerJoined;
@@ -2309,7 +3214,139 @@ public class ChatGroupService {
         return null;
     }
 
+    private String resolveRegionIdBySubmitter(String submitterUserId) {
+        String normalizedSubmitterUserId = trimToNull(submitterUserId);
+        if (normalizedSubmitterUserId == null) {
+            return null;
+        }
+
+        Long departmentId = resolveSubmitterDepartmentId(normalizedSubmitterUserId);
+        String regionName = resolveRegionNameByDepartmentId(departmentId);
+        if (regionName == null) {
+            LOGGER.warn("resolveRegionIdBySubmitter no region mapping submitterUserId={}, departmentId={}",
+                    normalizedSubmitterUserId, departmentId);
+            return null;
+        }
+
+        String regionId = resolveRegionIdByName(regionName);
+        LOGGER.info("resolveRegionIdBySubmitter submitterUserId={}, departmentId={}, regionName={}, regionId={}",
+                normalizedSubmitterUserId, departmentId, regionName, regionId);
+        return regionId;
+    }
+
+    private Long resolveSubmitterDepartmentId(String submitterUserId) {
+        Long departmentId = resolveDepartmentIdByStaffExtId(submitterUserId);
+        if (departmentId != null) {
+            return departmentId;
+        }
+
+        try {
+            String supportUserSql = "SELECT su.email, su.name " +
+                    "FROM support_user su " +
+                    "WHERE su.user_id = ? LIMIT 1";
+            var supportUserResult = com.util.JdbcUtils.query(supportUserSql, submitterUserId);
+            if (!supportUserResult.isEmpty()) {
+                String email = supportUserResult.get(0)[0] != null ? supportUserResult.get(0)[0].toString() : null;
+                String name = supportUserResult.get(0)[1] != null ? supportUserResult.get(0)[1].toString() : null;
+                departmentId = resolveDepartmentIdByStaffEmailOrName(email, name);
+                if (departmentId != null) {
+                    return departmentId;
+                }
+            }
+        } catch (Exception ignored) {
+            // ignore and fallback
+        }
+
+        return resolveDepartmentIdByStaffEmailOrName(submitterUserId, submitterUserId);
+    }
+
+    private Long resolveDepartmentIdByStaffExtId(String extId) {
+        String normalizedExtId = trimToNull(extId);
+        if (normalizedExtId == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT sd.ext_department_id " +
+                    "FROM staff s " +
+                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE s.ext_id = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedExtId);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return toLong(result.get(0)[0]);
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
+    private Long resolveDepartmentIdByStaffEmailOrName(String email, String name) {
+        String normalizedEmail = trimToNull(email);
+        String normalizedName = trimToNull(name);
+        if (normalizedEmail == null && normalizedName == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT sd.ext_department_id " +
+                    "FROM staff s " +
+                    "LEFT JOIN staff_department sd ON s.id = sd.staff_id " +
+                    "WHERE (? IS NOT NULL AND s.email = ?) " +
+                    "   OR (? IS NOT NULL AND s.name = ?) " +
+                    "LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedEmail, normalizedEmail, normalizedName, normalizedName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return toLong(result.get(0)[0]);
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
+    private String resolveRegionNameByDepartmentId(Long departmentId) {
+        if (departmentId == null) {
+            return null;
+        }
+        if (EAST_REGION_DEPT_IDS.contains(departmentId)) {
+            return "东区";
+        }
+        if (NORTH_REGION_DEPT_IDS.contains(departmentId)) {
+            return "北区";
+        }
+        if (SOUTH_REGION_DEPT_IDS.contains(departmentId)) {
+            return "南区";
+        }
+        return null;
+    }
+
+    private String resolveRegionIdByName(String regionName) {
+        String normalizedRegionName = trimToNull(regionName);
+        if (normalizedRegionName == null) {
+            return null;
+        }
+        try {
+            String sql = "SELECT id " +
+                    "FROM region " +
+                    "WHERE name = ? LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, normalizedRegionName);
+            if (!result.isEmpty() && result.get(0)[0] != null) {
+                return result.get(0)[0].toString();
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
     public List<String> getStaffList(String userId) {
+        return queryRegionStaffList(userId, false);
+    }
+
+    public List<String> getImplementationStaffList(String userId) {
+        return queryRegionStaffList(userId, true);
+    }
+
+    private List<String> queryRegionStaffList(String userId, boolean requireSupportUser) {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             // 查询当前用户的部门ID
@@ -2336,11 +3373,21 @@ public class ChatGroupService {
                     .reduce((a, b) -> a + "," + b)
                     .orElse("");
 
+            String supportUserFilter = requireSupportUser
+                    ? "AND EXISTS (" +
+                    "SELECT 1 FROM support_user su " +
+                    "WHERE su.username = s.ext_id " +
+                    "   OR (s.email IS NOT NULL AND s.email != '' AND su.email = s.email) " +
+                    "   OR su.name = s.name" +
+                    ") "
+                    : "";
+
             // 查询同区域所有员工
             String sql = "SELECT DISTINCT s.name FROM staff s " +
                     "INNER JOIN staff_department sd ON s.id = sd.staff_id " +
                     "WHERE sd.ext_department_id IN (" + deptIdsStr + ") " +
                     "AND s.name IS NOT NULL AND s.name != '' " +
+                    supportUserFilter +
                     "ORDER BY s.name";
             var result = com.util.JdbcUtils.query(sql);
             List<String> staffList = new ArrayList<>();
@@ -2453,11 +3500,14 @@ public class ChatGroupService {
         String alias = getProductAliasByExtChatId(extChatId);
         LOGGER.info("resolveVersionProductIds input productId={}, extChatId={}, alias={}", productId, extChatId, alias);
 
-        if (productId != null && MAXKB_PRODUCT_IDS.contains(productId)) {
-            return prioritizeProductId(MAXKB_PRODUCT_IDS, productId);
-        }
-        if (productId != null && DATAEASE_PRODUCT_IDS.contains(productId)) {
-            return prioritizeProductId(DATAEASE_PRODUCT_IDS, productId);
+        if (productId != null) {
+            if (MAXKB_PRODUCT_IDS.contains(productId)) {
+                return prioritizeProductId(MAXKB_PRODUCT_IDS, productId);
+            }
+            if (DATAEASE_PRODUCT_IDS.contains(productId)) {
+                return prioritizeProductId(DATAEASE_PRODUCT_IDS, productId);
+            }
+            return new ArrayList<>(List.of(productId));
         }
         if ("MK".equals(alias)) {
             return new ArrayList<>(MAXKB_PRODUCT_IDS);
@@ -2465,10 +3515,7 @@ public class ChatGroupService {
         if ("DE".equals(alias)) {
             return new ArrayList<>(DATAEASE_PRODUCT_IDS);
         }
-        if (productId == null) {
-            return new ArrayList<>();
-        }
-        return new ArrayList<>(List.of(productId));
+        return new ArrayList<>();
     }
 
     private List<Long> prioritizeProductId(List<Long> productIds, Long preferredProductId) {

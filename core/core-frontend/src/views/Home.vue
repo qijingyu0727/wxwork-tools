@@ -863,60 +863,53 @@
             <span>加载实施上下文中...</span>
           </div>
           <template v-else>
-            <section class="implementation-section">
+            <section v-if="shouldShowImplementationBasicInfo" class="implementation-section implementation-basic-section">
               <div class="implementation-section-header">
                 <h4>基本信息</h4>
               </div>
               <div class="form-group">
                 <label class="form-label">订阅（客户-产品-序列号）</label>
                 <input
-                  :value="implementationContext?.subscriptionDisplayText || '-'"
                   type="text"
                   class="form-input implementation-readonly-input"
+                  :value="implementationContext.subscriptionDisplayText || '-'"
                   readonly
                 />
               </div>
-              <div class="implementation-meta-grid">
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">客户全称</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.clientName || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">产品名称</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.productName || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">合同编号</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.contractNumber || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">服务类型</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.serviceTypeName || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">销售</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.salesName || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">区域</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.regionName || implementationContext?.regionId || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">订阅开始时间</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.subscriptionStartDate || '-' }}</span>
-                </div>
-                <div class="implementation-meta-item">
-                  <span class="implementation-meta-label">维保结束时间</span>
-                  <span class="implementation-meta-value">{{ implementationContext?.supportEndDate || '-' }}</span>
+              <div class="implementation-basic-table">
+                <div
+                  v-for="item in implementationBasicInfoRows"
+                  :key="item.label"
+                  class="implementation-basic-row"
+                >
+                  <span class="implementation-basic-label">{{ item.label }}</span>
+                  <span class="implementation-basic-value">{{ item.value || '-' }}</span>
                 </div>
               </div>
             </section>
-
             <section class="implementation-section">
               <div class="implementation-section-header">
                 <h4>部署信息</h4>
               </div>
               <div class="implementation-form-grid">
+                <div v-if="isImplementationDraftMode" class="form-group implementation-form-span-2">
+                  <label class="form-label">产品 <span class="required">*</span></label>
+                  <select
+                    v-model="addImplementationForm.selectedProductId"
+                    class="form-input"
+                    @change="handleImplementationProductChange"
+                  >
+                    <option value="" disabled>请选择产品</option>
+                    <option
+                      v-for="option in implementationProductOptions"
+                      :key="option.productId || option.template || option.productName"
+                      :value="String(option.productId || '')"
+                      :disabled="!option.productId"
+                    >
+                      {{ option.productName }}
+                    </option>
+                  </select>
+                </div>
                 <div class="form-group">
                   <label class="form-label">部署日期 <span class="required">*</span></label>
                   <div class="maintenance-date-picker" @click.stop>
@@ -970,6 +963,45 @@
                     <option value="" disabled>请选择部署方式</option>
                     <option v-for="option in IMPLEMENTATION_DEPLOYMENT_METHOD_OPTIONS" :key="option" :value="option">{{ option }}</option>
                   </select>
+                </div>
+                <div class="form-group implementation-form-span-2">
+                  <label class="form-label">实施人 <span class="required">*</span></label>
+                  <div class="autocomplete-wrapper">
+                    <input
+                      type="text"
+                      v-model="addImplementationForm.submitterName"
+                      @input="handleImplementationSubmitterInput"
+                      @focus="showImplementationSubmitterDropdown = true"
+                      @blur="handleImplementationSubmitterBlur"
+                      class="form-input autocomplete-input"
+                      placeholder="请输入实施人姓名"
+                      autocomplete="off"
+                    />
+                    <i
+                      class="fa fa-chevron-down autocomplete-icon"
+                      @mousedown.prevent="toggleImplementationSubmitterDropdown"
+                    ></i>
+                    <div v-if="showImplementationSubmitterDropdown && filteredImplementationSubmitterList.length > 0" class="autocomplete-dropdown">
+                      <div
+                        v-for="staff in filteredImplementationSubmitterList"
+                        :key="staff"
+                        class="autocomplete-item"
+                        @mousedown.prevent="selectImplementationSubmitter(staff)"
+                      >
+                        {{ staff }}
+                      </div>
+                    </div>
+                    <div v-if="showImplementationSubmitterDropdown && filteredImplementationSubmitterList.length === 0 && implementationStaffList.length === 0 && !implementationStaffListLoaded" class="autocomplete-dropdown">
+                      <div class="autocomplete-item autocomplete-empty">
+                        加载中...
+                      </div>
+                    </div>
+                    <div v-if="showImplementationSubmitterDropdown && filteredImplementationSubmitterList.length === 0 && (implementationStaffList.length > 0 || implementationStaffListLoaded)" class="autocomplete-dropdown">
+                      <div class="autocomplete-item autocomplete-empty">
+                        未找到匹配的员工
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="form-group implementation-form-span-2">
                   <label class="form-label">软件版本 <span class="required">*</span></label>
@@ -1102,15 +1134,24 @@
                 <template v-else-if="isDataEaseImplementation">
                   <div class="form-group">
                     <label class="form-label">备份方式 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.backupMethod" type="text" class="form-input" placeholder="请输入备份方式" />
+                    <select v-model="addImplementationForm.backupMethod" class="form-input">
+                      <option value="" disabled>请选择备份方式</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_BACKUP_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group">
                     <label class="form-label">数据库配置 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.dataEaseDatabase" type="text" class="form-input" placeholder="请输入数据库配置" />
+                    <select v-model="addImplementationForm.dataEaseDatabase" class="form-input">
+                      <option value="" disabled>请选择数据库配置</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_DATABASE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Doris配置 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.dorisUsage" type="text" class="form-input" placeholder="请输入 Doris 配置" />
+                    <select v-model="addImplementationForm.dorisUsage" class="form-input">
+                      <option value="" disabled>请选择 Doris 配置</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_DORIS_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group">
                     <label class="form-label">部署架构 <span class="required">*</span></label>
@@ -1121,11 +1162,17 @@
                   </div>
                   <div class="form-group">
                     <label class="form-label">数据源类型 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.dataSourceType" type="text" class="form-input" placeholder="请输入数据源类型" />
+                    <select v-model="addImplementationForm.dataSourceType" class="form-input">
+                      <option value="" disabled>请选择数据源类型</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_DATA_SOURCE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group">
                     <label class="form-label">数据量规模 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.dataScale" type="text" class="form-input" placeholder="请输入数据量规模" />
+                    <select v-model="addImplementationForm.dataScale" class="form-input">
+                      <option value="" disabled>请选择数据量规模</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_DATA_SCALE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group implementation-form-span-2">
                     <label class="form-label">认证方式 <span class="required">*</span></label>
@@ -1143,11 +1190,17 @@
                   </div>
                   <div class="form-group">
                     <label class="form-label">嵌入方式 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.embeddedMode" type="text" class="form-input" placeholder="请输入嵌入方式" />
+                    <select v-model="addImplementationForm.embeddedMode" class="form-input">
+                      <option value="" disabled>请选择嵌入方式</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_EMBEDDED_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group">
                     <label class="form-label">客户接入状态 <span class="required">*</span></label>
-                    <input v-model.trim="addImplementationForm.customerJoined" type="text" class="form-input" placeholder="请输入客户接入状态" />
+                    <select v-model="addImplementationForm.customerJoined" class="form-input">
+                      <option value="" disabled>请选择客户接入状态</option>
+                      <option v-for="option in IMPLEMENTATION_DATAEASE_CUSTOMER_JOINED_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
                   </div>
                   <div class="form-group implementation-form-span-2">
                     <label class="form-label">分析及展示方向 <span class="required">*</span></label>
@@ -1168,6 +1221,64 @@
                       rows="1"
                       @input="adjustImplementationCustomerFocusTextarea"
                     ></textarea>
+                  </div>
+                </template>
+                <template v-else-if="isSqlBotImplementation">
+                  <div class="form-group">
+                    <label class="form-label">备份方式 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.backupMethod" class="form-input">
+                      <option value="" disabled>请选择备份方式</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_BACKUP_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">PostgreSQL 是否外置 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.databaseExternal" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_POSTGRES_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">部署架构 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.deploymentArchitecture" class="form-input">
+                      <option value="" disabled>请选择部署架构</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_ARCHITECTURE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">数据源类型 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.dataSourceType" class="form-input">
+                      <option value="" disabled>请选择数据源类型</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_DATA_SOURCE_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">AI模型类型 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.aiModelType" class="form-input">
+                      <option value="" disabled>请选择 AI 模型类型</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_AI_MODEL_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">是否嵌入集成 <span class="required">*</span></label>
+                    <select v-model="addImplementationForm.embeddedMode" class="form-input">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="option in IMPLEMENTATION_SQLBOT_EMBEDDED_OPTIONS" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group implementation-form-span-2">
+                    <label class="form-label">第三方平台对接 <span class="required">*</span></label>
+                    <div class="implementation-chip-group">
+                      <button
+                        v-for="option in IMPLEMENTATION_SQLBOT_PLATFORM_OPTIONS"
+                        :key="option"
+                        type="button"
+                        :class="['implementation-chip', addImplementationForm.authMethods.includes(option) ? 'active' : '']"
+                        @click="toggleImplementationAuthMethod(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -1332,12 +1443,12 @@
                       {{ staff }}
                     </div>
                   </div>
-                  <div v-if="showMaintenanceSubmitterDropdown && filteredMaintenanceSubmitterList.length === 0 && staffList.length === 0" class="autocomplete-dropdown">
+                  <div v-if="showMaintenanceSubmitterDropdown && filteredMaintenanceSubmitterList.length === 0 && implementationStaffList.length === 0 && !implementationStaffListLoaded" class="autocomplete-dropdown">
                     <div class="autocomplete-item autocomplete-empty">
                       加载中...
                     </div>
                   </div>
-                  <div v-if="showMaintenanceSubmitterDropdown && filteredMaintenanceSubmitterList.length === 0 && staffList.length > 0" class="autocomplete-dropdown">
+                  <div v-if="showMaintenanceSubmitterDropdown && filteredMaintenanceSubmitterList.length === 0 && (implementationStaffList.length > 0 || implementationStaffListLoaded)" class="autocomplete-dropdown">
                     <div class="autocomplete-item autocomplete-empty">
                       未找到匹配的员工
                     </div>
@@ -1506,10 +1617,10 @@ import CryptoJS from 'crypto-js'
 import * as ww from '@wecom/jssdk'
 import '@/styles/home.css'
 
-// 本地调试开关：true 时使用写死 chatId，false 时走企业微信 getCurExternalChat
-const LOCAL_DEBUG_CHAT = false
-const DEBUG_CHAT_ID = ''
-const DEBUG_EDITOR_USER_ID = ''
+// 本地调试开关：true 时使用配置 chatId，false 时走企业微信 getCurExternalChat
+const LOCAL_DEBUG_CHAT = import.meta.env.VITE_LOCAL_DEBUG_CHAT === 'true'
+const DEBUG_CHAT_ID = import.meta.env.VITE_DEBUG_CHAT_ID || ''
+const DEBUG_EDITOR_USER_ID = import.meta.env.VITE_DEBUG_EDITOR_USER_ID || ''
 const DEFAULT_TOOL_MAIL_CC = 'ec_cssc@fit2cloud.com'
 
 const corpId = ref('')
@@ -1591,8 +1702,12 @@ const currentTicketId = ref(null)
 const currentTicketTitle = ref('')
 const staffList = ref([])
 const staffListPreloadPromise = ref(null)
+const implementationStaffList = ref([])
+const implementationStaffListLoaded = ref(false)
+const implementationStaffListPreloadPromise = ref(null)
 const showStaffDropdown = ref(false)
 const showMaintenanceSubmitterDropdown = ref(false)
+const showImplementationSubmitterDropdown = ref(false)
 const updateForm = ref({
   urgent: false,
   customerSentiment: 'neutral',
@@ -1637,6 +1752,10 @@ const implementationContextLoadedChatId = ref('')
 const implementationContextPreloadPromise = ref(null)
 const implementationContextPreloadChatId = ref('')
 const addImplementationForm = ref({
+  selectedProductId: '',
+  template: '',
+  formType: '',
+  productAlias: '',
   deploymentDate: '',
   deploymentMethod: '远程部署',
   version: '',
@@ -1654,6 +1773,7 @@ const addImplementationForm = ref({
   dataEaseDatabase: '',
   dorisUsage: '',
   dataSourceType: '',
+  aiModelType: '',
   dataScale: '',
   embeddedMode: '',
   customerJoined: '',
@@ -1680,12 +1800,98 @@ const IMPLEMENTATION_SHARED_NFS_OPTIONS = ['是，云上共享存储', '是，�
 const IMPLEMENTATION_ARCHITECTURE_OPTIONS = ['无', '主备模式', '单节点', '集群模式', '分布式模式', 'K8S部署']
 const IMPLEMENTATION_MAXKB_AUTH_OPTIONS = ['OIDC', 'CAS', 'LDAP', '企业微信', '钉钉', '飞书', '无']
 const IMPLEMENTATION_MAXKB_DIRECTION_OPTIONS = ['产品咨询', '客户引导', '售后服务', '智能办公', '知识管理', '文档助手', '流程自动化', '数据分析', '智能推荐', '业务系统+大模型', '内部问答', '智能客服', '未知']
+const IMPLEMENTATION_DATAEASE_BACKUP_OPTIONS = ['快照备份', '备份脚本本地备份', '备份脚本异地备份']
+const IMPLEMENTATION_DATAEASE_DATABASE_OPTIONS = ['是，云上数据库', '是，客户内部提供', '是，部署主备模式', '否，使用 DataEase 自带数据库', '否，在应用服务器上部署数据库']
+const IMPLEMENTATION_DATAEASE_DORIS_OPTIONS = ['不涉及', '是，云上 Doris', '是，客户内部提供', '是，独立部署 Doris', '否，使用 DataEase 自带 Doris']
+const IMPLEMENTATION_DATAEASE_DATA_SOURCE_OPTIONS = ['MySQL', 'PostgreSQL', 'Oracle', 'SQL Server', 'Excel', 'API', 'Doris', 'ClickHouse', 'StarRocks', 'Hive', 'Elasticsearch', '其他']
+const IMPLEMENTATION_DATAEASE_DATA_SCALE_OPTIONS = ['1GB以下', '1GB-10GB', '10GB-100GB', '100GB以上', 'TB级']
 const IMPLEMENTATION_DATAEASE_AUTH_OPTIONS = ['OIDC', 'CAS', 'LDAP', '企业微信', '钉钉', '国际飞书', '飞书']
+const IMPLEMENTATION_DATAEASE_EMBEDDED_OPTIONS = ['不涉及', 'iframe 嵌入', 'SDK 嵌入', '单点登录集成', '门户菜单集成']
+const IMPLEMENTATION_DATAEASE_CUSTOMER_JOINED_OPTIONS = ['已接入', '部分接入', '未接入', '待客户提供信息']
+const IMPLEMENTATION_SQLBOT_BACKUP_OPTIONS = ['快照备份', '备份脚本本地备份', '备份脚本异地备份']
+const IMPLEMENTATION_SQLBOT_POSTGRES_OPTIONS = ['是，云上数据库', '是，客户内部提供', '否，使用 SQLBot 自带数据库', '否，在应用服务器上部署数据库']
+const IMPLEMENTATION_SQLBOT_ARCHITECTURE_OPTIONS = ['单节点', '冷备模式', '热备模式', '集群模式', 'K8S']
+const IMPLEMENTATION_SQLBOT_DATA_SOURCE_OPTIONS = ['MySQL', 'PostgreSQL', 'Oracle', 'SQL Server', 'ClickHouse', 'Doris', 'StarRocks', 'Hive', 'API', '其他']
+const IMPLEMENTATION_SQLBOT_AI_MODEL_OPTIONS = ['OpenAI 兼容模型', 'MaxKB', '私有大模型', '公有云大模型', '其他']
+const IMPLEMENTATION_SQLBOT_PLATFORM_OPTIONS = ['无', 'OIDC', 'CAS', 'LDAP', 'OAuth2.0']
+const IMPLEMENTATION_SQLBOT_EMBEDDED_OPTIONS = ['无', '是，小助手嵌入', '是，页面嵌入']
 
-const implementationProductAlias = computed(() => implementationContext.value?.productAlias || '')
-const isJumpServerImplementation = computed(() => implementationProductAlias.value === 'JS')
-const isMaxKbImplementation = computed(() => implementationProductAlias.value === 'MK')
-const isDataEaseImplementation = computed(() => implementationProductAlias.value === 'DE')
+const implementationProductOptions = computed(() => Array.isArray(implementationContext.value?.productOptions)
+  ? implementationContext.value.productOptions
+  : [])
+const isImplementationDraftMode = computed(() => Boolean(implementationContext.value?.draftMode))
+const shouldShowImplementationBasicInfo = computed(() => !isImplementationDraftMode.value && Boolean(implementationContext.value?.subscriptionId))
+const implementationBasicInfoRows = computed(() => {
+  const context = implementationContext.value || {}
+  return [
+    { label: '客户全称', value: context.clientName },
+    { label: '产品名称', value: context.productName },
+    { label: '合同编号', value: context.contractNumber },
+    { label: '服务类型', value: context.serviceTypeName },
+    { label: '销售', value: context.salesName },
+    { label: '区域', value: context.regionName },
+    { label: '订阅开始时间', value: context.subscriptionStartDate },
+    { label: '维保结束时间', value: context.supportEndDate }
+  ]
+})
+const selectedImplementationProductOption = computed(() => {
+  const selectedProductId = String(addImplementationForm.value.selectedProductId || '')
+  if (!selectedProductId) {
+    return null
+  }
+  return implementationProductOptions.value.find(option => String(option?.productId || '') === selectedProductId) || null
+})
+const implementationProductAlias = computed(() => {
+  return addImplementationForm.value.productAlias || selectedImplementationProductOption.value?.productAlias || implementationContext.value?.productAlias || ''
+})
+const implementationFormType = computed(() => {
+  return addImplementationForm.value.formType || selectedImplementationProductOption.value?.formType || implementationContext.value?.formType || implementationProductAlias.value || ''
+})
+const isJumpServerImplementation = computed(() => implementationFormType.value === 'JS')
+const isMaxKbImplementation = computed(() => implementationFormType.value === 'MK')
+const isDataEaseImplementation = computed(() => implementationFormType.value === 'DE')
+const isSqlBotImplementation = computed(() => implementationFormType.value === 'SQLBOT')
+
+const getDefaultImplementationProductFields = (formType = '') => {
+  const defaults = {
+    assetTypes: [],
+    assetCount: '',
+    virtualizationType: '',
+    applicationServer: '',
+    databaseSync: '',
+    databaseExternal: '',
+    redisExternal: '',
+    sharedNfs: '',
+    authMethods: [],
+    businessDirections: [],
+    backupMethod: '',
+    dataEaseDatabase: '',
+    dorisUsage: '',
+    dataSourceType: '',
+    aiModelType: '',
+    dataScale: '',
+    embeddedMode: '',
+    customerJoined: '',
+    analysisDirection: '',
+    customerFocus: '',
+    deploymentArchitecture: '',
+    deploymentRecord: ''
+  }
+
+  if (formType === 'JS') {
+    return {
+      ...defaults,
+      virtualizationType: '无',
+      applicationServer: '是，单台',
+      databaseSync: '否，不涉及',
+      databaseExternal: '否，在应用服务器上部署数据库',
+      redisExternal: '否，使用JumpServer自带的Redis',
+      sharedNfs: '否，不使用NFS'
+    }
+  }
+
+  return defaults
+}
 
 const getCorpId = async () => {
   const res = await jsapiApi.getCorpId()
@@ -2930,22 +3136,37 @@ const getMaintenanceRecords = async (extChatId) => {
   try {
     const res = await docApi.getMaintenanceRecords(extChatId)
     if (!isCurrentChatTarget(extChatId)) {
-      return
+      return []
     }
     if (res.success) {
-      maintenanceRecords.value = res.data || []
+      const records = res.data || []
+      maintenanceRecords.value = records
+      return records
     } else {
       maintenanceRecords.value = []
+      return []
     }
   } catch (err) {
     if (!isCurrentChatTarget(extChatId)) {
-      return
+      return []
     }
     maintenanceRecords.value = []
+    return []
   } finally {
     if (isCurrentChatTarget(extChatId)) {
       maintenanceLoading.value = false
     }
+  }
+}
+
+const mergeCreatedImplementationRecord = (createdRecord) => {
+  if (!createdRecord?.id) {
+    return
+  }
+  const createdId = String(createdRecord.id)
+  const exists = (maintenanceRecords.value || []).some(record => String(record?.id) === createdId)
+  if (!exists) {
+    maintenanceRecords.value = [createdRecord, ...(maintenanceRecords.value || [])]
   }
 }
 
@@ -3457,6 +3678,7 @@ const translateSentiment = (sentiment) => {
 const translateStatus = (status) => {
   const statusMap = {
     'deployed': '已部署',
+    'draft': '草稿',
     'pending': '待处理',
     'in_progress': '进行中',
     'completed': '已完成',
@@ -4850,6 +5072,9 @@ const selectImplementationCalendarToday = () => {
 }
 
 const getCurrentProductId = () => {
+  if (showAddImplementationModal.value && isImplementationDraftMode.value && addImplementationForm.value.selectedProductId) {
+    return addImplementationForm.value.selectedProductId
+  }
   return customerData.value?.productId || null
 }
 
@@ -4930,7 +5155,7 @@ const loadProductVersions = async ({ silent = false, force = false, targetChatId
     if (result.success) {
       const rawVersions = Array.isArray(result.data) ? result.data : (result.data?.items || [])
       const resolvedProductId = result.data?.productId
-      if (!customerData.value?.productId && resolvedProductId) {
+      if (!isImplementationDraftMode.value && !customerData.value?.productId && resolvedProductId) {
         customerData.value = {
           ...(customerData.value || {}),
           productId: resolvedProductId
@@ -5168,10 +5393,12 @@ const prefetchImplementationCreateContext = (targetChatId = chatId.value) => {
 }
 
 const resetAddMaintenanceForm = (context = null) => {
+  const defaultSubmitterName = (context?.defaultSubmitterName || '').trim()
+  const submitterName = defaultSubmitterName && implementationStaffList.value.includes(defaultSubmitterName) ? defaultSubmitterName : ''
   addMaintenanceForm.value = {
     maintenanceTime: formatDateInputValue(),
     maintenanceTypes: '',
-    submitterName: context?.defaultSubmitterName || '',
+    submitterName,
     maintenanceTitle: '',
     maintenanceVersion: '',
     maintenanceContext: ''
@@ -5188,32 +5415,18 @@ const closeAddMaintenanceModal = () => {
 
 const resetAddImplementationForm = (context = null) => {
   const submitterUserId = context?.defaultSubmitterUserId || getEditorUserId()
-  const submitterName = context?.defaultSubmitterName || userStore.userInfo?.name || userStore.userInfo?.UserId || submitterUserId || ''
+  const defaultSubmitterName = (context?.defaultSubmitterName || '').trim()
+  const submitterName = defaultSubmitterName && implementationStaffList.value.includes(defaultSubmitterName) ? defaultSubmitterName : ''
+  const productDefaults = getDefaultImplementationProductFields(context?.formType || '')
   addImplementationForm.value = {
+    selectedProductId: '',
+    template: context?.template || '',
+    formType: context?.formType || '',
+    productAlias: context?.productAlias || '',
     deploymentDate: formatDateInputValue(),
     deploymentMethod: '远程部署',
     version: '',
-    assetTypes: [],
-    assetCount: '',
-    virtualizationType: '无',
-    applicationServer: '是，单台',
-    databaseSync: '否，不涉及',
-    databaseExternal: '否，在应用服务器上部署数据库',
-    redisExternal: '否，使用JumpServer自带的Redis',
-    sharedNfs: '否，不使用NFS',
-    authMethods: [],
-    businessDirections: [],
-    backupMethod: '',
-    dataEaseDatabase: '',
-    dorisUsage: '',
-    dataSourceType: '',
-    dataScale: '',
-    embeddedMode: '',
-    customerJoined: '',
-    analysisDirection: '',
-    customerFocus: '',
-    deploymentArchitecture: '',
-    deploymentRecord: '',
+    ...productDefaults,
     remainingIssues: '',
     remark: '',
     submitterUserId,
@@ -5229,6 +5442,7 @@ const closeAddImplementationModal = () => {
   showAddImplementationModal.value = false
   implementationContextLoading.value = false
   addImplementationSubmitting.value = false
+  showImplementationSubmitterDropdown.value = false
   closeImplementationCalendar()
 }
 
@@ -5244,6 +5458,11 @@ const toggleImplementationAssetType = (option) => {
 
 const toggleImplementationAuthMethod = (option) => {
   const current = new Set(addImplementationForm.value.authMethods || [])
+  if (option === '无') {
+    addImplementationForm.value.authMethods = current.has(option) ? [] : [option]
+    return
+  }
+  current.delete('无')
   if (current.has(option)) {
     current.delete(option)
   } else {
@@ -5262,6 +5481,36 @@ const toggleImplementationBusinessDirection = (option) => {
   addImplementationForm.value.businessDirections = Array.from(current)
 }
 
+const applySelectedImplementationProduct = () => {
+  const option = selectedImplementationProductOption.value
+  addImplementationForm.value.template = option?.template || ''
+  addImplementationForm.value.formType = option?.formType || ''
+  addImplementationForm.value.productAlias = option?.productAlias || ''
+  Object.assign(addImplementationForm.value, getDefaultImplementationProductFields(option?.formType || ''))
+  nextTick(() => {
+    doAdjustImplementationTextareas()
+  })
+}
+
+const resetImplementationVersionState = () => {
+  productVersions.value = []
+  versionsLoadedProductId.value = null
+  versionsLoadedChatId.value = ''
+  versionsLoadedKey.value = ''
+  versionPreloadPromise.value = null
+  versionPreloadKey.value = ''
+  addImplementationForm.value.version = ''
+}
+
+const handleImplementationProductChange = async () => {
+  applySelectedImplementationProduct()
+  resetImplementationVersionState()
+  if (!addImplementationForm.value.selectedProductId) {
+    return
+  }
+  await loadProductVersions({ silent: false, force: true, targetChatId: chatId.value })
+}
+
 const handleAddImplementation = async () => {
   if (!chatId.value) {
     showToast('未获取到当前群聊ID，无法新增实施记录', false)
@@ -5274,7 +5523,8 @@ const handleAddImplementation = async () => {
     const targetChatId = chatId.value
     const [context] = await Promise.all([
       prefetchImplementationCreateContext(targetChatId),
-      prefetchProductVersions(targetChatId)
+      prefetchProductVersions(targetChatId),
+      loadImplementationStaffList()
     ])
     await prefetchProductVersions(targetChatId)
     resetAddImplementationForm(context || {})
@@ -5301,7 +5551,7 @@ const handleAddMaintenance = async () => {
     const [, context] = await Promise.all([
       prefetchProductVersions(targetChatId),
       prefetchMaintenanceCreateContext(targetChatId),
-      loadStaffList()
+      loadImplementationStaffList()
     ])
     resetAddMaintenanceForm(context || {})
   } catch (error) {
@@ -5318,7 +5568,8 @@ const submitAddMaintenance = async () => {
     showToast('缺少产品ID，无法提交维护记录', false)
     return
   }
-  if (!addMaintenanceForm.value.submitterName) {
+  const submitterName = (addMaintenanceForm.value.submitterName || '').trim()
+  if (!submitterName || !implementationStaffList.value.includes(submitterName)) {
     showToast('请选择提交人', false)
     return
   }
@@ -5333,7 +5584,7 @@ const submitAddMaintenance = async () => {
   try {
     const payload = {
       clientId: customerData.value.clientId,
-      submitterName: addMaintenanceForm.value.submitterName.trim(),
+      submitterName,
       maintenanceTypes: addMaintenanceForm.value.maintenanceTypes,
       maintenanceTitle: addMaintenanceForm.value.maintenanceTitle.trim(),
       maintenanceTime: new Date(`${addMaintenanceForm.value.maintenanceTime}T00:00:00`).getTime(),
@@ -5395,20 +5646,26 @@ const resolveImplementationSubmitErrorMessage = (errorLike) => {
 }
 
 const submitAddImplementation = async () => {
-  if (!implementationContext.value?.subscriptionId) {
+  const draftMode = isImplementationDraftMode.value
+  const selectedProductOption = selectedImplementationProductOption.value
+  if (!draftMode && !implementationContext.value?.subscriptionId) {
     showToast('缺少订阅信息，无法提交实施记录', false)
     return
   }
-  if (!implementationContext.value?.clientId) {
+  if (!draftMode && !implementationContext.value?.clientId) {
     showToast('缺少客户信息，无法提交实施记录', false)
     return
   }
-  if (!implementationContext.value?.productId) {
+  const selectedProductId = selectedProductOption?.productId || implementationContext.value?.productId
+  if (!draftMode && !selectedProductId) {
     showToast('缺少产品信息，无法提交实施记录', false)
     return
   }
-  const productAlias = implementationContext.value?.productAlias || ''
+  const productAlias = implementationFormType.value || ''
   const missingFields = []
+  if (draftMode && !selectedProductOption) missingFields.push('产品')
+  const submitterName = (addImplementationForm.value.submitterName || '').trim()
+  if (!submitterName || !implementationStaffList.value.includes(submitterName)) missingFields.push('实施人')
   if (!addImplementationForm.value.deploymentDate) missingFields.push('部署日期')
   if (!addImplementationForm.value.deploymentMethod) missingFields.push('部署方式')
   if (!addImplementationForm.value.version) missingFields.push('软件版本')
@@ -5439,6 +5696,14 @@ const submitAddImplementation = async () => {
     if (!addImplementationForm.value.customerJoined) missingFields.push('客户接入状态')
     if (!addImplementationForm.value.analysisDirection) missingFields.push('分析及展示方向')
     if (!addImplementationForm.value.customerFocus) missingFields.push('客户核心关注点')
+  } else if (productAlias === 'SQLBOT') {
+    if (!addImplementationForm.value.backupMethod) missingFields.push('备份方式')
+    if (!addImplementationForm.value.databaseExternal) missingFields.push('PostgreSQL 是否外置')
+    if (!addImplementationForm.value.deploymentArchitecture) missingFields.push('部署架构')
+    if (!addImplementationForm.value.dataSourceType) missingFields.push('数据源类型')
+    if (!addImplementationForm.value.aiModelType) missingFields.push('AI模型类型')
+    if (!(addImplementationForm.value.authMethods || []).length) missingFields.push('第三方平台对接')
+    if (!addImplementationForm.value.embeddedMode) missingFields.push('是否嵌入集成')
   }
 
   if (missingFields.length > 0) {
@@ -5449,17 +5714,21 @@ const submitAddImplementation = async () => {
   addImplementationSubmitting.value = true
   try {
     const resolvedEditorUserId = addImplementationForm.value.submitterUserId || getEditorUserId()
-    if (!resolvedEditorUserId) {
+    if (!submitterName && !resolvedEditorUserId) {
       showToast('缺少提交人ID，请先登录或开启本地调试提交人兜底', false)
       return
     }
     const payload = {
       extChatId: chatId.value,
-      subscriptionId: implementationContext.value.subscriptionId,
-      clientId: implementationContext.value.clientId,
-      productId: implementationContext.value.productId,
-      regionId: implementationContext.value.regionId,
+      subscriptionId: draftMode ? 0 : implementationContext.value.subscriptionId,
+      clientId: draftMode ? null : implementationContext.value.clientId,
+      productId: selectedProductId,
+      selectedProductId: selectedProductOption?.productId || null,
+      template: selectedProductOption?.template || addImplementationForm.value.template || implementationContext.value?.template || '',
+      formType: selectedProductOption?.formType || addImplementationForm.value.formType || implementationContext.value?.formType || productAlias,
+      regionId: implementationContext.value?.regionId || null,
       editorUserId: resolvedEditorUserId,
+      submitterName,
       deploymentDate: addImplementationForm.value.deploymentDate,
       deploymentMethod: addImplementationForm.value.deploymentMethod,
       version: addImplementationForm.value.version,
@@ -5477,6 +5746,7 @@ const submitAddImplementation = async () => {
       dataEaseDatabase: addImplementationForm.value.dataEaseDatabase.trim(),
       dorisUsage: addImplementationForm.value.dorisUsage.trim(),
       dataSourceType: addImplementationForm.value.dataSourceType.trim(),
+      aiModelType: addImplementationForm.value.aiModelType.trim(),
       dataScale: addImplementationForm.value.dataScale.trim(),
       embeddedMode: addImplementationForm.value.embeddedMode.trim(),
       customerJoined: addImplementationForm.value.customerJoined.trim(),
@@ -5489,61 +5759,15 @@ const submitAddImplementation = async () => {
     }
     const result = await docApi.createImplementationRecord(payload)
     if (result.success || result.code === 0) {
-      const optimisticRecord = {
-        id: result?.data?.id || `tmp-${Date.now()}`,
-        status: 'DEPLOYED',
-        deploymentTime: payload.deploymentDate,
-        deploymentMethod: payload.deploymentMethod,
-        template: productAlias === 'MK' ? 'MaxKBV2_PRO' : productAlias === 'DE' ? 'DataEaseV2' : 'JumpServer',
-        creatorName: userStore.userInfo?.name || userStore.userInfo?.UserId || payload.editorUserId || '-',
-        version: payload.version,
-        createTime: formatDateInputValue(new Date()),
-        content: productAlias === 'MK'
-          ? [
-              `部署架构：${payload.deploymentArchitecture}`,
-              payload.authMethods?.length ? `认证方式：${payload.authMethods.join('、')}` : '',
-              payload.businessDirections?.length ? `业务方向：${payload.businessDirections.join('、')}` : '',
-              payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
-              payload.remark ? `备注：\n${payload.remark}` : ''
-            ].filter(Boolean).join('\n\n')
-          : productAlias === 'DE'
-            ? [
-                `备份方式：${payload.backupMethod}`,
-                `数据库配置：${payload.dataEaseDatabase}`,
-                `Doris配置：${payload.dorisUsage}`,
-                `部署架构：${payload.deploymentArchitecture}`,
-                `数据源类型：${payload.dataSourceType}`,
-                `数据量规模：${payload.dataScale}`,
-                payload.authMethods?.length ? `认证方式：${payload.authMethods.join('、')}` : '',
-                `嵌入方式：${payload.embeddedMode}`,
-                `客户接入状态：${payload.customerJoined}`,
-                `分析及展示方向：${payload.analysisDirection}`,
-                `客户核心关注点：${payload.customerFocus}`,
-                payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
-                payload.remark ? `备注：\n${payload.remark}` : ''
-              ].filter(Boolean).join('\n\n')
-            : [
-                `纳管资产类型：${(payload.assetTypes || []).join(',')}`,
-                `管理资产数：${payload.assetCount}`,
-                `虚拟化类型：${payload.virtualizationType}`,
-                `应用发布服务器：${payload.applicationServer}`,
-                `是否涉及到数据同步：${payload.databaseSync}`,
-                `数据库是否外置：${payload.databaseExternal}`,
-                `Redis是否外置部署：${payload.redisExternal}`,
-                `共享存储NFS：${payload.sharedNfs}`,
-                payload.customerFocus ? `客户核心关注点：${payload.customerFocus}` : '',
-                `部署架构：${payload.deploymentArchitecture}`,
-                payload.deploymentRecord ? `记录内容：\n${payload.deploymentRecord}` : '',
-                payload.remainingIssues ? `遗留问题：\n${payload.remainingIssues}` : '',
-                payload.remark ? `备注：\n${payload.remark}` : ''
-              ].filter(Boolean).join('\n\n')
-      }
-      maintenanceRecords.value = [optimisticRecord, ...(maintenanceRecords.value || []).filter(item => item.id !== optimisticRecord.id)]
-      showToast('新增实施记录成功', true)
+      const createdRecord = result.data?.record
       closeAddImplementationModal()
       if (chatId.value) {
-        await getMaintenanceRecords(chatId.value)
+        const refreshedRecords = await getMaintenanceRecords(chatId.value)
+        if (createdRecord && !refreshedRecords.some(record => String(record?.id) === String(createdRecord.id))) {
+          mergeCreatedImplementationRecord(createdRecord)
+        }
       }
+      showToast('新增实施记录成功', true)
       return
     }
     showToast(resolveImplementationSubmitErrorMessage(result), false)
@@ -5627,6 +5851,48 @@ const loadStaffList = async ({ silent = false } = {}) => {
   return staffListPreloadPromise.value
 }
 
+const loadImplementationStaffList = async ({ silent = false } = {}) => {
+  if (implementationStaffListLoaded.value) {
+    return true
+  }
+  if (implementationStaffListPreloadPromise.value) {
+    const loaded = await implementationStaffListPreloadPromise.value
+    if (!loaded && !silent) {
+      showToast('加载实施人列表失败', false)
+    }
+    return loaded
+  }
+
+  const preloadPromise = (async () => {
+    try {
+      const result = await docApi.getImplementationStaffList()
+      if (result.success) {
+        implementationStaffList.value = result.data || []
+        implementationStaffListLoaded.value = true
+        return true
+      }
+      console.error('加载实施人列表失败:', result.message)
+      if (!silent) {
+        showToast('加载实施人列表失败: ' + result.message, false)
+      }
+      return false
+    } catch (error) {
+      console.error('加载实施人列表失败:', error)
+      if (!silent) {
+        showToast('加载实施人列表失败', false)
+      }
+      return false
+    }
+  })().finally(() => {
+    if (implementationStaffListPreloadPromise.value === preloadPromise) {
+      implementationStaffListPreloadPromise.value = null
+    }
+  })
+
+  implementationStaffListPreloadPromise.value = preloadPromise
+  return implementationStaffListPreloadPromise.value
+}
+
 // 过滤员工列表
 const filteredStaffList = computed(() => {
   if (!updateForm.value.ownerName) {
@@ -5639,10 +5905,19 @@ const filteredStaffList = computed(() => {
 
 const filteredMaintenanceSubmitterList = computed(() => {
   if (!addMaintenanceForm.value.submitterName) {
-    return staffList.value
+    return implementationStaffList.value
   }
-  return staffList.value.filter(staff =>
+  return implementationStaffList.value.filter(staff =>
     staff.toLowerCase().includes(addMaintenanceForm.value.submitterName.toLowerCase())
+  )
+})
+
+const filteredImplementationSubmitterList = computed(() => {
+  if (!addImplementationForm.value.submitterName) {
+    return implementationStaffList.value
+  }
+  return implementationStaffList.value.filter(staff =>
+    staff.toLowerCase().includes(addImplementationForm.value.submitterName.toLowerCase())
   )
 })
 
@@ -5653,6 +5928,10 @@ const handleOwnerInput = () => {
 
 const handleMaintenanceSubmitterInput = () => {
   showMaintenanceSubmitterDropdown.value = true
+}
+
+const handleImplementationSubmitterInput = () => {
+  showImplementationSubmitterDropdown.value = true
 }
 
 // 处理失焦事件
@@ -5668,6 +5947,12 @@ const handleMaintenanceSubmitterBlur = () => {
   }, 200)
 }
 
+const handleImplementationSubmitterBlur = () => {
+  setTimeout(() => {
+    showImplementationSubmitterDropdown.value = false
+  }, 200)
+}
+
 // 选择员工
 const selectStaff = (staff) => {
   updateForm.value.ownerName = staff
@@ -5679,6 +5964,11 @@ const selectMaintenanceSubmitter = (staff) => {
   showMaintenanceSubmitterDropdown.value = false
 }
 
+const selectImplementationSubmitter = (staff) => {
+  addImplementationForm.value.submitterName = staff
+  showImplementationSubmitterDropdown.value = false
+}
+
 // 切换下拉框显示
 const toggleStaffDropdown = () => {
   showStaffDropdown.value = !showStaffDropdown.value
@@ -5686,6 +5976,10 @@ const toggleStaffDropdown = () => {
 
 const toggleMaintenanceSubmitterDropdown = () => {
   showMaintenanceSubmitterDropdown.value = !showMaintenanceSubmitterDropdown.value
+}
+
+const toggleImplementationSubmitterDropdown = () => {
+  showImplementationSubmitterDropdown.value = !showImplementationSubmitterDropdown.value
 }
 
 const closeUpdateModal = () => {

@@ -19,8 +19,12 @@ public class ImplementationCreateContext {
     private String defaultSubmitterUserId;
     private String defaultSubmitterName;
     private String productAlias;
+    private String template;
+    private String formType;
     private String subscriptionDisplayText;
     private List<String> availableVersions = new ArrayList<>();
+    private List<ImplementationProductOption> productOptions = new ArrayList<>();
+    private boolean draftMode;
 
     public Long getSubscriptionId() {
         return subscriptionId;
@@ -142,6 +146,22 @@ public class ImplementationCreateContext {
         this.productAlias = productAlias;
     }
 
+    public String getTemplate() {
+        return template;
+    }
+
+    public void setTemplate(String template) {
+        this.template = template;
+    }
+
+    public String getFormType() {
+        return formType;
+    }
+
+    public void setFormType(String formType) {
+        this.formType = formType;
+    }
+
     public String getSubscriptionDisplayText() {
         return subscriptionDisplayText;
     }
@@ -156,5 +176,21 @@ public class ImplementationCreateContext {
 
     public void setAvailableVersions(List<String> availableVersions) {
         this.availableVersions = availableVersions != null ? availableVersions : new ArrayList<>();
+    }
+
+    public List<ImplementationProductOption> getProductOptions() {
+        return productOptions;
+    }
+
+    public void setProductOptions(List<ImplementationProductOption> productOptions) {
+        this.productOptions = productOptions != null ? productOptions : new ArrayList<>();
+    }
+
+    public boolean isDraftMode() {
+        return draftMode;
+    }
+
+    public void setDraftMode(boolean draftMode) {
+        this.draftMode = draftMode;
     }
 }

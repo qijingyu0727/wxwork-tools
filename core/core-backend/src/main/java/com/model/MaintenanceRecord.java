@@ -2,6 +2,7 @@ package com.model;
 
 public class MaintenanceRecord {
     private Long id;
+    private Long subscriptionId;
     private String status;
     private String deploymentTime;
     private String deploymentMethod;
@@ -17,6 +18,14 @@ public class MaintenanceRecord {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getSubscriptionId() {
+        return subscriptionId;
+    }
+
+    public void setSubscriptionId(Long subscriptionId) {
+        this.subscriptionId = subscriptionId;
     }
 
     public String getStatus() {

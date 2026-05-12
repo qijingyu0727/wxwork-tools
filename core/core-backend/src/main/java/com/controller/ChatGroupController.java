@@ -6,6 +6,7 @@ import com.model.ApiResponse;
 import com.model.ContractSubscription;
 import com.model.CustomerData;
 import com.model.ImplementationCreateContext;
+import com.model.ImplementationProductOption;
 import com.model.MaintenanceCreateContext;
 import com.model.MaintenanceRecord;
 import com.model.ServiceRecord;
@@ -95,6 +96,16 @@ public class ChatGroupController {
         } catch (Exception e) {
             LOGGER.error("getImplementationCreateContext failed: {}", e.getMessage(), e);
             return ApiResponse.error("获取新增实施上下文失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/implementation-products")
+    public ApiResponse<List<ImplementationProductOption>> getImplementationProducts() {
+        try {
+            return ApiResponse.success(chatGroupService.getImplementationProductOptions());
+        } catch (Exception e) {
+            LOGGER.error("getImplementationProducts failed: {}", e.getMessage(), e);
+            return ApiResponse.error("获取实施产品列表失败: " + e.getMessage());
         }
     }
 
@@ -353,6 +364,20 @@ public class ChatGroupController {
         } catch (Exception e) {
             e.printStackTrace();
             return ApiResponse.error("获取员工列表失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/implementation-staff-list")
+    public ApiResponse<List<String>> getImplementationStaffList(HttpSession session) {
+        try {
+            String userId = getLoginUserId(session);
+            if (userId == null) {
+                return ApiResponse.error("无法获取用户ID");
+            }
+            return ApiResponse.success(chatGroupService.getImplementationStaffList(userId));
+        } catch (Exception e) {
+            LOGGER.error("getImplementationStaffList failed: {}", e.getMessage(), e);
+            return ApiResponse.error("获取实施人列表失败: " + e.getMessage());
         }
     }
 

@@ -8,8 +8,12 @@ public class CreateImplementationRecordRequest {
     private Long subscriptionId;
     private Long clientId;
     private Long productId;
+    private Long selectedProductId;
+    private String template;
+    private String formType;
     private String regionId;
     private String editorUserId;
+    private String submitterName;
     private String deploymentDate;
     private String deploymentMethod;
     private String version;
@@ -30,6 +34,7 @@ public class CreateImplementationRecordRequest {
     private String dataEaseDatabase;
     private String dorisUsage;
     private String dataSourceType;
+    private String aiModelType;
     private String dataScale;
     private String embeddedMode;
     private String customerJoined;
@@ -69,6 +74,30 @@ public class CreateImplementationRecordRequest {
         this.productId = productId;
     }
 
+    public Long getSelectedProductId() {
+        return selectedProductId;
+    }
+
+    public void setSelectedProductId(Long selectedProductId) {
+        this.selectedProductId = selectedProductId;
+    }
+
+    public String getTemplate() {
+        return template;
+    }
+
+    public void setTemplate(String template) {
+        this.template = template;
+    }
+
+    public String getFormType() {
+        return formType;
+    }
+
+    public void setFormType(String formType) {
+        this.formType = formType;
+    }
+
     public String getRegionId() {
         return regionId;
     }
@@ -83,6 +112,14 @@ public class CreateImplementationRecordRequest {
 
     public void setEditorUserId(String editorUserId) {
         this.editorUserId = editorUserId;
+    }
+
+    public String getSubmitterName() {
+        return submitterName;
+    }
+
+    public void setSubmitterName(String submitterName) {
+        this.submitterName = submitterName;
     }
 
     public String getDeploymentDate() {
@@ -243,6 +280,14 @@ public class CreateImplementationRecordRequest {
 
     public void setDataSourceType(String dataSourceType) {
         this.dataSourceType = dataSourceType;
+    }
+
+    public String getAiModelType() {
+        return aiModelType;
+    }
+
+    public void setAiModelType(String aiModelType) {
+        this.aiModelType = aiModelType;
     }
 
     public String getDataScale() {

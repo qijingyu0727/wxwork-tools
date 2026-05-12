@@ -41,6 +41,10 @@ export const docApi = {
     return request.get('/api/chat-group/staff-list')
   },
 
+  getImplementationStaffList: () => {
+    return request.get('/api/chat-group/implementation-staff-list')
+  },
+
   getIssueTickets: (extChatId) => {
     return request.get('/api/chat-group/issue-tickets', { params: { extChatId } })
   },
@@ -72,6 +76,10 @@ export const docApi = {
 
   getImplementationCreateContext: (extChatId) => {
     return request.get('/api/chat-group/implementation-create-context', { params: { extChatId } })
+  },
+
+  getImplementationProducts: () => {
+    return request.get('/api/chat-group/implementation-products')
   },
 
   createImplementationRecord: (data) => {

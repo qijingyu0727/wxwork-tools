@@ -1,6 +1,7 @@
 package com.interceptor;
 
 import com.alibaba.fastjson.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -15,11 +16,15 @@ import java.io.PrintWriter;
 @Component
 public class LoginInterceptor implements HandlerInterceptor {
 
+    @Value("${wxwork.local-debug.enabled:false}")
+    private boolean localDebugEnabled;
+
     // 不需要登录即可访问的URL路径
     private static final String[] EXCLUDE_URLS = {
             "/wechat/work/login/generate-qrcode",
             "/wechat/work/login/callback",
             "/wechat/work/login/check-login",
+            "/wechat/work/login/debug-login",
             "/wechat/work/login/generate-oauth2-url",
             "/wechat/work/login/oauth2-callback",
             "/wechat/work/callback",
@@ -29,6 +34,9 @@ public class LoginInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        if (localDebugEnabled) {
+            return true;
+        }
 
         // 检查请求路径是否需要排除
         String requestUri = request.getRequestURI();
@@ -38,7 +46,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             }
         }
 
-        //检查登录状态
+        // 检查登录状态
         Boolean isLogin = (Boolean) request.getSession().getAttribute("is_login");
         
         if (isLogin == null || !isLogin) {
