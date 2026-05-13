@@ -145,8 +145,9 @@
                         <button
                           type="button"
                           class="realtime-analysis-icon-btn"
-                          title="刷新分析（即将开放）"
-                          aria-label="刷新分析（即将开放）"
+                          title="获取近 24 小时消息分析"
+                          aria-label="获取近 24 小时消息分析"
+                          @click="handleRefreshRealtimeAnalysis"
                         >
                           <i class="fa fa-rotate-right"></i>
                         </button>
@@ -1646,14 +1647,14 @@ const ticketSearchInput = ref('')
 const ticketSearchKeyword = ref('')
 const expandedTickets = ref(new Set())
 const ticketLogs = ref({})
-const activeTab = ref('implementation')
+const activeTab = ref('analysis')
 const tabs = ref([
-  { id: 'implementation', name: '实施' },
-  { id: 'maintenance', name: '维护' },
-  { id: 'contract', name: '合同' },
+  { id: 'analysis', name: '消息分析' },
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' },
+  { id: 'implementation', name: '实施' },
+  { id: 'maintenance', name: '维护' },
   { id: 'tools', name: '工具' }
 ])
 const toolEmail = ref('')
@@ -4380,7 +4381,7 @@ const currentRealtimeAnalysisAnswerText = computed(() => {
 })
 
 const realtimeAnalysisDisplayTime = computed(() => {
-  return `最近分析 ${formatRealtimeAnalysisTime(realtimeAnalysisRefreshedAt.value)}`
+  return `近 24 小时 · ${formatRealtimeAnalysisTime(realtimeAnalysisRefreshedAt.value)}`
 })
 
 const buildRealtimeAnalysisLinkText = (item) => {
