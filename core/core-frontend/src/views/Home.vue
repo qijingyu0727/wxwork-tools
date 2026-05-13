@@ -1647,9 +1647,8 @@ const ticketSearchInput = ref('')
 const ticketSearchKeyword = ref('')
 const expandedTickets = ref(new Set())
 const ticketLogs = ref({})
-const activeTab = ref('analysis')
+const activeTab = ref('ticket')
 const tabs = ref([
-  { id: 'analysis', name: '消息分析' },
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' },

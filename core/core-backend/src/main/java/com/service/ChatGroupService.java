@@ -763,10 +763,7 @@ public class ChatGroupService {
                         filtered.add(r);
                     }
                 }
-                if (!filtered.isEmpty()) {
-                    return filtered;
-                }
-                return fetchMaintenanceRecordsBySubscriptionIdFromDb(subId);
+                return filtered;
             }
             return fetchMaintenanceRecordsByGroupId(extChatId);
         } catch (Exception e) {
@@ -824,45 +821,6 @@ public class ChatGroupService {
             return records;
         } catch (Exception e) {
             LOGGER.warn("fetchMaintenanceRecordsByGroupChatIdFromDb failed extChatId={}, err={}", extChatId, e.getMessage());
-            return new ArrayList<>();
-        } finally {
-            com.util.JdbcUtils.clearConfig();
-        }
-    }
-
-    private List<MaintenanceRecord> fetchMaintenanceRecordsBySubscriptionIdFromDb(Long subscriptionId) {
-        if (subscriptionId == null || subscriptionId <= 0) {
-            return new ArrayList<>();
-        }
-
-        com.util.JdbcUtils.setCscrmConfig();
-        try {
-            String sql = "SELECT id, subscription_id, status, deployment_time, deployment_method, template, " +
-                    "creator_name, created_by, create_time, version, content " +
-                    "FROM support_maintenance " +
-                    "WHERE subscription_id = ? " +
-                    "ORDER BY CASE WHEN create_time IS NULL OR create_time = 0 THEN id ELSE create_time END DESC, id DESC " +
-                    "LIMIT 50";
-            var result = com.util.JdbcUtils.query(sql, subscriptionId);
-            List<MaintenanceRecord> records = new ArrayList<>();
-            for (Object[] row : result) {
-                JSONObject item = new JSONObject(true);
-                item.put("id", row[0]);
-                item.put("subscriptionId", row[1]);
-                item.put("status", row[2]);
-                item.put("deployment_time", row[3]);
-                item.put("deploymentMethod", row[4]);
-                item.put("template", row[5]);
-                item.put("creatorName", row[6]);
-                item.put("createdBy", row[7]);
-                item.put("createTime", row[8]);
-                item.put("version", row[9]);
-                item.put("content", row[10]);
-                records.add(toMaintenanceRecord(item));
-            }
-            return records;
-        } catch (Exception e) {
-            LOGGER.warn("fetchMaintenanceRecordsBySubscriptionIdFromDb failed subscriptionId={}, err={}", subscriptionId, e.getMessage());
             return new ArrayList<>();
         } finally {
             com.util.JdbcUtils.clearConfig();
