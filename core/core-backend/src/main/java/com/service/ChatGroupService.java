@@ -88,10 +88,10 @@ public class ChatGroupService {
                     List.of("JUMPSERVER"), List.of()),
             new ImplementationProductSpec(2003L, "DataEase", "DE", "DataEaseV2", IMPLEMENTATION_FORM_TYPE_DE,
                     List.of("DATAEASE"), List.of()),
-            new ImplementationProductSpec(2009L, "MaxKB 专业版V2", "MK", "MaxKBV2_PRO", IMPLEMENTATION_FORM_TYPE_MK,
-                    List.of("MAXKB"), List.of("专业", "PRO", "PROFESSIONAL")),
-            new ImplementationProductSpec(2013L, "MaxKB 企业版V2", "MK", "MaxKBV2_EE", IMPLEMENTATION_FORM_TYPE_MK,
-                    List.of("MAXKB"), List.of("企业", "EE", "ENTERPRISE")),
+            new ImplementationProductSpec(2013L, "MaxKB 专业版V2", "MK", "MaxKBV2_PRO", IMPLEMENTATION_FORM_TYPE_MK,
+                    List.of("MAXKB", "V2"), List.of("专业", "PRO", "PROFESSIONAL")),
+            new ImplementationProductSpec(2012L, "MaxKB 企业版V2", "MK", "MaxKBV2_EE", IMPLEMENTATION_FORM_TYPE_MK,
+                    List.of("MAXKB", "V2"), List.of("企业", "EE", "ENTERPRISE")),
             new ImplementationProductSpec(2011L, "SQLBot 专业版", "SQLBOT", "SQLBot", IMPLEMENTATION_FORM_TYPE_SQLBOT,
                     List.of("SQLBOT"), List.of())
     );
@@ -1444,17 +1444,22 @@ public class ChatGroupService {
 
     private String resolveMaxKbImplementationTemplate(Long productId, String productName, String latestTemplate) {
         String value = productName == null ? "" : productName.toUpperCase(Locale.ROOT);
-        if (Long.valueOf(2013L).equals(productId) ||
-                value.contains("企业") ||
+        if (value.contains("专业") ||
+                value.contains("PRO") ||
+                value.contains("PROFESSIONAL")) {
+            return "MaxKBV2_PRO";
+        }
+        if (value.contains("企业") ||
                 value.contains("EE") ||
                 value.contains("ENTERPRISE")) {
             return "MaxKBV2_EE";
         }
         if (Long.valueOf(2009L).equals(productId) ||
-                value.contains("专业") ||
-                value.contains("PRO") ||
-                value.contains("PROFESSIONAL")) {
+                Long.valueOf(2013L).equals(productId)) {
             return "MaxKBV2_PRO";
+        }
+        if (Long.valueOf(2012L).equals(productId)) {
+            return "MaxKBV2_EE";
         }
         return firstNonBlank(latestTemplate, "MaxKBV2_PRO");
     }
@@ -3502,12 +3507,6 @@ public class ChatGroupService {
         LOGGER.info("resolveVersionProductIds input productId={}, extChatId={}, alias={}", productId, extChatId, alias);
 
         if (productId != null) {
-            if (MAXKB_PRODUCT_IDS.contains(productId)) {
-                return prioritizeProductId(MAXKB_PRODUCT_IDS, productId);
-            }
-            if (DATAEASE_PRODUCT_IDS.contains(productId)) {
-                return prioritizeProductId(DATAEASE_PRODUCT_IDS, productId);
-            }
             return new ArrayList<>(List.of(productId));
         }
         if ("MK".equals(alias)) {
@@ -3517,17 +3516,6 @@ public class ChatGroupService {
             return new ArrayList<>(DATAEASE_PRODUCT_IDS);
         }
         return new ArrayList<>();
-    }
-
-    private List<Long> prioritizeProductId(List<Long> productIds, Long preferredProductId) {
-        List<Long> result = new ArrayList<>();
-        result.add(preferredProductId);
-        for (Long productId : productIds) {
-            if (!productId.equals(preferredProductId)) {
-                result.add(productId);
-            }
-        }
-        return result;
     }
 
     public List<String> getProductVersions(Long productId, String extChatId) throws Exception {
