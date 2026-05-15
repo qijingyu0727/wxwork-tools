@@ -4036,7 +4036,6 @@ let realtimeAnalysisTypingTimer = null
 let realtimeAnalysisPendingContent = ''
 let realtimeAnalysisStreamFinished = false
 const realtimeAnalysisRangeOptions = [
-  { label: '近1小时', value: '1' },
   { label: '近3小时', value: '3' },
   { label: '近1天', value: '24' },
   { label: '近3天', value: '72' },
