@@ -180,7 +180,7 @@ public class ChatGroupService {
             return "24";
         }
         return switch (normalized) {
-            case "1", "3", "24", "72", "168" -> normalized;
+            case "1", "3", "6", "24", "72", "168" -> normalized;
             default -> "24";
         };
     }

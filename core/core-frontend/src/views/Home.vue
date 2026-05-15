@@ -227,7 +227,27 @@
                 </div>
               </section>
 
-              <div v-if="realtimeAnalysisOtherFields.length" class="realtime-analysis-grid">
+              <div v-if="realtimeAnalysisReferences.length || realtimeAnalysisOtherFields.length" class="realtime-analysis-grid">
+                <section v-if="realtimeAnalysisReferences.length" class="realtime-analysis-section-card">
+                  <div class="realtime-analysis-section-heading">
+                    <i class="fa fa-book"></i>
+                    <span>知识引用</span>
+                  </div>
+                  <div class="realtime-analysis-reference-list">
+                    <a
+                      v-for="(reference, index) in realtimeAnalysisReferences"
+                      :key="`reference-${index}`"
+                      class="realtime-analysis-reference"
+                      :href="reference.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <strong>{{ reference.title || reference.url }}</strong>
+                      <span v-if="reference.relevance">{{ reference.relevance }}</span>
+                    </a>
+                  </div>
+                </section>
+
                 <section v-if="realtimeAnalysisOtherFields.length" class="realtime-analysis-section-card">
                   <div class="realtime-analysis-section-heading">
                     <i class="fa fa-info-circle"></i>
@@ -4036,10 +4056,12 @@ let realtimeAnalysisTypingTimer = null
 let realtimeAnalysisPendingContent = ''
 let realtimeAnalysisStreamFinished = false
 const realtimeAnalysisRangeOptions = [
-  { label: '近3小时', value: '3' },
-  { label: '近1天', value: '24' },
-  { label: '近3天', value: '72' },
-  { label: '近7天', value: '168' }
+  { label: '1h', value: '1' },
+  { label: '3h', value: '3' },
+  { label: '6h', value: '6' },
+  { label: '1d', value: '24' },
+  { label: '3d', value: '72' },
+  { label: '7d', value: '168' }
 ]
 const realtimeAnalysisRange = ref('24')
 const realtimeAnalysisStatus = ref('idle')
@@ -4144,7 +4166,12 @@ const buildRealtimeAnalysisDraft = (value) => {
         { key: 'content', keys: ['content', 'answer', 'text'] },
         { key: 'tone', keys: 'tone' }
       ])
-    }
+    },
+    knowledge_references: extractRealtimePartialObjects(text, 'knowledge_references', [
+      { key: 'title', keys: ['title', 'label', 'name'] },
+      { key: 'url', keys: ['url', 'link'] },
+      { key: 'relevance', keys: ['relevance', 'description'] }
+    ])
   }
 }
 
@@ -4244,6 +4271,25 @@ const realtimeAnalysisReplyEmptyText = computed(() => {
     return realtimeAnalysisNoConversation.value ? '当前时间范围内暂无可生成的回复建议' : '未生成可直接复制的回复建议'
   }
   return realtimeAnalysisStatus.value === 'streaming' ? '正在生成回复建议...' : '暂无回复建议'
+})
+
+const realtimeAnalysisReferences = computed(() => {
+  return normalizeRealtimeArray(realtimeAnalysisDisplayData.value?.knowledge_references || realtimeAnalysisDisplayData.value?.knowledgeReferences)
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        return {
+          title: item.title || item.label || item.name || '',
+          url: item.url || item.link || '',
+          relevance: item.relevance || item.description || ''
+        }
+      }
+      return {
+        title: String(item || ''),
+        url: '',
+        relevance: ''
+      }
+    })
+    .filter(item => item.title || item.url)
 })
 
 const realtimeAnalysisOtherFields = computed(() => {
