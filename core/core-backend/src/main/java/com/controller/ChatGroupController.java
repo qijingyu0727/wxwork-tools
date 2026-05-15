@@ -20,7 +20,11 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -143,6 +147,17 @@ public class ChatGroupController {
             LOGGER.error("getContractSubscriptions failed extChatId={}, err={}", extChatId, e.getMessage(), e);
             return ApiResponse.error("获取合同信息失败: " + e.getMessage());
         }
+    }
+
+    @GetMapping(value = "/realtime-analysis/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> streamRealtimeAnalysis(
+            @RequestParam String extChatId,
+            @RequestParam(defaultValue = "24") String timeRange) {
+        StreamingResponseBody stream = chatGroupService.streamRealtimeAnalysis(extChatId, timeRange);
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .cacheControl(CacheControl.noCache())
+                .body(stream);
     }
 
     // 新增维护记录接口（后端代调 CSCRM）

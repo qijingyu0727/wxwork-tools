@@ -18,9 +18,21 @@ import com.model.request.CreateImplementationRecordRequest;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.JSONArray;
 import com.util.HttpClientUtil;
+import org.apache.http.HttpEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -102,6 +114,75 @@ public class ChatGroupService {
             return new CustomerData();
         }
         return queryCustomerData(normalizedExtChatId);
+    }
+
+    public StreamingResponseBody streamRealtimeAnalysis(String extChatId, String timeRange) {
+        String normalizedExtChatId = trimToNull(extChatId);
+        if (normalizedExtChatId == null) {
+            throw new IllegalArgumentException("extChatId 不能为空");
+        }
+        String normalizedTimeRange = normalizeRealtimeAnalysisTimeRange(timeRange);
+
+        return outputStream -> {
+            String url = buildCscrmUrl("/maxkb-chat-analysis/realtime/stream")
+                    + "?ext_chat_id=" + URLEncoder.encode(normalizedExtChatId, StandardCharsets.UTF_8)
+                    + "&time_range=" + URLEncoder.encode(normalizedTimeRange, StandardCharsets.UTF_8);
+            HttpGet get = new HttpGet(url);
+            get.addHeader("Accept", "text/event-stream");
+            if (trimToNull(cscrmApiKey) != null) {
+                get.addHeader("Authorization", "Bearer " + cscrmApiKey);
+                get.addHeader("X-API-Key", cscrmApiKey);
+            }
+
+            try (CloseableHttpClient client = HttpClientBuilder.create().build();
+                 CloseableHttpResponse response = client.execute(get)) {
+                int code = response.getStatusLine().getStatusCode();
+                HttpEntity entity = response.getEntity();
+                if (code >= 400) {
+                    JSONObject error = new JSONObject(true);
+                    error.put("code", code);
+                    error.put("message", entity != null ? readEntityText(entity) : response.getStatusLine().getReasonPhrase());
+                    writeSseError(outputStream, error);
+                    return;
+                }
+
+                if (entity == null) {
+                    JSONObject error = new JSONObject(true);
+                    error.put("code", -1);
+                    error.put("message", "实时分析接口返回为空");
+                    writeSseError(outputStream, error);
+                    return;
+                }
+
+                try (InputStream inputStream = entity.getContent()) {
+                    byte[] buffer = new byte[4096];
+                    int length;
+                    while ((length = inputStream.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, length);
+                        outputStream.flush();
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.error("streamRealtimeAnalysis failed extChatId={}, err={}", normalizedExtChatId, e.getMessage(), e);
+                JSONObject error = new JSONObject(true);
+                error.put("code", -1);
+                error.put("message", e.getMessage());
+                writeSseError(outputStream, error);
+            } finally {
+                get.releaseConnection();
+            }
+        };
+    }
+
+    private String normalizeRealtimeAnalysisTimeRange(String timeRange) {
+        String normalized = trimToNull(timeRange);
+        if (normalized == null) {
+            return "24";
+        }
+        return switch (normalized) {
+            case "1", "3", "24", "72", "168" -> normalized;
+            default -> "24";
+        };
     }
 
     private CustomerData queryCustomerData(String extChatId) {
@@ -2787,6 +2868,43 @@ public class ChatGroupService {
             return null;
         }
         return formatEpochMillisDate(normalized);
+    }
+
+    private String buildCscrmUrl(String endpoint) {
+        String baseUrl = trimToNull(cscrmBaseUrl);
+        String apiPath = trimToNull(cscrmApiPath);
+        String normalizedEndpoint = endpoint == null ? "" : endpoint.trim();
+        if (baseUrl != null && baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        if (apiPath == null) {
+            apiPath = "";
+        } else if (!apiPath.startsWith("/")) {
+            apiPath = "/" + apiPath;
+        }
+        if (apiPath.endsWith("/")) {
+            apiPath = apiPath.substring(0, apiPath.length() - 1);
+        }
+        if (!normalizedEndpoint.startsWith("/")) {
+            normalizedEndpoint = "/" + normalizedEndpoint;
+        }
+        return nullToEmpty(baseUrl) + apiPath + normalizedEndpoint;
+    }
+
+    private String readEntityText(HttpEntity entity) throws Exception {
+        if (entity == null) {
+            return "";
+        }
+        return EntityUtils.toString(entity, StandardCharsets.UTF_8);
+    }
+
+    private void writeSseError(OutputStream outputStream, JSONObject error) throws IOException {
+        Writer writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
+        writer.write("event:error\n");
+        writer.write("data:");
+        writer.write(error.toJSONString());
+        writer.write("\n\n");
+        writer.flush();
     }
 
     private String trimToNull(String value) {

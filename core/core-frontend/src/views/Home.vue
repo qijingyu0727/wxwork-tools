@@ -132,60 +132,111 @@
         </div>
         <div class="tab-content">
           <div v-if="activeTab === 'analysis'" class="tab-pane active">
-            <div class="tools-pane">
-              <div class="tools-grid">
-                <section class="tool-card tool-card-report realtime-analysis-card-shell">
-                  <div class="tool-card-title-row">
-                    <span class="tool-card-icon">
-                      <i class="fa fa-bolt"></i>
-                    </span>
-                    <div class="tool-card-heading">
-                      <div class="realtime-analysis-card-header">
-                        <h4 class="tool-card-title">实时分析</h4>
+            <div :class="['realtime-analysis-live', { 'is-streaming': realtimeAnalysisStatus === 'streaming' }]">
+              <div class="realtime-analysis-live-head">
+                <div class="realtime-analysis-live-main">
+                  <div class="realtime-analysis-live-title-row">
+                    <h3 class="realtime-analysis-live-title">实时聊天分析</h3>
+                  </div>
+                  <div class="realtime-analysis-range-switch" aria-label="实时分析时间范围">
+                    <button
+                      v-for="option in realtimeAnalysisRangeOptions"
+                      :key="option.value"
+                      type="button"
+                      :class="['realtime-analysis-range-option', { active: realtimeAnalysisRange === option.value }]"
+                      :disabled="realtimeAnalysisStatus === 'streaming'"
+                      @click="selectRealtimeAnalysisRange(option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :class="['realtime-analysis-icon-action', { 'is-streaming': realtimeAnalysisStatus === 'streaming' }]"
+                  :disabled="realtimeAnalysisStatus === 'streaming' || !chatId"
+                  @click="startRealtimeAnalysisStream"
+                  title="开始分析"
+                  aria-label="开始分析"
+                >
+                  <i :class="['fa', realtimeAnalysisStatus === 'streaming' ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
+                  <span>{{ realtimeAnalysisStatus === 'streaming' ? '分析中' : '开始分析' }}</span>
+                </button>
+              </div>
+
+              <div v-if="realtimeAnalysisError" class="realtime-analysis-alert">
+                {{ realtimeAnalysisError }}
+              </div>
+
+              <section class="realtime-analysis-overview-card">
+                <div class="realtime-analysis-section-title-row">
+                  <div>
+                    <div class="realtime-analysis-section-title">问题概览</div>
+                  </div>
+                </div>
+                <p :class="['realtime-analysis-problem-text', { 'is-typing': realtimeAnalysisStatus === 'streaming' }]">
+                  {{ realtimeAnalysisProblemSummary }}
+                </p>
+                <div class="realtime-analysis-tag-row">
+                  <span
+                    v-for="tag in realtimeAnalysisOverviewTags"
+                    :key="tag.label"
+                    :class="['realtime-analysis-tag', tag.type ? `is-${tag.type}` : '']"
+                  >
+                    {{ tag.label }}: {{ tag.value }}
+                  </span>
+                </div>
+              </section>
+
+              <section class="realtime-analysis-section-card">
+                <div class="realtime-analysis-section-heading">
+                  <i class="fa fa-comments-o"></i>
+                  <span>回复建议</span>
+                </div>
+                <div v-if="realtimeAnalysisReplyOptions.length" class="realtime-analysis-reply-list">
+                  <article
+                    v-for="(option, index) in realtimeAnalysisReplyOptions"
+                    :key="`${option.approach || 'reply'}-${index}`"
+                    class="realtime-analysis-reply-card"
+                  >
+                    <div class="realtime-analysis-reply-head">
+                      <strong>{{ option.approach || `推荐回复 ${index + 1}` }}</strong>
+                      <div class="realtime-analysis-reply-actions">
+                        <span
+                          v-for="tag in option.toneTags"
+                          :key="tag"
+                          class="realtime-analysis-tone-chip"
+                        >
+                          {{ tag }}
+                        </span>
                         <button
                           type="button"
-                          class="realtime-analysis-icon-btn"
-                          title="获取近 24 小时消息分析"
-                          aria-label="获取近 24 小时消息分析"
-                          @click="handleRefreshRealtimeAnalysis"
+                          class="realtime-analysis-inline-copy"
+                          @click="copyRealtimeAnalysisText(option.content, '推荐回复已复制')"
                         >
-                          <i class="fa fa-rotate-right"></i>
+                          <i class="fa fa-copy"></i>
+                          <span>复制</span>
                         </button>
                       </div>
-                      <p class="tool-card-subtitle">{{ realtimeAnalysisDisplayTime }}</p>
                     </div>
+                    <p :class="['realtime-analysis-reply-content', { 'is-typing': realtimeAnalysisStatus === 'streaming' }]">{{ option.content || '-' }}</p>
+                  </article>
+                </div>
+                <div v-else class="realtime-analysis-empty">
+                  {{ realtimeAnalysisReplyEmptyText }}
+                </div>
+              </section>
+
+              <div v-if="realtimeAnalysisOtherFields.length" class="realtime-analysis-grid">
+                <section v-if="realtimeAnalysisOtherFields.length" class="realtime-analysis-section-card">
+                  <div class="realtime-analysis-section-heading">
+                    <i class="fa fa-info-circle"></i>
+                    <span>其他内容</span>
                   </div>
-
-                  <div class="tool-card-body">
-                    <div v-if="currentRealtimeAnalysis" class="realtime-analysis-content-stack">
-                      <section class="realtime-analysis-block realtime-analysis-block-question">
-                        <div class="realtime-analysis-section-head">
-                          <div class="realtime-analysis-section-meta">
-                            <div class="realtime-analysis-section-kicker">Question</div>
-                            <div class="realtime-analysis-section-title">待回复问题</div>
-                          </div>
-                        </div>
-                        <pre class="realtime-analysis-text">{{ currentRealtimeAnalysis.question }}</pre>
-                      </section>
-
-                      <section class="realtime-analysis-block realtime-analysis-block-answer">
-                        <div class="realtime-analysis-section-head">
-                          <div class="realtime-analysis-section-meta">
-                            <div class="realtime-analysis-section-kicker">Answer</div>
-                            <div class="realtime-analysis-section-title">建议回复内容</div>
-                          </div>
-                          <button
-                            type="button"
-                            class="realtime-analysis-copy-btn"
-                            title="复制答案"
-                            aria-label="复制答案"
-                            @click="copyRealtimeAnalysisAnswer(currentRealtimeAnalysis)"
-                          >
-                            <i class="fa fa-copy"></i>
-                          </button>
-                        </div>
-                        <pre class="realtime-analysis-text realtime-analysis-answer-text">{{ currentRealtimeAnalysisAnswerText }}</pre>
-                      </section>
+                  <div class="realtime-analysis-other-list">
+                    <div v-for="field in realtimeAnalysisOtherFields" :key="field.key" class="realtime-analysis-other-item">
+                      <strong>{{ field.key }}</strong>
+                      <pre>{{ field.value }}</pre>
                     </div>
                   </div>
                 </section>
@@ -1649,9 +1700,11 @@ const expandedTickets = ref(new Set())
 const ticketLogs = ref({})
 const activeTab = ref('ticket')
 const tabs = ref([
+  { id: 'analysis', name: '实时分析' },
   { id: 'ticket', name: '工单' },
   { id: 'requirement', name: '需求' },
   { id: 'defect', name: '缺陷' },
+  { id: 'contract', name: '合同' },
   { id: 'implementation', name: '实施' },
   { id: 'maintenance', name: '维护' },
   { id: 'tools', name: '工具' }
@@ -3978,24 +4031,27 @@ const showCustomerDataCompletionGuide = computed(() => {
   return chatId.value && !customerDataLoading.value && !customerData.value?.name
 })
 
-const realtimeAnalysisSelectedId = ref('kb-1')
-const realtimeAnalysisRefreshedAt = ref(new Date())
-
-const formatRealtimeAnalysisTime = (value) => {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    return ''
-  }
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(value)
-}
-
-const realtimeAnalysisVersionText = computed(() => {
-  return versionBadgeText.value || '版本线索待补全'
+let realtimeAnalysisAbortController = null
+let realtimeAnalysisTypingTimer = null
+let realtimeAnalysisPendingContent = ''
+let realtimeAnalysisStreamFinished = false
+const realtimeAnalysisRangeOptions = [
+  { label: '近1小时', value: '1' },
+  { label: '近3小时', value: '3' },
+  { label: '近1天', value: '24' },
+  { label: '近3天', value: '72' },
+  { label: '近7天', value: '168' }
+]
+const realtimeAnalysisRange = ref('24')
+const realtimeAnalysisStatus = ref('idle')
+const realtimeAnalysisRawContent = ref('')
+const realtimeAnalysisParsed = ref(null)
+const realtimeAnalysisMeta = ref({
+  extChatId: '',
+  groupName: '',
+  timeRange: '24'
 })
+const realtimeAnalysisError = ref('')
 
 const REALTIME_ANALYSIS_PRODUCT_LABELS = {
   JS: 'JumpServer',
@@ -4012,401 +4068,418 @@ const REALTIME_ANALYSIS_PRODUCT_ID_ALIAS_MAP = {
   2013: 'MK'
 }
 
-const inferRealtimeAnalysisAliasFromText = (value) => {
-  const text = String(value || '').trim().toUpperCase()
-  if (!text) {
-    return ''
+const escapeRealtimeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const decodeRealtimeJsonString = (value) => {
+  const text = String(value || '').replace(/\\$/, '')
+  try {
+    return JSON.parse(`"${text}"`)
+  } catch (error) {
+    return text
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\\\/g, '\\')
   }
-  if (text.includes('MAXKB') || text.includes('MAX KB') || text.includes('MK')) {
-    return 'MK'
-  }
-  if (text.includes('DATAEASE') || text.includes('DATA EASE') || text.includes('DE')) {
-    return 'DE'
-  }
-  if (text.includes('SQLBOT')) {
-    return 'SQLBOT'
-  }
-  if (text.includes('JUMPSERVER') || text.includes('JUMP SERVER') || text.includes('JS')) {
-    return 'JS'
+}
+
+const extractRealtimePartialString = (text, keys) => {
+  const keyList = Array.isArray(keys) ? keys : [keys]
+  for (const key of keyList) {
+    const pattern = new RegExp(`"${escapeRealtimeRegex(key)}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`, 's')
+    const match = pattern.exec(text)
+    if (match?.[1]) {
+      return decodeRealtimeJsonString(match[1]).trim()
+    }
   }
   return ''
 }
 
-const buildRealtimeAnalysisKbCatalog = ({ customerName, versionText, productLabel }) => ({
-  JS: [
-    {
-      id: 'kb-1',
-      label: '日志接入',
-      summary: `${productLabel} 群里经常会问审计日志如何统一接入，通常先确认日志汇聚方式与当前版本能力。`,
-      focus: '日志审计',
-      scene: '能力咨询',
-      messageCount: 12,
-      question: `${customerName} 问“堡垒机怎么对接 syslog”`,
-      answer: [
-        '可以先回复客户：JumpServer 支持将日志对接到 Syslog 服务器，建议先确认当前部署版本、目标日志服务器地址以及网络连通性，再按知识库文档完成配置。',
-        '如果客户正在推进审计平台接入，可以同步提醒他们先准备好日志接收端口、协议方式和连通性验证，避免到了配置阶段再来回确认环境信息。'
-      ],
-      references: [
-        {
-          label: 'JumpServer 如何对接 Syslog 服务器',
-          url: 'https://kb.fit2cloud.com/?p=9af4e776-dad9-4bdf-b956-84213fc8219e'
-        }
-      ],
-      actions: [
-        '先确认客户要接入的是统一日志平台还是单独的 Syslog 服务器。',
-        '补问服务器地址、端口和网络策略，避免只给概念答复。',
-        '如果客户已在生产环境使用，建议补一句先在测试环境验证日志落盘效果。'
-      ],
-      note: '这类问题更适合先给一条短回复，再附知识库链接，客户会觉得你是在直接推进，不是在甩文档。'
-    },
-    {
-      id: 'kb-2',
-      label: '登录配置',
-      summary: '域名、反向代理和可信访问地址是 JumpServer 近版本里比较高频的咨询点。',
-      focus: '访问配置',
-      scene: '问题排查',
-      messageCount: 9,
-      question: `${customerName} 如果反馈“页面提示配置文件有问题，要求设置 DOMAINS”，在群里第一时间应该怎么解释更稳妥？`,
-      answer: [
-        '可以先说明：这是 JumpServer 在较新版本中增加的可信访问校验机制，通常需要在配置文件中补齐 DOMAINS 参数，写入实际访问域名或地址后再重启服务。',
-        '如果客户环境前面还有 Nginx、SLB 或多个访问入口，建议同步确认最终对外访问地址，避免 DOMAINS 配置和实际入口不一致。'
-      ],
-      references: [
-        {
-          label: '〖V3/V4〗JumpServer 登陆提示设置配置项 DOMAINS',
-          url: 'https://kb.fit2cloud.com/?p=019ba1c6-d4d3-7082-a2a2-d13ef3ab0a9b'
-        }
-      ],
-      actions: [
-        '确认客户实际访问地址是 IP、域名还是带端口的代理地址。',
-        '提醒客户修改后执行服务重启，再重新验证登录。',
-        '如果是多入口访问，建议一次性把常用访问地址都补齐。'
-      ],
-      note: '这里最好避免只回“加个 DOMAINS”，把原因说清楚，客户更容易接受这是安全机制而不是故障。'
-    },
-    {
-      id: 'kb-3',
-      label: '日志排查',
-      summary: '客户遇到连接或访问异常时，往往下一句就是“日志去哪看”。',
-      focus: '故障定位',
-      scene: '排障协同',
-      messageCount: 8,
-      question: `${customerName} 如果让你快速引导客户排查 JumpServer 异常，第一步日志定位建议怎么发？`,
-      answer: [
-        '可以直接回复客户：先按组件查看 JumpServer 持久化目录或容器日志，重点看 core、koko、lion、nginx 相关日志，再结合报错时间点定位异常。',
-        '如果准备让客户把日志发回群里协助排查，记得提醒对方保留完整时间段上下文，不要只截取最后一行报错。'
-      ],
-      references: [
-        {
-          label: 'JumpServer 查询日志方法',
-          url: 'https://kb.fit2cloud.com/?p=63720781-1d9b-45f6-91a2-8911852f97a0'
-        }
-      ],
-      actions: [
-        '先让客户按报错时间点抓取 core 和网关日志。',
-        '如果是资产连接类问题，再补看对应组件日志。',
-        '群里可以先收日志路径和报错时间，减少来回追问。'
-      ],
-      note: '这条推荐回答适合在群里当“排障起手式”，把节奏先握在我们手里。'
+const extractRealtimeArrayBody = (text, key) => {
+  const pattern = new RegExp(`"${escapeRealtimeRegex(key)}"\\s*:\\s*\\[`, 's')
+  const match = pattern.exec(text)
+  if (!match) return ''
+  const start = match.index + match[0].length
+  const end = text.indexOf(']', start)
+  return text.slice(start, end === -1 ? undefined : end)
+}
+
+const extractRealtimePartialObjects = (text, key, fields) => {
+  const body = extractRealtimeArrayBody(text, key)
+  if (!body) return []
+  const objects = []
+  const objectPattern = /\{([\s\S]*?)(?=\}\s*,|\}\s*$|\}\s*\]|$)/g
+  let match
+  while ((match = objectPattern.exec(body)) !== null) {
+    const source = match[1]
+    const item = {}
+    fields.forEach((field) => {
+      const value = extractRealtimePartialString(source, field.keys || field.key)
+      if (value) {
+        item[field.key] = value
+      }
+    })
+    if (Object.keys(item).length) {
+      objects.push(item)
     }
-  ],
-  MK: [
-    {
-      id: 'kb-1',
-      label: '表单采集',
-      summary: `${productLabel} 在对接 MCP 或复杂工作流时，最常见的问题是参数收集不完整。`,
-      focus: '工作流编排',
-      scene: '能力咨询',
-      messageCount: 11,
-      question: `${customerName} 问“MaxKB 里要怎么根据问题动态收集参数”，群里推荐怎么回复比较专业？`,
-      answer: [
-        '可以先告诉客户：如果是高级编排里需要根据用户输入动态补齐参数，优先考虑使用 form_rander 方案，它适合在 MCP 调用或复杂工具链场景下做差异化参数收集。',
-        '这类能力比纯提示词更稳，因为表单可以把必填参数显式暴露出来，减少调用失败和反复追问。'
-      ],
-      references: [
-        {
-          label: 'MaxKB 使用 form_rander 动态生成表单',
-          url: 'https://kb.fit2cloud.com/?p=fa4a2e33-967c-4bdd-b278-709b9ff0c051'
-        }
-      ],
-      actions: [
-        '先确认客户是单一工具参数采集，还是多个 MCP 混合场景。',
-        '如果已经有节点编排，建议顺手让客户截图当前流程，便于继续指导。',
-        '回复里可以先强调“适合动态参数收集”，客户会更快对上需求。'
-      ],
-      note: '这类问题很适合先给方案方向，再丢一篇知识库，客户接受度会比只发链接高。'
+  }
+  return objects
+}
+
+const buildRealtimeAnalysisDraft = (value) => {
+  const text = stripRealtimeJsonFence(value)
+  if (!text) return null
+  return {
+    product: extractRealtimePartialString(text, 'product'),
+    analysis: {
+      problem_summary: extractRealtimePartialString(text, ['problem_summary', 'problemSummary']),
+      problem_type: extractRealtimePartialString(text, ['problem_type', 'problemType']),
+      urgency_level: extractRealtimePartialString(text, ['urgency_level', 'urgencyLevel']),
+      customer_emotion: extractRealtimePartialString(text, ['customer_emotion', 'customerEmotion']),
+      component: extractRealtimePartialString(text, 'component')
     },
-    {
-      id: 'kb-2',
-      label: '图片输出',
-      summary: '知识库命中了图片但回答里没带出来，是 MaxKB 比较典型的一类效果问题。',
-      focus: '回答优化',
-      scene: '效果调优',
-      messageCount: 10,
-      question: `${customerName} 如果反馈“知识库里有图片，但回答没有图片”，推荐回答要怎么组织更顺？`,
-      answer: [
-        '可以先回复客户：这通常不是单点故障，而是要同时确认检索片段是否命中图片、提示词里是否明确要求输出图片，以及所用模型是否支持较好的图片理解与输出。',
-        '如果客户急着验证效果，建议先按知识库文档里的方式检查命中分段与提示词要求，再做一轮对照测试，会比直接改模型更高效。'
-      ],
-      references: [
-        {
-          label: 'MaxKB 知识库图片输出指南',
-          url: 'https://kb.fit2cloud.com/?p=30ba995e-114c-41ee-aa6b-9eb5ac197e4e'
-        }
-      ],
-      actions: [
-        '先让客户确认检索节点命中的片段里是否真的包含图片资源。',
-        '补查提示词里是否明确要求“输出图片”。',
-        '必要时建议更换模型做一次横向验证。'
-      ],
-      note: '这里尽量别把原因直接归到模型，先把知识库命中和提示词检查讲清楚会更稳。'
-    },
-    {
-      id: 'kb-3',
-      label: '登录对接',
-      summary: '涉及非标准单点登录的网站接入时，客户经常会卡在“用户身份怎么透传”。',
-      focus: '嵌入集成',
-      scene: '方案说明',
-      messageCount: 7,
-      question: `${customerName} 如果想把 MaxKB 嵌到第三方系统里，并实现对话用户模拟登录，群里应该先怎么答？`,
-      answer: [
-        '可以先向客户说明：如果不是标准 OIDC 等协议，也可以走对话用户模拟登录方案，核心是把外部系统的用户身份经过校验后映射到 MaxKB 对话用户。',
-        '这类场景建议先确认客户现有登录体系、版本范围和对接方式，再按知识库里的流程逐步配置，避免一开始就陷入代码细节。'
-      ],
-      references: [
-        {
-          label: 'MaxKB v2 对话用户模拟登陆流程',
-          url: 'https://kb.fit2cloud.com/?p=019b723e-4a21-75ba-bbb4-9cc7365c5b0c'
-        }
-      ],
-      actions: [
-        '先确认客户是标准协议单点登录，还是自定义登录体系。',
-        '回复里可以先强调版本要求，减少后续兼容性来回确认。',
-        '如果客户要推进 PoC，建议同步收集现有认证链路说明。'
-      ],
-      note: '这类问题群里不要一下讲太深，先给对接路线图，后面再进群细化会更顺。'
+    suggestions: {
+      reply_options: extractRealtimePartialObjects(text, 'reply_options', [
+        { key: 'approach', keys: ['approach', 'title'] },
+        { key: 'content', keys: ['content', 'answer', 'text'] },
+        { key: 'tone', keys: 'tone' }
+      ])
     }
-  ],
-  DE: [
-    {
-      id: 'kb-1',
-      label: '数据源排查',
-      summary: `${productLabel} 群聊里很常见的第一类问题，就是数据源连不上或连通性不稳定。`,
-      focus: '连接诊断',
-      scene: '问题排查',
-      messageCount: 13,
-      question: `${customerName} 问“DataEase 数据源连接失败怎么排查”，推荐回答先怎么发比较合适？`,
-      answer: [
-        '可以先回复客户：先从网络连通性、端口、防火墙或安全组开始排查，再确认数据源账号权限与驱动配置，DataEase 侧的大多数连接失败都能先从这几项收敛。',
-        '如果客户已经给出具体报错，建议同步贴上错误截图或报错文本，我们可以按知识库中的常见场景继续细分判断。'
-      ],
-      references: [
-        {
-          label: 'DataEase v2 数据源连接失败的各种情况及解决方案',
-          url: 'https://kb.fit2cloud.com/?p=1cd7191f-5666-4737-aea8-5e11228e7f45'
-        }
-      ],
-      actions: [
-        '先确认是所有数据源都失败，还是某一类数据库失败。',
-        '补问端口、网络策略和账号权限，优先排基础连通性。',
-        '如果报错可复现，建议客户提供完整报错文本。'
-      ],
-      note: 'DataEase 这类问题先按“网络与权限”切分，客户会明显感觉排查路径更清楚。'
-    },
-    {
-      id: 'kb-2',
-      label: '路径代理',
-      summary: '一个域名挂多个系统时，DataEase 的路径代理配置是很高频的咨询点。',
-      focus: '访问入口',
-      scene: '部署咨询',
-      messageCount: 9,
-      question: `${customerName} 如果希望通过同域名不同路径访问 DataEase，群里推荐回答怎么写更自然？`,
-      answer: [
-        '可以先说明：DataEase 支持通过 Nginx 路径代理方式挂到同一域名下，但需要同步处理前端访问路径和代理转发配置，不能只改一个入口地址。',
-        '如果客户环境里已经有 JumpServer、门户或其他业务系统共用域名，这篇知识库可以直接作为路径代理的配置参考。'
-      ],
-      references: [
-        {
-          label: 'DataEase V2 设置动态访问路径，使用 Nginx 路径代理',
-          url: 'https://kb.fit2cloud.com/?p=7c54c445-d70e-46a1-bec6-960752919dfd'
-        }
-      ],
-      actions: [
-        '先确认客户当前是否已使用反向代理或网关。',
-        '提醒客户同步检查静态资源路径和接口转发规则。',
-        '如果后续还要嵌入门户，建议把最终访问路径一次定好。'
-      ],
-      note: '这种问题最好把“不是只改访问地址”这句话提前说出来，能少走很多弯路。'
-    },
-    {
-      id: 'kb-3',
-      label: 'OIDC 登录',
-      summary: '客户配置单点登录后返回 500，多半和代理层 Header 透传有关。',
-      focus: '认证集成',
-      scene: '异常处理',
-      messageCount: 8,
-      question: `${customerName} 如果配置 OIDC 后登录报 500，第一时间在群里怎么给客户一个像样的判断？`,
-      answer: [
-        '可以先回复客户：如果 DataEase v2 是通过 Nginx 代理访问，OIDC 登录报 500 时要优先检查代理层是否忽略了带下划线的请求头，这类问题在实际项目里很常见。',
-        '建议先按知识库文档核对 Nginx 配置，再结合当前认证链路确认 Header 是否被完整透传。'
-      ],
-      references: [
-        {
-          label: '基于 Nginx 代理的 DataEase v2 使用 OIDC 登录失败问题',
-          url: 'https://kb.fit2cloud.com/?p=db862347-6f13-4b9f-b1c9-ee3c99358af4'
-        }
-      ],
-      actions: [
-        '先确认客户是否经过 Nginx 或网关代理。',
-        '优先排查代理层 Header 配置，而不是先改 DataEase 本身。',
-        '如果客户方便，建议同时提供代理配置片段和报错时间点。'
-      ],
-      note: '这里先把“代理层 Header”点出来，通常就能快速体现专业度。'
-    }
-  ],
-  SQLBOT: [
-    {
-      id: 'kb-1',
-      label: 'MCP 对接',
-      summary: `${productLabel} 相关群聊里，最常见的是和 MaxKB 之类应用的集成问题。`,
-      focus: '智能问数',
-      scene: '能力咨询',
-      messageCount: 6,
-      question: `${customerName} 如果在群里问 SQLBot 怎么跟 MaxKB 通过 MCP 对接，推荐回答怎么发更清楚？`,
-      answer: [
-        '可以先说明：SQLBot 支持以 MCP 方式接入 MaxKB 等平台，核心是先完成 MCP 服务侧配置，再让上层应用按约定调用工具，形成自然语言到 SQL 的链路。',
-        '如果客户已经开始做 PoC，建议直接让对方按知识库步骤逐项核对，能明显减少环境配置遗漏。'
-      ],
-      references: [
-        {
-          label: 'MaxKB V2 对接 SQLBot MCP 常见问题解决',
-          url: 'https://kb.fit2cloud.com/?p=019b724a-4e4d-742c-8067-ca13c4394b79'
-        }
-      ],
-      actions: [
-        '先确认客户是 MaxKB 集成，还是其他 AI 平台集成。',
-        '补问当前卡在哪一步，是服务注册、连接验证还是结果返回。',
-        '如果群里要先稳住节奏，可以先给这条知识库作为主参考。'
-      ],
-      note: 'SQLBot 这类问题大多属于集成链路核对，先把路径讲清楚最重要。'
-    }
-  ],
-  DEFAULT: [
-    {
-      id: 'kb-1',
-      label: '产品识别中',
-      summary: '当前还没从实施上下文里拿到明确产品类型，先给一个知识库总入口兜底。',
-      focus: '内容预览',
-      scene: '静态兜底',
-      messageCount: 3,
-      question: `${customerName} 当前还未识别到明确产品类型，是否先从飞致云知识库总入口里快速定位对应产品文档？`,
-      answer: [
-        '可以先回复客户：我们先按当前产品方向帮您定位对应知识库文档，拿到产品类型后再给更贴近场景的处理建议。',
-        '如果你这边已经知道是 JumpServer、MaxKB 或 DataEase，也可以切到实施页确认产品信息，AI 分析这里会同步切换推荐内容。'
-      ],
-      references: [
-        {
-          label: '飞致云知识库首页',
-          url: 'https://kb.fit2cloud.com/'
-        }
-      ],
-      actions: [
-        '优先确认实施页里的产品名称或产品别名。',
-        '必要时先把客户问题关键词发到知识库中检索。',
-        '待产品识别完成后，这里会自动切成对应知识库推荐。'
-      ],
-      note: '这个兜底状态只为避免页面空着，拿到实施上下文后会自动变成产品化推荐。'
-    }
-  ]
+  }
+}
+
+const realtimeAnalysisDraft = computed(() => buildRealtimeAnalysisDraft(realtimeAnalysisRawContent.value))
+
+const realtimeAnalysisDisplayData = computed(() => realtimeAnalysisParsed.value || realtimeAnalysisDraft.value || {})
+
+const realtimeAnalysisSelectedRangeLabel = computed(() => {
+  return realtimeAnalysisRangeOptions.find(option => option.value === realtimeAnalysisRange.value)?.label || '当前时间范围'
+})
+
+const realtimeAnalysisPlainContent = computed(() => {
+  if (realtimeAnalysisParsed.value) return ''
+  const text = stripRealtimeJsonFence(realtimeAnalysisRawContent.value)
+  if (!text || text.startsWith('{') || text.startsWith('[')) return ''
+  return text
+})
+
+const realtimeAnalysisNoConversation = computed(() => {
+  return /无.*对话记录|暂无.*对话记录|没有.*对话记录/.test(realtimeAnalysisPlainContent.value)
 })
 
 const realtimeAnalysisProductAlias = computed(() => {
-  if (implementationProductAlias.value) {
-    return implementationProductAlias.value
-  }
-
+  const parsedProduct = String(realtimeAnalysisDisplayData.value?.product || '').trim().toUpperCase()
+  if (parsedProduct) return parsedProduct
+  if (implementationProductAlias.value) return implementationProductAlias.value
   const productId = Number(customerData.value?.productId || 0)
   if (productId && REALTIME_ANALYSIS_PRODUCT_ID_ALIAS_MAP[productId]) {
     return REALTIME_ANALYSIS_PRODUCT_ID_ALIAS_MAP[productId]
   }
-
-  const serviceAlias = (serviceRecords.value || [])
-    .map(record => inferRealtimeAnalysisAliasFromText(record?.maintenanceVersion || record?.maintenanceTitle || ''))
-    .find(Boolean)
-  if (serviceAlias) {
-    return serviceAlias
-  }
-
-  const maintenanceAlias = (maintenanceRecords.value || [])
-    .map(record => inferRealtimeAnalysisAliasFromText(record?.version || record?.template || record?.title || ''))
-    .find(Boolean)
-  if (maintenanceAlias) {
-    return maintenanceAlias
-  }
-
-  return inferRealtimeAnalysisAliasFromText(versionBadgeText.value)
+  return ''
 })
 
-const realtimeAnalysisProductLabel = computed(() => {
-  const contextLabel = implementationContext.value?.productName
-  if (contextLabel) {
-    return contextLabel
-  }
-  return REALTIME_ANALYSIS_PRODUCT_LABELS[realtimeAnalysisProductAlias.value] || '产品识别中'
+const realtimeAnalysisData = computed(() => {
+  const data = realtimeAnalysisDisplayData.value?.analysis
+  return data && typeof data === 'object' ? data : {}
 })
 
-const realtimeAnalysisItems = computed(() => {
-  const customerName = customerDisplayName.value === '客户信息待补全'
-    ? '当前客户'
-    : customerDisplayName.value
-  const versionText = realtimeAnalysisVersionText.value
-  const productLabel = realtimeAnalysisProductLabel.value
-  const catalog = buildRealtimeAnalysisKbCatalog({
-    customerName,
-    versionText,
-    productLabel
+const realtimeAnalysisSuggestions = computed(() => {
+  const data = realtimeAnalysisDisplayData.value?.suggestions
+  return data && typeof data === 'object' ? data : {}
+})
+
+const realtimeAnalysisProblemSummary = computed(() => {
+  return realtimeAnalysisData.value.problem_summary
+    || realtimeAnalysisData.value.problemSummary
+    || (realtimeAnalysisNoConversation.value ? `${realtimeAnalysisSelectedRangeLabel.value}内暂无对话记录。` : realtimeAnalysisPlainContent.value)
+    || (realtimeAnalysisStatus.value === 'streaming' ? '正在分析当前群聊内容...' : '点击“开始分析”获取当前群聊客户问题概览。')
+})
+
+const realtimeAnalysisOverviewTags = computed(() => {
+  const productAlias = realtimeAnalysisProductAlias.value
+  const productLabel = REALTIME_ANALYSIS_PRODUCT_LABELS[productAlias] || productAlias || '-'
+  return [
+    { label: '产品', value: productLabel },
+    { label: '类型', value: realtimeAnalysisData.value.problem_type || realtimeAnalysisData.value.problemType || '-', type: 'type' },
+    { label: '紧急度', value: realtimeAnalysisData.value.urgency_level || realtimeAnalysisData.value.urgencyLevel || '-', type: 'urgency' },
+    { label: '情绪', value: realtimeAnalysisData.value.customer_emotion || realtimeAnalysisData.value.customerEmotion || '-', type: 'emotion' },
+    { label: '组件', value: realtimeAnalysisData.value.component || '-', type: 'component' }
+  ].filter(tag => tag.value && tag.value !== '-')
+})
+
+const normalizeRealtimeArray = (value) => {
+  if (Array.isArray(value)) return value
+  if (value === null || value === undefined || value === '') return []
+  return [value]
+}
+
+const normalizeRealtimeTags = (value) => {
+  return normalizeRealtimeArray(value)
+    .flatMap(item => String(item || '').split(/[、,，/｜|]+/))
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+const realtimeAnalysisReplyOptions = computed(() => {
+  return normalizeRealtimeArray(realtimeAnalysisSuggestions.value.reply_options || realtimeAnalysisSuggestions.value.replyOptions)
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        return {
+          approach: item.approach || item.title || '',
+          toneTags: normalizeRealtimeTags(item.tone || item.tags || item.tag),
+          content: item.content || item.answer || item.text || ''
+        }
+      }
+      return {
+        approach: '',
+        toneTags: [],
+        content: String(item || '')
+      }
+    })
+    .filter(item => item.content)
+})
+
+const realtimeAnalysisReplyEmptyText = computed(() => {
+  if (realtimeAnalysisPlainContent.value) {
+    return realtimeAnalysisNoConversation.value ? '当前时间范围内暂无可生成的回复建议' : '未生成可直接复制的回复建议'
+  }
+  return realtimeAnalysisStatus.value === 'streaming' ? '正在生成回复建议...' : '暂无回复建议'
+})
+
+const realtimeAnalysisOtherFields = computed(() => {
+  if (!realtimeAnalysisParsed.value || typeof realtimeAnalysisParsed.value !== 'object') return []
+  const known = new Set(['product', 'analysis', 'suggestions', 'knowledge_references', 'knowledgeReferences'])
+  return Object.entries(realtimeAnalysisParsed.value)
+    .filter(([key]) => !known.has(key))
+    .map(([key, value]) => ({
+      key,
+      value: typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+    }))
+})
+
+const stripRealtimeJsonFence = (value) => {
+  let text = String(value || '').trim()
+  text = text.replace(/^```(?:json)?\s*/i, '')
+  text = text.replace(/\s*```$/i, '')
+  return text.trim()
+}
+
+const parseRealtimeAnalysisContent = () => {
+  const text = stripRealtimeJsonFence(realtimeAnalysisRawContent.value)
+  if (!text) return
+  try {
+    realtimeAnalysisParsed.value = JSON.parse(text)
+  } catch (error) {
+    if (realtimeAnalysisStatus.value !== 'streaming') {
+      console.warn('parse realtime analysis failed:', error)
+    }
+  }
+}
+
+const stopRealtimeAnalysisTyping = () => {
+  if (realtimeAnalysisTypingTimer) {
+    clearInterval(realtimeAnalysisTypingTimer)
+    realtimeAnalysisTypingTimer = null
+  }
+  realtimeAnalysisPendingContent = ''
+  realtimeAnalysisStreamFinished = false
+}
+
+const finishRealtimeAnalysisTypingIfReady = () => {
+  if (realtimeAnalysisPendingContent || realtimeAnalysisTypingTimer) return
+  if (realtimeAnalysisStreamFinished && realtimeAnalysisStatus.value === 'streaming') {
+    realtimeAnalysisStatus.value = 'done'
+    realtimeAnalysisStreamFinished = false
+    parseRealtimeAnalysisContent()
+  }
+}
+
+const flushRealtimeAnalysisTyping = () => {
+  if (!realtimeAnalysisPendingContent) {
+    if (realtimeAnalysisTypingTimer) {
+      clearInterval(realtimeAnalysisTypingTimer)
+      realtimeAnalysisTypingTimer = null
+    }
+    finishRealtimeAnalysisTypingIfReady()
+    return
+  }
+  const batchSize = realtimeAnalysisPendingContent.length > 400 ? 4 : 2
+  realtimeAnalysisRawContent.value += realtimeAnalysisPendingContent.slice(0, batchSize)
+  realtimeAnalysisPendingContent = realtimeAnalysisPendingContent.slice(batchSize)
+  parseRealtimeAnalysisContent()
+}
+
+const queueRealtimeAnalysisContent = (content) => {
+  const text = String(content || '')
+  if (!text) return
+  realtimeAnalysisPendingContent += text
+  if (!realtimeAnalysisTypingTimer) {
+    realtimeAnalysisTypingTimer = setInterval(flushRealtimeAnalysisTyping, 14)
+  }
+}
+
+const markRealtimeAnalysisStreamFinished = () => {
+  realtimeAnalysisStreamFinished = true
+  finishRealtimeAnalysisTypingIfReady()
+}
+
+const parseRealtimeSseBlock = (block) => {
+  const event = {
+    type: 'message',
+    data: ''
+  }
+  let hasDataLine = false
+  String(block || '').split(/\r?\n/).forEach((line) => {
+    if (line.startsWith('event:')) {
+      event.type = line.slice(6).trim() || 'message'
+    } else if (line.startsWith('data:')) {
+      hasDataLine = true
+      event.data += line.slice(5).trim() + '\n'
+    }
   })
-  return catalog[realtimeAnalysisProductAlias.value] || catalog.DEFAULT
-})
-
-const currentRealtimeAnalysis = computed(() => {
-  return realtimeAnalysisItems.value.find(item => item.id === realtimeAnalysisSelectedId.value) || realtimeAnalysisItems.value[0] || null
-})
-
-const currentRealtimeAnalysisAnswerText = computed(() => {
-  const item = currentRealtimeAnalysis.value
-  const parts = Array.isArray(item?.answer) ? item.answer : []
-  return parts.join('\n\n').trim()
-})
-
-const realtimeAnalysisDisplayTime = computed(() => {
-  return `近 24 小时 · ${formatRealtimeAnalysisTime(realtimeAnalysisRefreshedAt.value)}`
-})
-
-const buildRealtimeAnalysisLinkText = (item) => {
-  if (!item) {
-    return ''
-  }
-  const primaryReference = Array.isArray(item.references) ? item.references[0] : null
-  const label = String(primaryReference?.label || '').trim()
-  const url = String(primaryReference?.url || '').trim()
-  if (!url) {
-    return ''
-  }
-  return label ? `${label}：${url}` : url
+  event.data = hasDataLine ? event.data.trim() : String(block || '').trim()
+  return event
 }
 
-const selectRealtimeAnalysis = (id) => {
-  realtimeAnalysisSelectedId.value = id
+const parseRealtimeSsePayload = (data) => {
+  if (!data) return null
+  try {
+    return JSON.parse(data)
+  } catch (error) {
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        content: data
+      }
+    }
+  }
 }
 
-const handleRefreshRealtimeAnalysis = () => {
-  const items = realtimeAnalysisItems.value
-  if (!items.length) return
-  const currentIndex = items.findIndex(item => item.id === realtimeAnalysisSelectedId.value)
-  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % items.length : 0
-  realtimeAnalysisSelectedId.value = items[nextIndex].id
-  realtimeAnalysisRefreshedAt.value = new Date()
+const handleRealtimeSseEvent = (event) => {
+  const payload = parseRealtimeSsePayload(event.data)
+  if (!payload) return
+  if (payload.error) {
+    realtimeAnalysisStatus.value = 'error'
+    realtimeAnalysisError.value = payload.error
+    return
+  }
+  if (payload.code && payload.code !== 0) {
+    realtimeAnalysisStatus.value = 'error'
+    realtimeAnalysisError.value = payload.message || payload.error || '实时分析失败'
+    return
+  }
+  const data = payload.data || {}
+  if (event.type === 'message' && data.content) {
+    queueRealtimeAnalysisContent(data.content)
+    return
+  }
+  if (event.type === 'start') {
+    realtimeAnalysisMeta.value = {
+      extChatId: data.ext_chat_id || data.extChatId || realtimeAnalysisMeta.value.extChatId || '',
+      groupName: data.group_name || data.groupName || realtimeAnalysisMeta.value.groupName || '',
+      timeRange: data.time_range || data.timeRange || realtimeAnalysisRange.value
+    }
+    return
+  }
+  if (event.type === 'delta') {
+    queueRealtimeAnalysisContent(data.content || '')
+    return
+  }
+  if (event.type === 'done') {
+    realtimeAnalysisMeta.value = {
+      extChatId: data.ext_chat_id || data.extChatId || realtimeAnalysisMeta.value.extChatId || '',
+      groupName: data.group_name || data.groupName || realtimeAnalysisMeta.value.groupName || '',
+      timeRange: data.time_range || data.timeRange || realtimeAnalysisMeta.value.timeRange || realtimeAnalysisRange.value
+    }
+    markRealtimeAnalysisStreamFinished()
+    return
+  }
+  if (event.type === 'error') {
+    realtimeAnalysisStatus.value = 'error'
+    realtimeAnalysisError.value = payload.message || data.message || '实时分析失败'
+  }
+}
+
+const resetRealtimeAnalysisState = () => {
+  stopRealtimeAnalysisTyping()
+  realtimeAnalysisStatus.value = 'idle'
+  realtimeAnalysisRawContent.value = ''
+  realtimeAnalysisParsed.value = null
+  realtimeAnalysisMeta.value = {
+    extChatId: chatId.value || '',
+    groupName: '',
+    timeRange: realtimeAnalysisRange.value
+  }
+  realtimeAnalysisError.value = ''
+}
+
+const selectRealtimeAnalysisRange = (value) => {
+  if (realtimeAnalysisStatus.value === 'streaming' || realtimeAnalysisRange.value === value) return
+  realtimeAnalysisRange.value = value
+  resetRealtimeAnalysisState()
+}
+
+const startRealtimeAnalysisStream = async () => {
+  const targetChatId = chatId.value
+  if (!targetChatId) {
+    showToast('未获取到当前群聊 ID', false)
+    return
+  }
+  if (realtimeAnalysisAbortController) {
+    realtimeAnalysisAbortController.abort()
+  }
+  realtimeAnalysisAbortController = new AbortController()
+  resetRealtimeAnalysisState()
+  realtimeAnalysisStatus.value = 'streaming'
+
+  try {
+    const query = new URLSearchParams({
+      extChatId: targetChatId,
+      timeRange: realtimeAnalysisRange.value
+    })
+    const response = await fetch('/api/chat-group/realtime-analysis/stream?' + query.toString(), {
+      headers: {
+        Accept: 'text/event-stream'
+      },
+      signal: realtimeAnalysisAbortController.signal
+    })
+    if (!response.ok || !response.body) {
+      throw new Error('实时分析请求失败: HTTP ' + response.status)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split(/\n\n/)
+      buffer = blocks.pop() || ''
+      blocks.forEach((block) => {
+        if (block.trim()) {
+          handleRealtimeSseEvent(parseRealtimeSseBlock(block))
+        }
+      })
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      handleRealtimeSseEvent(parseRealtimeSseBlock(buffer))
+    }
+    if (realtimeAnalysisStatus.value === 'streaming') {
+      markRealtimeAnalysisStreamFinished()
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') return
+    realtimeAnalysisStatus.value = 'error'
+    realtimeAnalysisError.value = error.message || '实时分析失败'
+  } finally {
+    if (realtimeAnalysisAbortController?.signal.aborted === false) {
+      realtimeAnalysisAbortController = null
+    }
+  }
 }
 
 const legacyCopyText = (text) => {
@@ -4466,15 +4539,14 @@ const copyTextToClipboard = async (text) => {
   return false
 }
 
-const copyRealtimeAnalysisAnswer = async (item) => {
-  const parts = Array.isArray(item?.answer) ? item.answer : []
-  const text = parts.join('\n\n').trim()
-  if (!text) {
-    showToast('当前没有可复制的答案内容', false)
+const copyRealtimeAnalysisText = async (text, successMessage = '内容已复制') => {
+  const normalized = String(text || '').trim()
+  if (!normalized) {
+    showToast('当前没有可复制的内容', false)
     return
   }
-  const copied = await copyTextToClipboard(text)
-  showToast(copied ? '答案已复制' : '复制失败，请稍后重试', copied)
+  const copied = await copyTextToClipboard(normalized)
+  showToast(copied ? successMessage : '复制失败，请稍后重试', copied)
 }
 
 const ticketStatusMap = {
@@ -6072,6 +6144,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', adjustToolEmailTextarea)
   window.removeEventListener('resize', adjustToolCcTextarea)
   clearAcceptanceStatusRefreshTimers()
+  if (realtimeAnalysisAbortController) {
+    realtimeAnalysisAbortController.abort()
+  }
+  stopRealtimeAnalysisTyping()
 })
 
 watch(toolEmail, () => {
@@ -6091,7 +6167,6 @@ watch(activeTab, (newValue, oldValue) => {
 
 watch(chatId, (newValue, oldValue) => {
   if (!newValue || newValue === oldValue) return
-  realtimeAnalysisSelectedId.value = realtimeAnalysisItems.value[0]?.id || ''
-  realtimeAnalysisRefreshedAt.value = new Date()
+  resetRealtimeAnalysisState()
 })
 </script>
