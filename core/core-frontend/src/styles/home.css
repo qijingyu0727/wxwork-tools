@@ -235,7 +235,7 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* 客户头部 */
@@ -259,9 +259,28 @@
 
 .customer-badges {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.375rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.customer-subscription-strip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  margin-top: 0;
+  padding: 0.25rem 0 0;
+  border: 0;
+  background: transparent;
+  max-width: 100%;
+  overflow: visible;
+  scrollbar-width: none;
+}
+
+.customer-subscription-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .customer-data-guide {
@@ -326,6 +345,86 @@
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+}
+
+.environment-version-badge {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 9999px;
+  padding: 0 0.62rem;
+  background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+  color: #ffffff;
+  box-shadow: 0 5px 12px rgba(37, 99, 235, 0.24);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.environment-version-badge:hover {
+  box-shadow: 0 7px 16px rgba(37, 99, 235, 0.28);
+  transform: translateY(-1px);
+}
+
+.environment-version-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  line-height: 1;
+}
+
+.environment-version-text {
+  display: block;
+  line-height: 1;
+}
+
+.environment-version-text {
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.environment-version-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.82rem;
+  height: 0.82rem;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+}
+
+.environment-version-tooltip {
+  position: absolute;
+  right: -0.375rem;
+  top: calc(100% + 0.5rem);
+  z-index: 30;
+  min-width: 8.75rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #334155;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-line;
+  pointer-events: none;
 }
 
 /* 统计数据区域 */
@@ -793,6 +892,7 @@
   width: fit-content;
   max-width: 100%;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.18rem;
   padding: 0.18rem;
   border: 1px solid rgba(16, 185, 129, 0.2);
@@ -801,7 +901,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     0 1px 6px rgba(15, 23, 42, 0.04);
-  overflow-x: auto;
+  overflow: visible;
   scrollbar-width: none;
 }
 
@@ -851,9 +951,9 @@
   align-items: center;
   justify-content: center;
   gap: 0.36rem;
-  min-width: 5.75rem;
+  min-width: 4.5rem;
   height: 2rem;
-  padding: 0 0.78rem;
+  padding: 0 0.68rem;
   border: 1px solid rgba(14, 165, 233, 0.28);
   border-radius: 999px;
   background:
@@ -1373,6 +1473,26 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.implementation-environment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.implementation-environment-group {
+  scroll-margin-top: 0.75rem;
+}
+
+.implementation-environment-empty {
+  padding: 0.875rem 1rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.5rem;
+  color: #64748b;
+  font-size: 0.8125rem;
+  text-align: center;
+  background: #f8fafc;
 }
 
 .maintenance-card {
@@ -1904,6 +2024,17 @@
     padding: 0.125rem 0.5rem;
   }
 
+  .customer-subscription-strip {
+    gap: 0.25rem;
+    margin-top: 0;
+    padding: 0.25rem 0 0;
+  }
+
+  .environment-version-badge {
+    height: 1.3rem;
+    padding: 0 0.36rem;
+  }
+
   .customer-data-guide {
     margin-top: -0.125rem;
     margin-bottom: 0.5rem;
@@ -2075,6 +2206,10 @@
 
   .customer-badges {
     gap: 0.125rem;
+  }
+
+  .customer-subscription-strip {
+    margin-top: 0;
   }
 
   .badge {

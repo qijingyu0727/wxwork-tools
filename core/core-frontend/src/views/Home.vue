@@ -45,7 +45,31 @@
             >
               {{ customerServiceStatusText }}
             </span>
-            <span v-if="versionBadgeText" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ versionBadgeText }}</span>
+            <div v-if="hasMultipleImplementationEnvironments" class="customer-subscription-strip">
+              <button
+                v-for="group in implementationEnvironmentGroups"
+                :key="`env-badge-${group.key}`"
+                type="button"
+                class="environment-version-badge"
+                @click="handleEnvironmentBadgeClick(group)"
+              >
+                <span class="environment-version-copy">
+                  <span class="environment-version-text">{{ group.versionText }}</span>
+                  <span
+                    class="environment-version-help"
+                    @mouseenter="showEnvironmentTooltip(group.key)"
+                    @mouseleave="hideEnvironmentTooltip"
+                    @click.stop="toggleEnvironmentTooltip(group.key)"
+                  >
+                    !
+                    <span v-if="activeEnvironmentTooltipKey === group.key" class="environment-version-tooltip">
+                      {{ group.tooltipText }}
+                    </span>
+                  </span>
+                </span>
+              </button>
+            </div>
+            <span v-if="!hasMultipleImplementationEnvironments && versionBadgeText" class="badge badge-primary badge-clickable" @click="handleVersionClick">{{ versionBadgeText }}</span>
           </div>
         </div>
         <div
@@ -159,7 +183,7 @@
                   title="开始分析"
                   aria-label="开始分析"
                 >
-                  <i :class="['fa', realtimeAnalysisStatus === 'streaming' ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
+                  <i v-if="realtimeAnalysisStatus === 'streaming'" class="fa fa-spinner fa-spin"></i>
                   <span>{{ realtimeAnalysisStatus === 'streaming' ? '分析中' : '开始分析' }}</span>
                 </button>
               </div>
@@ -266,8 +290,8 @@
 
           <!-- 实施 Tab -->
           <div v-if="activeTab === 'implementation'" class="tab-pane active">
-            <div v-if="!maintenanceLoading && maintenanceRecords.length === 0" class="add-maintenance-section">
-              <button class="btn-add-maintenance" @click="handleAddImplementation">
+            <div v-if="!hasMultipleImplementationEnvironments && !maintenanceLoading && maintenanceRecords.length === 0" class="add-maintenance-section">
+              <button class="btn-add-maintenance" @click="handleAddImplementation()">
                 <span>+ 新增</span>
               </button>
             </div>
@@ -276,9 +300,55 @@
               <i class="fa fa-spinner fa-spin text-3xl text-gray-400 mb-4"></i>
               <p class="text-gray-500">加载中...</p>
             </div>
-            <div v-else-if="maintenanceRecords.length === 0" class="tab-placeholder">
+            <div v-else-if="!hasMultipleImplementationEnvironments && maintenanceRecords.length === 0" class="tab-placeholder">
               <i class="fa fa-inbox text-3xl text-gray-400 mb-4"></i>
               <p class="text-gray-500">暂无实施记录</p>
+            </div>
+            <div v-else-if="hasMultipleImplementationEnvironments" class="implementation-environment-list">
+              <section
+                v-for="group in implementationEnvironmentGroups"
+                :key="group.key"
+                :ref="el => setImplementationEnvironmentRef(group.key, el)"
+                class="implementation-environment-group"
+              >
+                <div v-if="group.records.length === 0" class="implementation-environment-empty">
+                  暂无实施记录
+                </div>
+                <div v-else class="maintenance-list">
+                  <div v-for="record in group.records" :key="record.id" class="maintenance-card">
+                    <div class="maintenance-header">
+                      <span class="maintenance-template">{{ record.template }}</span>
+                      <span :class="['maintenance-status', 'status-' + (record.status || '').toLowerCase()]">{{ translateStatus(record.status) }}</span>
+                    </div>
+                    <div class="maintenance-info">
+                      <div class="info-row">
+                        <span class="info-label">版本</span>
+                        <span class="info-value">{{ record.version || '-' }}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="info-label">部署方式</span>
+                        <span class="info-value">{{ translateDeploymentMethod(record.deploymentMethod) }}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="info-label">部署时间</span>
+                        <span class="info-value">{{ record.deploymentTime || '-' }}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="info-label">实施人</span>
+                        <span class="info-value">{{ record.creatorName || '-' }}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="info-label">创建时间</span>
+                        <span class="info-value">{{ record.createTime || '-' }}</span>
+                      </div>
+                    </div>
+                    <div v-if="record.content" class="maintenance-content">
+                      <div class="info-label">实施内容</div>
+                      <pre class="content-text">{{ record.content }}</pre>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
             <div v-else class="maintenance-list">
               <div v-for="record in maintenanceRecords" :key="record.id" class="maintenance-card">
@@ -386,9 +456,9 @@
                   </div>
                   <span class="contract-service-tag">{{ formatContractServiceTag(contract) }}</span>
                 </div>
-                <div class="contract-detail-list">
+                  <div class="contract-detail-list">
                   <div class="contract-detail-row">
-                    <span class="contract-detail-label">授权数量</span>
+                    <span class="contract-detail-label">{{ getContractAmountLabel(contract) }}</span>
                     <span class="contract-detail-value contract-license-value">{{ formatContractLicenseAmount(contract) }}</span>
                   </div>
                   <div class="contract-detail-row">
@@ -1711,6 +1781,7 @@ const contractsLoading = ref(false)
 const contractsLoadedChatId = ref('')
 const contractsPreloadPromise = ref(null)
 const contractsPreloadChatId = ref('')
+const implementationEnvironmentRefs = new Map()
 const tickets = ref([])
 const ticketsLoading = ref(false)
 const ticketFilter = ref('unresolved') // 'all', 'resolved', 'unresolved'
@@ -1739,6 +1810,7 @@ const implementationRemainingIssuesTextareaRef = ref(null)
 const implementationRemarkTextareaRef = ref(null)
 const toolMailSubmitting = ref(false)
 const toolReportSubmitting = ref(false)
+const activeEnvironmentTooltipKey = ref('')
 let acceptanceStatusRequestToken = 0
 let acceptanceStatusRefreshTimers = []
 
@@ -3088,10 +3160,7 @@ const getCustomerData = async (extChatId) => {
       return
     }
     if (res.success) {
-      customerData.value = {
-        ...(customerData.value || {}),
-        ...(res.data || {})
-      }
+      mergeCustomerData(res.data || {})
     } else {
       showToast('获取客户数据失败：' + res.message, false)
       customerData.value = {}
@@ -3129,6 +3198,22 @@ const hasAcceptanceStatusValue = (data) => {
     .some(key => String(data?.[key] || '').trim() !== '')
 }
 
+const mergeCustomerData = (nextData = {}) => {
+  const currentData = customerData.value || {}
+  const mergedData = {
+    ...currentData,
+    ...nextData
+  }
+  ;['isAccepted', 'acceptanceStatusCode', 'needAcceptanceReport', 'accepted'].forEach(key => {
+    const nextValue = String(nextData?.[key] || '').trim()
+    const currentValue = currentData?.[key]
+    if (!nextValue && String(currentValue || '').trim()) {
+      mergedData[key] = currentValue
+    }
+  })
+  customerData.value = mergedData
+}
+
 const isActiveAcceptanceStatusTarget = (extChatId, token) => {
   return acceptanceStatusRequestToken === token && chatId.value === extChatId
 }
@@ -3153,10 +3238,7 @@ const fetchAcceptanceStatus = async (extChatId, options = {}) => {
       return false
     }
     if (res.success && res.data) {
-      customerData.value = {
-        ...(customerData.value || {}),
-        ...res.data
-      }
+      mergeCustomerData(res.data)
       return hasAcceptanceStatusValue(res.data)
     }
   } catch (err) {
@@ -3451,7 +3533,10 @@ const loadImplementationTabData = async (targetChatId, { force = false } = {}) =
   if (!targetChatId) return
   if (!isCurrentChatTarget(targetChatId)) return
   if (tabLoadState.value.implementation && !force) return
-  await getMaintenanceRecords(targetChatId)
+  await Promise.all([
+    getMaintenanceRecords(targetChatId),
+    prefetchContractSubscriptions(targetChatId)
+  ])
   if (!isCurrentChatTarget(targetChatId)) return
   tabLoadState.value.implementation = true
 }
@@ -3940,12 +4025,156 @@ const customerServiceStatusText = computed(() => {
   return customerData.value?.serviceStatus || ''
 })
 
+const getEnvironmentAmount = (item) => {
+  const amount = Number(item?.amount)
+  return Number.isFinite(amount) && amount > 0 ? amount : null
+}
+
+const getEnvironmentUnit = (item) => String(item?.amountUnit || '').trim()
+
+const getContractAmountKind = (item) => {
+  const serviceType = String(item?.serviceTypeName || '').trim()
+  if (serviceType.includes('订阅')) return '订阅'
+  if (serviceType.includes('授权')) return '授权'
+
+  const amountUnit = getEnvironmentUnit(item)
+  if (amountUnit.includes('订阅')) return '订阅'
+  if (amountUnit.includes('授权')) return '授权'
+
+  return ''
+}
+
+const getContractAmountKindLabel = (item) => getContractAmountKind(item) || '许可'
+
+const getContractAmountLabel = (item) => `${getContractAmountKindLabel(item)}数量`
+
+const getEnvironmentLicenseKey = (item) => {
+  const amount = getEnvironmentAmount(item)
+  const unit = getContractAmountKindLabel(item)
+  return amount ? `${amount}::${unit}` : ''
+}
+
+const formatEnvironmentLicenseLabel = (item) => {
+  const amount = getEnvironmentAmount(item)
+  if (!amount) return '环境'
+  return `${amount}${getContractAmountKindLabel(item)}`
+}
+
+const getLatestImplementationVersion = (records) => {
+  const candidates = (records || [])
+    .filter(record => record?.version)
+    .map((record, index) => ({
+      version: record.version,
+      timestamp: getLatestTimestampFromRecord(record, ['deploymentTime', 'createTime']),
+      order: index
+    }))
+  if (candidates.length === 0) return ''
+  const latest = candidates.reduce((best, current) => {
+    if (!best) return current
+    const versionCompare = compareVersionCore(current.version, best.version)
+    if (versionCompare > 0) return current
+    if (versionCompare < 0) return best
+    if (current.timestamp > best.timestamp) return current
+    if (current.timestamp < best.timestamp) return best
+    return current.order < best.order ? current : best
+  }, null)
+  return formatBadgeVersion(latest?.version || '')
+}
+
+const activeEnvironmentContracts = computed(() => {
+  return contractSubscriptions.value.filter(contract => {
+    const endDate = normalizeContractDate(contract?.supportEndDate || contract?.endDate)
+    return getEnvironmentLicenseKey(contract)
+      && contract?.expired !== true
+      && contract?.supportExpired !== true
+      && !isSubscriptionDateExpired(endDate)
+  })
+})
+
+const implementationEnvironmentGroups = computed(() => {
+  const groups = []
+  const groupMap = new Map()
+  const subscriptionGroupMap = new Map()
+
+  activeEnvironmentContracts.value.forEach(contract => {
+    const licenseKey = getEnvironmentLicenseKey(contract)
+    if (!licenseKey) return
+    const existingGroup = groupMap.get(licenseKey)
+    if (existingGroup) {
+      if (contract.id) subscriptionGroupMap.set(String(contract.id), existingGroup)
+      return
+    }
+    const group = {
+      key: licenseKey,
+      licenseKey,
+      licenseLabel: formatEnvironmentLicenseLabel(contract),
+      subscriptionId: contract.id,
+      contractNumber: contract.contractNumber || '',
+      supportEndDate: normalizeContractDate(contract.supportEndDate || contract.endDate),
+      productServiceName: contract.productServiceName || '',
+      records: []
+    }
+    groupMap.set(licenseKey, group)
+    if (contract.id) subscriptionGroupMap.set(String(contract.id), group)
+    groups.push(group)
+  })
+
+  maintenanceRecords.value.forEach(record => {
+    const subscriptionKey = record.subscriptionId ? String(record.subscriptionId) : ''
+    const licenseKey = getEnvironmentLicenseKey(record)
+    let group = subscriptionKey ? subscriptionGroupMap.get(subscriptionKey) : null
+    if (!group && licenseKey) group = groupMap.get(licenseKey)
+    if (!group) {
+      if (!licenseKey) return
+      group = {
+        key: licenseKey,
+        licenseKey,
+        licenseLabel: formatEnvironmentLicenseLabel(record),
+        subscriptionId: record.subscriptionId,
+        contractNumber: record.contractNumber || '',
+        supportEndDate: normalizeContractDate(record.supportEndDate),
+        productServiceName: record.productServiceName || '',
+        records: []
+      }
+      groupMap.set(licenseKey, group)
+      if (subscriptionKey) subscriptionGroupMap.set(subscriptionKey, group)
+      groups.push(group)
+    }
+    group.records.push(record)
+    if (!group.subscriptionId && record.subscriptionId) group.subscriptionId = record.subscriptionId
+    if (!group.contractNumber && record.contractNumber) group.contractNumber = record.contractNumber
+    if (!group.supportEndDate && record.supportEndDate) group.supportEndDate = normalizeContractDate(record.supportEndDate)
+  })
+
+  return groups.map(group => {
+    const versionText = getLatestImplementationVersion(group.records) || '待实施'
+    const amountText = getEnvironmentAmount(group) ? `${getContractAmountLabel(group)}：${getEnvironmentAmount(group)}` : `环境：${group.licenseLabel}`
+    const tooltipParts = [
+      amountText,
+      `版本：${versionText}`,
+      `到期：${group.supportEndDate || '-'}`,
+      `合同：${group.contractNumber || '-'}`
+    ]
+    return {
+      ...group,
+      versionText,
+      tooltipText: tooltipParts.join('\n'),
+      badgeText: `${group.licenseLabel} · ${versionText}`
+    }
+  })
+})
+
+const hasMultipleImplementationEnvironments = computed(() => {
+  return implementationEnvironmentGroups.value.length > 1
+})
+
 const getContractServiceShortName = (contract) => {
   const serviceType = String(contract?.serviceTypeName || '').trim()
-  const amountUnit = String(contract?.amountUnit || '').trim()
-  const text = `${serviceType} ${amountUnit}`
-  if (text.includes('订阅')) return '订阅'
-  if (text.includes('授权')) return '授权'
+  if (serviceType.includes('订阅')) return '订阅'
+  if (serviceType.includes('授权')) return '授权'
+  const amountKind = getContractAmountKind(contract)
+  if (amountKind) return amountKind
+  const amountUnit = getEnvironmentUnit(contract)
   return serviceType || amountUnit || '许可'
 }
 
@@ -4767,6 +4996,7 @@ const loadChatData = async (targetChatId) => {
   contractsLoadedChatId.value = ''
   contractsPreloadPromise.value = null
   contractsPreloadChatId.value = ''
+  implementationEnvironmentRefs.clear()
   tickets.value = []
   issueTickets.value = []
   bugTickets.value = []
@@ -4994,6 +5224,42 @@ const handleAcceptanceStatusClick = () => {
 
 const handleVersionClick = () => {
   activeTab.value = 'implementation'
+}
+
+const setImplementationEnvironmentRef = (key, el) => {
+  if (!key) return
+  if (el) {
+    implementationEnvironmentRefs.set(key, el)
+  } else {
+    implementationEnvironmentRefs.delete(key)
+  }
+}
+
+const scrollToImplementationEnvironment = (key) => {
+  if (!key) return
+  nextTick(() => {
+    const el = implementationEnvironmentRefs.get(key)
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
+}
+
+const handleEnvironmentBadgeClick = (group) => {
+  activeTab.value = 'implementation'
+  scrollToImplementationEnvironment(group?.key)
+}
+
+const showEnvironmentTooltip = (key) => {
+  activeEnvironmentTooltipKey.value = key || ''
+}
+
+const hideEnvironmentTooltip = () => {
+  activeEnvironmentTooltipKey.value = ''
+}
+
+const toggleEnvironmentTooltip = (key) => {
+  activeEnvironmentTooltipKey.value = activeEnvironmentTooltipKey.value === key ? '' : (key || '')
 }
 
 const handleCustomerServiceStatusClick = () => {
@@ -5628,7 +5894,24 @@ const handleImplementationProductChange = async () => {
   await loadProductVersions({ silent: false, force: true, targetChatId: chatId.value })
 }
 
-const handleAddImplementation = async () => {
+const loadImplementationContextForAdd = async (targetChatId, subscriptionId = null) => {
+  if (!subscriptionId) {
+    return prefetchImplementationCreateContext(targetChatId)
+  }
+  const result = await docApi.getImplementationCreateContext(targetChatId, subscriptionId)
+  if (!(result.success || result.code === 0)) {
+    throw new Error(result.message || result.msg || '获取新增实施上下文失败')
+  }
+  if (!isCurrentChatTarget(targetChatId)) {
+    return null
+  }
+  const context = result.data || {}
+  implementationContext.value = context
+  implementationContextLoadedChatId.value = ''
+  return context
+}
+
+const handleAddImplementation = async (subscriptionId = null) => {
   if (!chatId.value) {
     showToast('未获取到当前群聊ID，无法新增实施记录', false)
     return
@@ -5639,7 +5922,7 @@ const handleAddImplementation = async () => {
   try {
     const targetChatId = chatId.value
     const [context] = await Promise.all([
-      prefetchImplementationCreateContext(targetChatId),
+      loadImplementationContextForAdd(targetChatId, subscriptionId),
       prefetchProductVersions(targetChatId),
       loadImplementationStaffList()
     ])

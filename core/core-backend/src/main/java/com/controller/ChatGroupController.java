@@ -92,10 +92,11 @@ public class ChatGroupController {
     @GetMapping("/implementation-create-context")
     public ApiResponse<ImplementationCreateContext> getImplementationCreateContext(
             @RequestParam String extChatId,
+            @RequestParam(required = false) Long subscriptionId,
             HttpSession session) {
         try {
             String loginUserId = getLoginUserId(session);
-            ImplementationCreateContext context = chatGroupService.getImplementationCreateContext(extChatId, loginUserId);
+            ImplementationCreateContext context = chatGroupService.getImplementationCreateContext(extChatId, loginUserId, subscriptionId);
             return ApiResponse.success(context);
         } catch (Exception e) {
             LOGGER.error("getImplementationCreateContext failed: {}", e.getMessage(), e);

@@ -11,6 +11,12 @@ public class MaintenanceRecord {
     private String version;
     private String content;
     private String createTime;
+    private Long amount;
+    private String amountUnit;
+    private String contractNumber;
+    private String supportEndDate;
+    private String productServiceName;
+    private String serviceTypeName;
 
     public Long getId() {
         return id;
@@ -90,5 +96,53 @@ public class MaintenanceRecord {
 
     public void setCreateTime(String createTime) {
         this.createTime = createTime;
+    }
+
+    public Long getAmount() {
+        return amount;
+    }
+
+    public void setAmount(Long amount) {
+        this.amount = amount;
+    }
+
+    public String getAmountUnit() {
+        return amountUnit;
+    }
+
+    public void setAmountUnit(String amountUnit) {
+        this.amountUnit = amountUnit;
+    }
+
+    public String getContractNumber() {
+        return contractNumber;
+    }
+
+    public void setContractNumber(String contractNumber) {
+        this.contractNumber = contractNumber;
+    }
+
+    public String getSupportEndDate() {
+        return supportEndDate;
+    }
+
+    public void setSupportEndDate(String supportEndDate) {
+        this.supportEndDate = supportEndDate;
+    }
+
+    public String getProductServiceName() {
+        return productServiceName;
+    }
+
+    public void setProductServiceName(String productServiceName) {
+        this.productServiceName = productServiceName;
+    }
+
+    public String getServiceTypeName() {
+        return serviceTypeName;
+    }
+
+    public void setServiceTypeName(String serviceTypeName) {
+        this.serviceTypeName = serviceTypeName;
     }
 }

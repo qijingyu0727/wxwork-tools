@@ -836,21 +836,102 @@ public class ChatGroupService {
             SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
             if (subscription != null && subscription.subscriptionId != null && subscription.subscriptionId > 0
                     && subscription.clientName != null) {
-                List<MaintenanceRecord> records = fetchMaintenanceRecordsByClientName(subscription.clientName);
-                Long subId = subscription.subscriptionId;
-                List<MaintenanceRecord> filtered = new ArrayList<>();
-                for (MaintenanceRecord r : records) {
-                    if (subId.equals(r.getSubscriptionId())) {
-                        filtered.add(r);
-                    }
+                List<SubscriptionContext> subscriptions = queryActiveImplementationSubscriptions(extChatId, subscription);
+                if (!subscriptions.isEmpty()) {
+                    return fetchMaintenanceRecordsBySubscriptions(subscriptions);
                 }
-                return filtered;
+                List<MaintenanceRecord> records = fetchMaintenanceRecordsByClientName(subscription.clientName);
+                return filterAndEnrichMaintenanceRecords(records, List.of(subscription));
             }
             return fetchMaintenanceRecordsByGroupId(extChatId);
         } catch (Exception e) {
             LOGGER.warn("queryMaintenanceRecords failed extChatId={}, err={}", extChatId, e.getMessage());
             return new ArrayList<>();
         }
+    }
+
+    private List<MaintenanceRecord> fetchMaintenanceRecordsBySubscriptions(List<SubscriptionContext> subscriptions) {
+        if (subscriptions == null || subscriptions.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Object> params = new ArrayList<>();
+        StringBuilder placeholders = new StringBuilder();
+        for (SubscriptionContext subscription : subscriptions) {
+            if (!hasSubscription(subscription)) {
+                continue;
+            }
+            if (!placeholders.isEmpty()) {
+                placeholders.append(",");
+            }
+            placeholders.append("?");
+            params.add(subscription.subscriptionId);
+        }
+        if (params.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String sql = "SELECT id, subscription_id, status, deployment_time, deployment_method, template, " +
+                    "creator_name, created_by, create_time, version, content " +
+                    "FROM support_maintenance " +
+                    "WHERE subscription_id IN (" + placeholders + ") " +
+                    "ORDER BY CASE WHEN create_time IS NULL OR create_time = 0 THEN deployment_time ELSE create_time END DESC, id DESC " +
+                    "LIMIT 100";
+            var result = com.util.JdbcUtils.query(sql, params.toArray());
+            List<MaintenanceRecord> records = new ArrayList<>();
+            for (Object[] row : result) {
+                JSONObject item = new JSONObject(true);
+                item.put("id", row[0]);
+                item.put("subscriptionId", row[1]);
+                item.put("status", row[2]);
+                item.put("deployment_time", row[3]);
+                item.put("deploymentMethod", row[4]);
+                item.put("template", row[5]);
+                item.put("creatorName", row[6]);
+                item.put("createdBy", row[7]);
+                item.put("createTime", row[8]);
+                item.put("version", row[9]);
+                item.put("content", row[10]);
+                records.add(toMaintenanceRecord(item));
+            }
+            return filterAndEnrichMaintenanceRecords(records, subscriptions);
+        } catch (Exception e) {
+            LOGGER.warn("fetchMaintenanceRecordsBySubscriptions failed err={}", e.getMessage());
+            return new ArrayList<>();
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private List<MaintenanceRecord> filterAndEnrichMaintenanceRecords(
+            List<MaintenanceRecord> records,
+            List<SubscriptionContext> subscriptions) {
+        Map<Long, SubscriptionContext> subscriptionMap = new HashMap<>();
+        for (SubscriptionContext subscription : subscriptions) {
+            if (hasSubscription(subscription)) {
+                subscriptionMap.put(subscription.subscriptionId, subscription);
+            }
+        }
+        List<MaintenanceRecord> filtered = new ArrayList<>();
+        for (MaintenanceRecord record : records) {
+            SubscriptionContext recordSubscription = subscriptionMap.get(record.getSubscriptionId());
+            if (recordSubscription == null) {
+                continue;
+            }
+            enrichMaintenanceRecord(record, recordSubscription);
+            filtered.add(record);
+        }
+        return filtered;
+    }
+
+    private void enrichMaintenanceRecord(MaintenanceRecord record, SubscriptionContext subscription) {
+        record.setAmount(subscription.amount);
+        record.setAmountUnit(subscription.amountUnit);
+        record.setContractNumber(subscription.contractNumber);
+        record.setSupportEndDate(subscription.supportEndDate);
+        record.setProductServiceName(subscription.productName);
+        record.setServiceTypeName(subscription.serviceTypeName);
     }
 
     private List<MaintenanceRecord> fetchMaintenanceRecordsByClientName(String clientName) throws Exception {
@@ -1362,19 +1443,29 @@ public class ChatGroupService {
     }
 
     public ImplementationCreateContext getImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
+        return getImplementationCreateContext(extChatId, loginUserId, null);
+    }
+
+    public ImplementationCreateContext getImplementationCreateContext(String extChatId, String loginUserId, Long subscriptionId) throws Exception {
         String normalizedExtChatId = trimToNull(extChatId);
         if (normalizedExtChatId == null) {
             throw new Exception("缺少群聊ID");
         }
         String normalizedLoginUserId = nullToEmpty(trimToNull(loginUserId));
-        return queryImplementationCreateContext(normalizedExtChatId, normalizedLoginUserId);
+        return queryImplementationCreateContext(normalizedExtChatId, normalizedLoginUserId, subscriptionId);
     }
 
-    private ImplementationCreateContext queryImplementationCreateContext(String extChatId, String loginUserId) throws Exception {
+    private ImplementationCreateContext queryImplementationCreateContext(String extChatId, String loginUserId, Long subscriptionId) throws Exception {
         com.util.JdbcUtils.setCscrmConfig();
         try {
             List<ImplementationProductOption> productOptions = queryImplementationProductOptions();
             SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
+            if (subscriptionId != null && subscriptionId > 0) {
+                subscription = resolveImplementationSubscriptionById(extChatId, subscriptionId, subscription);
+                if (!hasSubscription(subscription)) {
+                    throw new Exception("未找到指定环境订阅");
+                }
+            }
             if (!hasSubscription(subscription)) {
                 ImplementationCreateContext context = new ImplementationCreateContext();
                 String draftRegionId = resolveRegionIdBySubmitter(loginUserId);
@@ -1779,6 +1870,17 @@ public class ChatGroupService {
         }
 
         SubscriptionContext subscription = resolveImplementationSubscriptionContext(extChatId);
+        if (request.getSubscriptionId() != null && request.getSubscriptionId() > 0) {
+            com.util.JdbcUtils.setCscrmConfig();
+            try {
+                subscription = resolveImplementationSubscriptionById(extChatId, request.getSubscriptionId(), subscription);
+                if (!hasSubscription(subscription)) {
+                    throw new Exception("未找到指定环境订阅");
+                }
+            } finally {
+                com.util.JdbcUtils.clearConfig();
+            }
+        }
         boolean draftMode = !hasSubscription(subscription);
 
         if (!draftMode && subscription.clientId == null && request.getClientId() == null) {
@@ -2518,7 +2620,10 @@ public class ChatGroupService {
                     "       sps.name, " +
                     "       ss.region_id, " +
                     "       ss.start_date, " +
-                    "       ss.support_end_date " +
+                    "       ss.support_end_date, " +
+                    "       ss.service_type_name, " +
+                    "       COALESCE(ss.amount, sps.amount), " +
+                    "       sps.amount_unit " +
                     "FROM group_chat gc " +
                     "INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
                     "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
@@ -2552,6 +2657,119 @@ public class ChatGroupService {
         }
     }
 
+    private List<SubscriptionContext> queryActiveImplementationSubscriptions(
+            String extChatId,
+            SubscriptionContext latest) {
+        com.util.JdbcUtils.setCscrmConfig();
+        try {
+            String productAlias = getProductAliasByExtChatId(extChatId);
+            if (!isSupportedImplementationAlias(productAlias)) {
+                return hasSubscription(latest) ? List.of(latest) : new ArrayList<>();
+            }
+            List<Object> params = new ArrayList<>();
+            params.add(extChatId);
+            StringBuilder sql = new StringBuilder("SELECT ss.id, " +
+                    "       ss.client_id, " +
+                    "       sc.name, " +
+                    "       ss.contract_number, " +
+                    "       sps.product_id, " +
+                    "       sps.name, " +
+                    "       ss.region_id, " +
+                    "       ss.start_date, " +
+                    "       ss.support_end_date, " +
+                    "       ss.service_type_name, " +
+                    "       COALESCE(ss.amount, sps.amount), " +
+                    "       sps.amount_unit " +
+                    "FROM group_chat gc " +
+                    "INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                    "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
+                    "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
+                    "WHERE gc.ext_chat_id = ? " +
+                    "AND (ss.expired IS NULL OR ss.expired = 0) " +
+                    "AND (ss.support_expired IS NULL OR ss.support_expired = 0) ");
+            if (latest != null && latest.clientId != null) {
+                sql.append("AND ss.client_id = ? ");
+                params.add(latest.clientId);
+            } else if (latest != null && trimToNull(latest.clientName) != null) {
+                sql.append("AND sc.name = ? ");
+                params.add(trimToNull(latest.clientName));
+            }
+            sql.append("AND ").append(buildProductAliasSqlCondition(productAlias)).append(" ");
+            sql.append("ORDER BY ss.support_end_date DESC, ss.start_date DESC, ss.id DESC");
+
+            var result = com.util.JdbcUtils.query(sql.toString(), params.toArray());
+            List<SubscriptionContext> subscriptions = new ArrayList<>();
+            for (Object[] row : result) {
+                SubscriptionContext context = toSubscriptionContextFromRow(row);
+                if (latest != null) {
+                    context.clientName = firstNonBlank(context.clientName, latest.clientName);
+                    context.regionId = firstNonBlank(context.regionId, latest.regionId);
+                    context.serviceTypeName = firstNonBlank(context.serviceTypeName, latest.serviceTypeName, "授权服务");
+                }
+                subscriptions.add(context);
+            }
+            return subscriptions;
+        } catch (Exception e) {
+            LOGGER.warn("queryActiveImplementationSubscriptions failed extChatId={}, err={}", extChatId, e.getMessage());
+            return hasSubscription(latest) ? List.of(latest) : new ArrayList<>();
+        } finally {
+            com.util.JdbcUtils.clearConfig();
+        }
+    }
+
+    private SubscriptionContext resolveImplementationSubscriptionById(
+            String extChatId,
+            Long subscriptionId,
+            SubscriptionContext latest) {
+        if (subscriptionId == null || subscriptionId <= 0) {
+            return latest;
+        }
+        String productAlias = getProductAliasByExtChatId(extChatId);
+        if (!isSupportedImplementationAlias(productAlias)) {
+            return latest != null && subscriptionId.equals(latest.subscriptionId) ? latest : null;
+        }
+        try {
+            List<Object> params = new ArrayList<>();
+            params.add(extChatId);
+            params.add(subscriptionId);
+            String sql = "SELECT ss.id, " +
+                    "       ss.client_id, " +
+                    "       sc.name, " +
+                    "       ss.contract_number, " +
+                    "       sps.product_id, " +
+                    "       sps.name, " +
+                    "       ss.region_id, " +
+                    "       ss.start_date, " +
+                    "       ss.support_end_date, " +
+                    "       ss.service_type_name, " +
+                    "       COALESCE(ss.amount, sps.amount), " +
+                    "       sps.amount_unit " +
+                    "FROM group_chat gc " +
+                    "INNER JOIN support_subscription ss ON gc.name = ss.group_chat_name " +
+                    "LEFT JOIN support_client sc ON sc.id = ss.client_id " +
+                    "LEFT JOIN support_product_service sps ON sps.id = ss.product_service_id " +
+                    "WHERE gc.ext_chat_id = ? " +
+                    "AND ss.id = ? " +
+                    "AND " + buildProductAliasSqlCondition(productAlias) + " " +
+                    "LIMIT 1";
+            var result = com.util.JdbcUtils.query(sql, params.toArray());
+            if (result.isEmpty()) {
+                return null;
+            }
+            SubscriptionContext context = toSubscriptionContextFromRow(result.get(0));
+            if (latest != null) {
+                context.clientName = firstNonBlank(context.clientName, latest.clientName);
+                context.regionId = firstNonBlank(context.regionId, latest.regionId);
+                context.serviceTypeName = firstNonBlank(context.serviceTypeName, latest.serviceTypeName, "授权服务");
+            }
+            return context;
+        } catch (Exception e) {
+            LOGGER.warn("resolveImplementationSubscriptionById failed extChatId={}, subscriptionId={}, err={}",
+                    extChatId, subscriptionId, e.getMessage());
+            return null;
+        }
+    }
+
     private String buildProductAliasSqlCondition(String productAlias) {
         return switch (productAlias) {
             case "JS" -> "(sps.product_id = 2001 OR UPPER(COALESCE(sps.name, '')) LIKE '%JUMPSERVER%' OR UPPER(COALESCE(sps.name, '')) LIKE '%JS%')";
@@ -2573,7 +2791,16 @@ public class ChatGroupService {
         context.regionId = toStringValue(row[6]);
         context.subscriptionStartDate = formatEpochMillisDate(toStringValue(row[7]));
         context.supportEndDate = formatEpochMillisDate(toStringValue(row[8]));
-        context.serviceTypeName = "授权服务";
+        if (row.length > 9) {
+            context.serviceTypeName = toStringValue(row[9]);
+        }
+        if (row.length > 10) {
+            context.amount = toLong(row[10]);
+        }
+        if (row.length > 11) {
+            context.amountUnit = toStringValue(row[11]);
+        }
+        context.serviceTypeName = firstNonBlank(context.serviceTypeName, "授权服务");
         return context;
     }
 
@@ -2588,7 +2815,12 @@ public class ChatGroupService {
         context.regionId = data.getString("region_id");
         context.subscriptionStartDate = data.getString("subscription_start_date");
         context.supportEndDate = data.getString("support_end_date");
-        context.serviceTypeName = "授权服务";
+        context.amount = data.getLong("amount");
+        context.amountUnit = data.getString("amount_unit");
+        context.serviceTypeName = firstNonBlank(
+                data.getString("service_type_name"),
+                data.getString("serviceTypeName"),
+                "授权服务");
         return context;
     }
 
@@ -3194,6 +3426,8 @@ public class ChatGroupService {
         private String regionId;
         private String subscriptionStartDate;
         private String supportEndDate;
+        private Long amount;
+        private String amountUnit;
     }
 
     private static final class ImplementationProductSpec {

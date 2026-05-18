@@ -74,8 +74,8 @@ export const docApi = {
     return request.get('/api/chat-group/maintenance-create-context', { params: { extChatId } })
   },
 
-  getImplementationCreateContext: (extChatId) => {
-    return request.get('/api/chat-group/implementation-create-context', { params: { extChatId } })
+  getImplementationCreateContext: (extChatId, subscriptionId) => {
+    return request.get('/api/chat-group/implementation-create-context', { params: { extChatId, subscriptionId } })
   },
 
   getImplementationProducts: () => {
